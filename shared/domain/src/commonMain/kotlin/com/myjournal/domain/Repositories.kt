@@ -5,13 +5,6 @@ import kotlin.uuid.Uuid
 
 // Implementations must publish local committed data and propagate failures.
 // An absent record emits null; deletion of an absent ID is a no-op.
-interface JournalEntryRepository {
-    fun observeAll(): Flow<List<JournalEntry>>
-    fun observe(id: Uuid): Flow<JournalEntry?>
-    suspend fun save(record: JournalEntry)
-    suspend fun delete(id: Uuid)
-}
-
 interface MonthlyPlanRepository {
     fun observeAll(): Flow<List<MonthlyPlan>>
     fun observe(id: Uuid): Flow<MonthlyPlan?>

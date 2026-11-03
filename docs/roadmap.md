@@ -1,13 +1,14 @@
 # Roadmap
 
-Only Phase 0 is authorized and implemented here. Do not start Phase 1 automatically.
+Phase 1 Daily Journal implementation is included. Do not start Phase 2 automatically.
 
 1. **Phase 0 — Foundation:** modular KMP project, Android launcher, prepared iOS/JVM
    hosts, metadata and repository contracts, paper shell, tests and build workflow.
    Compilation and platform checks remain subject to the validation report.
-2. **Phase 1 — Daily journal:** Android handwriting adapter, dated pages, local
-   persistence, pen/eraser and undo/redo; validate stylus latency and palm rejection
-   on Xiaomi Pad 7 before expanding scope.
+2. **Phase 1 — Daily journal:** Android Jetpack Ink adapter, dated ruled pages,
+   durable editable vector storage, pen/highlighter/eraser and exact undo/redo.
+   Automated verification is recorded in validation.md. Physical Xiaomi latency,
+   palm, pressure and long-page checks remain pending before expanding scope.
 3. **Phase 2 — Planner and habits:** monthly pages, variable month lengths, habits,
    checkbox ledger and navigation to daily pages.
 4. **Later — Notebook and user-controlled backup/export.**

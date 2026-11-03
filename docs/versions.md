@@ -27,3 +27,27 @@ This documented combination also passed Android/JVM compilation and JVM tests in
 the local integration build. iOS remains unverified. See validation.md for results.
 Material 3 is pinned separately at 1.9.0, the stable artifact selected by the
 Compose 1.12.2 plugin, rather than assuming it shares the Compose version.
+
+
+## Phase 1 additions (verified 2026-11-03)
+
+Existing Kotlin 2.4.21, Compose 1.12.2, AGP 9.3.1, Gradle 9.7.0, Room 2.8.5 and
+SQLite 2.7.1 pins remain intact. New catalog dependencies are stable:
+
+- [Jetpack Ink 1.0.0](https://developer.android.com/jetpack/androidx/releases/ink):
+  brush, strokes and native canvas rendering only in apps/android. Stable source
+  artifacts were inspected for InProgressStroke, MutableStrokeInputBatch,
+  CanvasStrokeRenderer and explicit StockBrushes V1 APIs. Ink 1.1 alpha APIs and
+  authoring-compose are unnecessary for this native-view adapter.
+- [kotlinx-datetime 0.8.0](https://github.com/Kotlin/kotlinx-datetime/releases/tag/v0.8.0):
+  portable calendar dates, leap/year arithmetic and local Today without UTC-date shifts.
+- [Lifecycle 2.11.0](https://developer.android.com/jetpack/androidx/releases/lifecycle):
+  Android ViewModel and SavedStateHandle; no DI framework is added.
+- [AndroidX Test runner/core 1.7.0 and JUnit 1.3.0](https://developer.android.com/jetpack/androidx/releases/test).
+- Compose Android UI test 1.12.1, matching the Android artifact version documented
+  for Compose Multiplatform 1.12.2. Test dependencies are not production features.
+
+MotionEvent/palm/cancellation decisions follow the official
+[advanced stylus guide](https://developer.android.com/develop/ui/views/touch-and-input/stylus-input/advanced-stylus-features).
+The hosted emulator job follows the documented Linux/KVM setup of
+[android-emulator-runner](https://github.com/ReactiveCircus/android-emulator-runner).

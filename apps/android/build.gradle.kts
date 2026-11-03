@@ -9,8 +9,9 @@ android {
         applicationId = "com.myjournal.android"
         minSdk = 23
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -21,5 +22,19 @@ android {
 dependencies {
     implementation(project(":shared:ui"))
     implementation(project(":shared:data"))
+    implementation(project(":shared:domain"))
+    implementation(libs.compose.runtime)
+    implementation(libs.compose.foundation)
+    implementation(libs.compose.material3)
+    implementation(libs.ink.brush)
+    implementation(libs.ink.strokes)
+    implementation(libs.ink.rendering)
+    implementation(libs.lifecycle.viewmodel)
+    implementation(libs.lifecycle.savedstate)
+    androidTestImplementation(libs.android.test.runner)
+    androidTestImplementation(libs.android.test.core)
+    androidTestImplementation(libs.android.test.junit)
+    androidTestImplementation(libs.compose.test)
+    debugImplementation(libs.compose.test.manifest)
     implementation(libs.activity.compose)
 }

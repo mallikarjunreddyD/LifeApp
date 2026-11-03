@@ -20,6 +20,7 @@ kotlin {
         commonMain.dependencies {
             api(project(":shared:core"))
             api(libs.coroutines.core)
+            api(libs.datetime)
         }
         commonTest.dependencies { implementation(kotlin("test")); implementation(libs.coroutines.test) }
     }

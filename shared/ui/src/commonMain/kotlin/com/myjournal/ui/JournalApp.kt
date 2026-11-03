@@ -24,7 +24,7 @@ private val PaperColors = lightColorScheme(
 )
 
 @Composable
-fun JournalApp() {
+fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null) {
     MaterialTheme(colorScheme = PaperColors, typography = Typography(
         headlineLarge = MaterialTheme.typography.headlineLarge.copy(fontFamily = FontFamily.Serif),
     )) {
@@ -44,7 +44,9 @@ fun JournalApp() {
                                     icon = { Text(destination.mark) }, label = { Text(destination.title) })
                             }
                         }
-                        Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(24.dp),
+                        if (selected == Destination.Daily && dailyJournal != null) {
+                            Box(Modifier.weight(1f).fillMaxHeight()) { dailyJournal() }
+                        } else Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(24.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             Text(selected.title, style = MaterialTheme.typography.headlineMedium)
                             Text("A quiet place for your thoughts.", style = MaterialTheme.typography.bodyLarge)
