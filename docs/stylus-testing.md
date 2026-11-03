@@ -16,7 +16,7 @@ reopening and migration from schema 1 with existing data.
 Android instrumentation tests synthesize stylus/finger/eraser events against the
 real JournalCanvas and test pressure, highlighter properties, cancellation,
 whole-stroke erase commit and logical transforms. Compose instrumentation tests
-exercise date buttons, tool selection, page navigation, rotation and Activity
+exercise native stylus-to-autosave wiring, date buttons, tool selection, page navigation, system display rotation and Activity
 recreation with retained vectors. CI runs these on an API 36 Pixel Tablet emulator;
 consult docs/validation.md and the PR checks for actual execution results.
 

@@ -48,16 +48,28 @@ fallback or dependency downgrade was used.
 The Android instrumentation APK compiles. Tests include native synthesized
 finger/stylus/eraser events, pressure/highlighter properties, cancellations,
 logical-coordinate capture, erase commit/cancel and Compose date/tool/page
-navigation, actual requested rotation and Activity recreation. These test methods
+navigation, system display rotation and Activity recreation. These test methods
 are not hardware stylus validation.
 
 No physical device is connected locally. A temporary API 36 x86_64 emulator was
 provisioned, but software emulation did not complete boot in this environment;
 the current user lacks read/write permission on /dev/kvm. It was stopped without
 changing host security settings. No local connectedAndroidTest success is claimed.
-A dedicated GitHub Actions job uses an accelerated API 36 Pixel Tablet emulator;
-its actual result will be recorded after the branch is pushed. The original CI
-verification/APK/report job is preserved and also compiles the instrumentation APK.
+Hosted [run 41595553392](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41595553392)
+on implementation commit f912f37 passed both jobs. Downloaded JUnit reports confirm
+**26 JVM tests and 5 Android instrumentation tests, all with zero failures/errors/skips**.
+The original CI verification/APK/report job is preserved and also compiles the
+instrumentation APK. Its first passing hosted artifacts are:
+
+- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41595553392/artifacts/13212606140)
+- [JVM/lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41595553392/artifacts/13212795716)
+- [Android input/UI reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41595553392/artifacts/13211693464)
+
+A focused test follow-up now injects stylus events through the actual screen's
+native canvas into its autosave pipeline, and uses system display rotation rather
+than an app orientation request that Android 16 may ignore on large screens.
+That strengthened instrumentation APK compiles locally (BUILD SUCCESSFUL in 16s);
+its hosted execution is pending the follow-up push. Production source is unchanged.
 
 ## Debug APK
 
