@@ -1,85 +1,103 @@
-# Architecture — Phase 1
+# Architecture — Phase 2
 
-Android on Xiaomi Pad 7 is the primary editing platform. Shared modules retain
-Android/JVM targets and explicitly opt-in iOS arm64 targets via `-PenableIos=true`.
-No Xcode is required for Android/JVM development. Phase 0.1's SDK provisioning fix
-was merged at main commit 3eb4108 before Phase 1 began.
+Phase 2 branches from merged Phase 1 main ac38145. Android on Xiaomi Pad 7 remains
+primary. Shared Android/JVM targets build without Xcode; iOS arm64 targets remain
+opt-in with `-PenableIos=true`. Existing toolchain/dependency versions are unchanged.
 
 ## Boundaries
 
-- apps/android owns the native MotionEvent/Jetpack Ink adapter, Daily Journal
-  Compose screen, Android lifecycle and application composition root.
-- shared/ui owns the paper palette, typography and existing adaptive navigation.
-  JournalApp accepts an optional composable for the Daily destination; Android
-  supplies its editor. Desktop/iOS keep that destination as an honest placeholder.
-- shared/domain owns portable journal/page/vector models, repository contract,
-  logical transforms, spatial hit index, exact undo/redo and JournalEditor state.
-  It has no Android, Compose, Room or Jetpack Ink imports.
-- shared/core retains UUID/UTC timestamp/schema/revision invariants.
-- shared/data owns Room tables/DAOs, versioned point encoding, local repository,
-  explicit migration and the Android database builder. It exposes domain types to
-  application composition; the UI never accesses a DAO or database.
+- apps/android owns three Compose editing screens, MotionEvent/Jetpack Ink adapters,
+  Android lifecycle/SavedStateHandle and the application composition root.
+- shared/ui owns paper colours, typography and adaptive navigation. JournalApp takes
+  optional journal/planner/habit slots plus explicit selected-section state. Android
+  supplies working editors; desktop/iOS show honest unimplemented placeholders.
+- shared/domain owns portable records, calendar geometry, typed navigation arguments,
+  repository contracts and editor/history/queue state. No Android, Compose, Room or
+  Jetpack Ink imports enter core/domain.
+- shared/core owns UUID, UTC timestamp, schema-version and revision invariants.
+- shared/data owns Room tables/DAOs, LJPT encoding, transactions and repositories.
+  Screens never access databases; application composition injects domain interfaces.
 
-Dependencies point inward: Android → shared UI/data/domain; UI/data → domain →
-core. No circular dependencies, account, backend, networking or cloud service is
-introduced. The Android manifest requests no Internet permission. Automatic system
-backup remains explicitly disabled until backup is designed in a later phase.
+Dependencies point inward: Android → UI/data/domain; UI/data → domain → core.
+No new production dependencies, accounts, network permissions, backup service or
+cloud integration. Automatic Android system backup remains disabled. Notebook and
+Settings, iOS editing and Windows editing remain unfinished.
 
-## Input and rendering
+## Reusable Android handwriting
 
-JournalCanvas is a native FrameLayout with separate finished-ink/paper and live-ink
-Views. The finished View keeps a hardware display layer; per-sample input updates
-only the live Ink InProgressStroke. Stable Ink 1.0.0 brush/strokes/rendering APIs
-handle progressive geometry, smoothing, pressure and drawing. Stock pressure-pen
-V1/highlighter V1 brush versions are explicit. Ink authoring-compose and 1.1 alpha
-APIs are not needed; no working core dependency was downgraded.
+JournalCanvas accepts an InkSurface: stable ID, logical dimensions and optional
+CalendarLayout. Daily pages supply ruled paper; planners supply the generated
+calendar. Both use the same native wet/dry layers, pressure/highlighter brushes,
+historical sample capture, 1–4× uniform transforms, UUID mesh cache, off-thread mesh
+reconstruction, spatial whole-stroke eraser and gesture commit/cancellation handling.
+Reattaching a view restarts interrupted mesh reconstruction. No duplicated engine,
+bitmap storage, recognition or Ink 1.1 alpha dependency was introduced.
 
-MotionEvent tool types separate stylus/eraser from fingers. Historical samples are
-transformed from screen pixels to a fixed logical page; a uniform transform is
-inverted for capture and applied for rendering. Gestures pan and zoom 1–4× without
-changing stored points. Input cancellation discards the active gesture. Pen contact
-requests unbuffered dispatch. Pressure is normalized where present and falls back
-to full width if unavailable. Stylus/hover suppresses finger panning; palm rejection
-is limited to signals the device actually reports.
+Planner geometry version 1 is fixed Monday-first, 1400 logical units wide, header70,
+cell200×120, five or six rows. Geometry/version/row count are stored with the month;
+screen density, zoom and orientation affect only the viewport. Landscape fits the
+whole page; portrait initially zooms to keep cells readable and supports panning.
+Stylus ink is clamped/clipped to its starting date cell. Header/unused cells cannot
+start notes. A finger tap in a date-number target navigates; drag/pinch cannot navigate
+or create ink. Whole-stroke erasure and undo retain exact stroke identity/properties.
+See handwriting-format.md for coordinates and serialization.
 
-Completed native stroke meshes are cached by stroke UUID. Reloaded meshes are
-reconstructed on Dispatchers.Default from portable vectors; they are never duplicated
-in storage. Whole-stroke erasing uses incrementally updated logical spatial buckets
-and segment hit tests. Eraser previews are committed as one edit on release;
-canceling restores the unchanged saved layer. Saved strokes are not re-generated
-for each input sample. Physical large-page throughput/latency still needs measurement.
+## Persistence and migration
 
-## Storage and reliability
+Room schema 3 retains all four schema 2 tables unchanged: record_metadata,
+journal_entries, journal_pages and ink_strokes. Explicit MIGRATION_2_3 adds:
 
-Room schema 2 retains the Phase 0 table and adds unique-date entries, ordered pages
-and ordered immutable strokes. MIGRATION_1_2 is explicit and non-destructive. Both
-schema exports are committed. Journal observation initializes/migrates the database
-before starting invalidation observation. Tests cover the actual schema 1 upgrade,
-including old metadata preservation. See handwriting-format.md for the precise
-platform-independent point BLOB and record fields.
+| Table | Ownership and uniqueness |
+| --- | --- |
+| planner_pages | UUID, unique ISO month, geometry/version/rows, record metadata |
+| planner_ink_strokes | FK to planner_pages, cellDay, unique surface/order, LJPT BLOB |
+| habit_ledgers | UUID, unique ISO month, record metadata |
+| habit_definitions | FK to ledger, unique ledger/order, name/category/colour/target/archive |
+| habit_completions | FK to habit, unique habit/date, checked boolean, record metadata |
 
-A viewed blank date stays an in-memory draft until the first stroke or explicit
-Add Page. Adding a second page to an unwritten date persists both page descriptors.
-The repository rejects duplicate-date identity conflicts, invalid parent/order
-relationships and replacement of an immutable stroke ID. Writers are transactional;
-failed multi-stroke changes roll back data and metadata together.
+Separate planner stroke ownership avoids invalid journal-page FKs and a risky redesign
+of existing journals. Both stroke tables use identical portable vectors/LJPT1 encoding.
+Schemas 1/2 remain committed unchanged; schema 3 is exported. MIGRATION_1_2 remains
+registered so both 1→2→3 and 2→3 work without destructive fallback. Tests construct
+real old-schema files, preserve old IDs/revisions/timestamps/bytes and add new content.
 
-JournalEditor owns per-date/page drafts and history, and serializes PageEdits in an
-application-owned main-dispatcher scope that outlives Activity recreation. Database
-I/O and encoding run off the input/UI thread. Each queued edit carries its own date,
-page and immutable vectors, so navigation cannot redirect a delayed stroke. “Saved”
-requires successful completion of every queued transaction. A failure keeps the
-queue head and all optimistic ink in memory, shows an error, and pauses writes until
-Retry. Idempotent replays prevent duplicate ink after uncertain acknowledgment.
+Month configuration is independent. Habits retain UUIDs through rename/reorder/archive;
+archive removes the visible column and permits restoration without deleting history.
+There is no permanent-delete path. Explicit copy uses active definitions only, fresh
+UUIDs, zero completions and targets capped to the new month's days (disclosed in UI).
+Each checkbox toggles the latest optimistic value, then queues the desired boolean.
+Completion UUIDs stay stable even through unchecked states. Counts use checked records;
+percentages divide by all calendar days. Transactions reject cross-ledger identities,
+duplicate dates/orders and stale revisions. Reorder temporarily assigns negative SQL
+orders within its transaction to avoid uniqueness collisions; readers see atomic state.
 
-The Android ViewModel/SavedStateHandle preserves selected date/page and current
-viewport through ordinary recreation; per-page viewports and histories remain in
-memory. Date identity is a LocalDate, independent of UTC metadata conversion.
-Opening a cold session defaults to the current local date. Process restart reloads
-saved vectors from Room; undo/redo history and uncommitted work are not a disk journal.
-A forced kill before Saved can lose pending/in-progress edits. No loss-free claim
-is made for unfinished transactions or power failure.
+## Saving, memory and lifecycle
 
-Monthly Planner, Habit Tracker, Notebook and Settings remain unfinished placeholders.
-There is no page deletion/reordering, export, handwriting recognition, synchronization
-or Phase 2 functionality. Desktop still compiles but is not a journal viewer yet.
+Application-owned main-dispatcher editor scopes outlive Activity recreation. Immutable
+queued edits carry original date/month/surface IDs, so late gestures cannot be redirected
+by navigation. I/O and vector encoding run off the UI thread. Writes are FIFO; a failure
+retains the head and subsequent edits, displays an error globally, and requires Retry.
+Idempotent exact replay avoids duplicates after uncertain acknowledgment. Saved status
+requires successful persistence, not optimistic visibility. Read failures show an error
+instead of an editable replacement blank surface.
+
+JournalEditor lazily loads only the selected page's strokes; other page descriptors
+remain available for navigation. Saved date drafts use an LRU soft limit of four,
+loaded page histories a soft limit of three. Active, pending, loading and native-bound
+surfaces are protected; unsaved changes and pending writes are never evicted to meet
+a cap. Native release commits its last gesture before unpinning. Selected-page IDs
+are remembered for the most recent 128 dates. Reload restores vectors from Room;
+evicted saved histories lose session Undo/Redo. Planner drafts use a four-month saved
+cache; habit snapshots use six months. Pending work can exceed these soft caps.
+
+Typed AppRoute arguments carry LocalDate/JournalMonth, independently of UTC metadata.
+AppNavigator keeps an explicit bounded back stack in SavedStateHandle. Cross-module
+links push; top-level navigation selects a root; date/month changes replace the top.
+Back restores the originating month. Viewports are keyed by surface UUID in the
+ViewModel. Habit vertical row/offset and horizontal offset are saved per month, including
+Activity recreation. Existing journal date/page/current viewport restoration remains.
+
+Successful commits survive database reopening. Queues and undo stacks are in application
+memory, not a durable write-ahead edit journal. Unexpected process termination before
+commit can lose pending/in-progress work. Physical Xiaomi latency, palm rejection,
+pressure, long-page performance and acceptance checks remain deliberately deferred.

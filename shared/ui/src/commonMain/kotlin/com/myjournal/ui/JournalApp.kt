@@ -6,14 +6,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import com.myjournal.domain.AppSection
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 
-private enum class Destination(val title: String, val mark: String) {
-    Daily("Daily Journal", "D"), Monthly("Monthly Planner", "M"),
-    Habits("Habit Tracker", "H"), Notebook("Notebook", "N"), Settings("Settings", "S")
+private val AppSection.title: String get() = when (this) {
+    AppSection.JOURNAL -> "Daily Journal"; AppSection.PLANNER -> "Monthly Planner"
+    AppSection.HABITS -> "Habit Tracker"; AppSection.NOTEBOOK -> "Notebook"; AppSection.SETTINGS -> "Settings"
 }
 
 private val PaperColors = lightColorScheme(
@@ -24,44 +28,62 @@ private val PaperColors = lightColorScheme(
 )
 
 @Composable
-fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null) {
+fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
+    monthlyPlanner: (@Composable () -> Unit)? = null, habitTracker: (@Composable () -> Unit)? = null,
+    selectedSection: AppSection? = null, onSectionSelected: ((AppSection) -> Unit)? = null,
+    globalStatus: (@Composable () -> Unit)? = null) {
     MaterialTheme(colorScheme = PaperColors, typography = Typography(
         headlineLarge = MaterialTheme.typography.headlineLarge.copy(fontFamily = FontFamily.Serif),
     )) {
-        var selectedName by rememberSaveable { mutableStateOf(Destination.Daily.name) }
-        val selected = Destination.valueOf(selectedName)
+        var selectedName by rememberSaveable { mutableStateOf(AppSection.JOURNAL.name) }
+        val selected = selectedSection ?: AppSection.valueOf(selectedName)
+        val holder = rememberSaveableStateHolder()
+        fun select(section: AppSection) {
+            if (onSectionSelected != null) onSectionSelected(section) else selectedName = section.name
+        }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             BoxWithConstraints(Modifier.safeDrawingPadding()) {
                 val wide = maxWidth >= 720.dp
                 Column {
+                    globalStatus?.invoke()
                     Text("My Journal", style = MaterialTheme.typography.headlineLarge,
                         modifier = Modifier.padding(24.dp))
                     Row(Modifier.weight(1f)) {
                         if (wide) NavigationRail {
-                            Destination.entries.forEach { destination ->
+                            AppSection.entries.forEach { destination ->
                                 NavigationRailItem(selected == destination,
-                                    onClick = { selectedName = destination.name },
-                                    icon = { Text(destination.mark) }, label = { Text(destination.title) })
+                                    onClick = { select(destination) },
+                                    icon = { Text(destination.title.take(1)) }, label = { Text(destination.title) },
+                                    modifier = Modifier.semantics { contentDescription = "Open ${destination.title}" })
                             }
                         }
-                        if (selected == Destination.Daily && dailyJournal != null) {
-                            Box(Modifier.weight(1f).fillMaxHeight()) { dailyJournal() }
+                        val screen = when (selected) {
+                            AppSection.JOURNAL -> dailyJournal
+                            AppSection.PLANNER -> monthlyPlanner
+                            AppSection.HABITS -> habitTracker
+                            else -> null
+                        }
+                        if (screen != null) {
+                            Box(Modifier.weight(1f).fillMaxHeight()) {
+                                holder.SaveableStateProvider(selected.name) { screen() }
+                            }
                         } else Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(24.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             Text(selected.title, style = MaterialTheme.typography.headlineMedium)
                             Text("A quiet place for your thoughts.", style = MaterialTheme.typography.bodyLarge)
                             HorizontalDivider()
                             Text("Phase 0 · Foundation preview", style = MaterialTheme.typography.labelLarge)
-                            Text(if (selected == Destination.Settings)
+                            Text(if (selected == AppSection.SETTINGS)
                                 "No settings are available yet. This app has no account or network connection."
                             else "This space is reserved for ${selected.title.lowercase()}. Writing, editing and saving are not available yet.")
                         }
                     }
                     if (!wide) NavigationBar {
-                        Destination.entries.forEach { destination ->
+                        AppSection.entries.forEach { destination ->
                             NavigationBarItem(selected == destination,
-                                onClick = { selectedName = destination.name },
-                                icon = { Text(destination.mark) }, label = { Text(destination.title) })
+                                onClick = { select(destination) },
+                                icon = { Text(destination.title.take(1)) }, label = { Text(destination.title) },
+                                    modifier = Modifier.semantics { contentDescription = "Open ${destination.title}" })
                         }
                     }
                 }

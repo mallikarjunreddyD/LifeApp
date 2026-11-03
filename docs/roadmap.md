@@ -1,24 +1,23 @@
 # Roadmap
 
-Phase 1 Daily Journal implementation is included. Do not start Phase 2 automatically.
+Phase 2 implements the Monthly Planner, customizable habits and Daily Journal links.
+Do not begin Phase 3 automatically. Physical Xiaomi checks remain explicitly deferred.
 
-1. **Phase 0 — Foundation:** modular KMP project, Android launcher, prepared iOS/JVM
-   hosts, metadata and repository contracts, paper shell, tests and build workflow.
-   Compilation and platform checks remain subject to the validation report.
-2. **Phase 1 — Daily journal:** Android Jetpack Ink adapter, dated ruled pages,
-   durable editable vector storage, pen/highlighter/eraser and exact undo/redo.
-   Automated verification is recorded in validation.md. Physical Xiaomi latency,
-   palm, pressure and long-page checks remain pending before expanding scope.
-3. **Phase 2 — Planner and habits:** monthly pages, variable month lengths, habits,
-   checkbox ledger and navigation to daily pages.
-4. **Later — Notebook and user-controlled backup/export.**
-5. **Later — Companion clients and synchronization:** iOS and Windows mostly view
-   only; startup/manual downloads and local-first writes with eventual uploads.
-   Select a provider after evaluating backup and conflict requirements.
-6. **Later — Gym and expense trackers:** structured editing on Android and iOS;
-   Windows remains a viewer initially.
-7. **Later — Read-only Google Calendar:** multiple accounts, explicit consent.
+1. **Phase 0/0.1 — Foundation:** modular KMP, Android/JVM launchers, opt-in Apple
+   targets, metadata, tests and corrected supported Android SDK provisioning.
+2. **Phase 1 — Daily Journal:** dated ruled vector pages, Ink pen/highlighter/eraser,
+   automatic persistence, multiple pages, exact Undo/Redo and error/retry handling.
+   PR #2 was merged before Phase 2 branched from updated main.
+3. **Phase 2 — Planner and habits:** canonical handwritten month calendars,
+   independent customizable monthly checkbox ledgers, archive/restore/copy,
+   typed date links and Back restoration, bounded lazy journal cache, Room schema3
+   and non-destructive migrations. Actual automated results are in validation.md.
+4. **Later — Free Notebook and user-controlled backup/export.**
+5. **Later — Companion clients and synchronization:** iOS and Windows initially
+   mostly viewing. Provider/conflict/backup decisions require separate design.
+6. **Later — Gym and expense trackers.**
+7. **Later — Read-only Google Calendar:** explicit consent and multiple accounts.
 
-These future directions reflect the referenced planning chat; they are not working
-features or a commitment to any cloud backend. Each phase needs its own acceptance
-criteria, device checks, tests, documentation and explicit user authorization.
+Future directions are unimplemented. No cloud provider, AI recognition, Daily
+Highlights, gamification, account system or online service was added. Each next
+phase needs explicit authorization and its own acceptance/tests/documentation.

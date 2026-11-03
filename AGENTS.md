@@ -4,11 +4,11 @@
 
 Work only on the requested phase. Android on Xiaomi Pad 7 is primary. Keep all
 features offline-first, with no mandatory registration. Do not introduce backend,
-cloud, synchronization or account dependencies during Phases 0–1. Never present
+cloud, synchronization or account dependencies during Phases 0–2. Never present
 placeholder editing, saving or settings as working functionality.
 
 Apps own launchers and platform adapters. shared/ui owns Compose and design tokens;
-shared/data owns Room, conversions and future local repository implementations;
+shared/data owns Room, conversions and local repository implementations;
 shared/domain owns platform-independent records and repository contracts;
 shared/core owns identity and metadata invariants. Dependencies point inward toward
 core. No platform, Compose or Room imports in core/domain. No database access in UI.
@@ -16,7 +16,13 @@ Keep MotionEvent and Jetpack Ink APIs in the Android adapter. The versioned port
 handwriting format is documented in docs/handwriting-format.md; preserve old readers
 and exact vectors on changes. Hardware behavior must be checked on Xiaomi Pad 7;
 never label synthetic/emulator input checks as hardware validation. Avoid speculative
-frameworks and abstractions. Only Daily Journal is implemented in Phase 1.
+frameworks and abstractions. Phase 2 implements Daily Journal, Monthly Planner and Monthly Habit Tracker only.
+Notebook/Settings remain placeholders; do not begin Phase 3.
+Use the same Android ink adapter for journal/planner. Preserve canonical calendar
+geometry versions and LJPT readers. Habits use stable IDs, monthly isolation and
+boolean completions; archive historical definitions rather than deleting their data.
+Keep pending/in-flight/native-bound drafts protected when trimming saved caches.
+Physical Xiaomi checks are deferred and must not block Phase 2 automated validation.
 
 ## Conventions
 

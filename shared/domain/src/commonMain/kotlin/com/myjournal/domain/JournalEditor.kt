@@ -30,13 +30,33 @@ class JournalEditor(
     private val repository: JournalEntryRepository,
     private val scope: CoroutineScope,
     initialDate: LocalDate,
+    private val maxLoadedDates: Int = 4,
+    private val maxLoadedPages: Int = 3,
 ) {
     private class Draft(var entry: JournalEntry, val histories: MutableMap<Uuid, StrokeHistory>, var selected: Uuid) {
         val submittedPages = mutableSetOf<Uuid>()
         var submitted = false
+        var accessed = 0L
+        val pageAccess = mutableMapOf<Uuid, Long>()
         val nextOrders = histories.mapValues { (_, h) -> (h.current.maxOfOrNull { it.order } ?: -1) + 1 }.toMutableMap()
     }
     private val drafts = mutableMapOf<LocalDate, Draft>()
+    private var accessClock = 0L
+    private val selectedPages = linkedMapOf<LocalDate, Uuid>()
+    private val retained = mutableMapOf<Pair<LocalDate, Uuid>, Int>()
+    private val loads = mutableSetOf<Pair<LocalDate, Uuid>>()
+    val loadedDateCount get() = drafts.size
+    val loadedPageCount get() = drafts.values.sumOf { it.histories.size }
+    fun retainSurface(date: LocalDate, id: Uuid) {
+        val key = date to id
+        retained[key] = (retained[key] ?: 0) + 1
+    }
+    fun releaseSurface(date: LocalDate, id: Uuid) {
+        val key = date to id
+        val count = (retained[key] ?: 1) - 1
+        if (count <= 0) retained.remove(key) else retained[key] = count
+        trim()
+    }
     private val pending = ArrayDeque<PageEdit>()
     private val signal = Channel<Unit>(Channel.CONFLATED)
     private var activeDate = initialDate
@@ -48,6 +68,7 @@ class JournalEditor(
     val state = mutableState.asStateFlow()
 
     init {
+        require(maxLoadedDates >= 1 && maxLoadedPages >= 1)
         scope.launch {
             for (ignored in signal) {
                 if (writeError != null) continue
@@ -55,6 +76,7 @@ class JournalEditor(
                     try {
                         repository.apply(pending.first())
                         pending.removeFirst()
+                        trim()
                         publish()
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -74,9 +96,7 @@ class JournalEditor(
         readError = null
         val cached = drafts[date]
         if (cached != null) {
-            if (preferredPage != null && preferredPage in cached.histories) cached.selected = preferredPage
-            loading = false
-            publish()
+            activate(date, cached, preferredPage ?: selectedPages[date])
             return
         }
         loading = true
@@ -85,15 +105,17 @@ class JournalEditor(
             try {
                 val stored = repository.find(date)
                 val entry = stored ?: newEntry(date)
-                val histories = mutableMapOf<Uuid, StrokeHistory>()
-                for (page in entry.pages) histories[page.metadata.id] = StrokeHistory(repository.loadStrokes(page.metadata.id))
-                val selected = preferredPage?.takeIf { it in histories } ?: entry.pages.first().metadata.id
-                val loaded = Draft(entry, histories, selected).also { draft ->
-                    draft.submitted = stored != null
-                    if (stored != null) draft.submittedPages.addAll(histories.keys)
+                val selected = (preferredPage ?: selectedPages[date])?.takeIf { id -> entry.pages.any { it.metadata.id == id } }
+                    ?: entry.pages.first().metadata.id
+                val draft = drafts.getOrPut(date) {
+                    Draft(entry, mutableMapOf(), selected).also {
+                        it.submitted = stored != null
+                        if (stored != null) it.submittedPages.addAll(entry.pages.map { p -> p.metadata.id })
+                        else it.histories[selected] = StrokeHistory(emptyList())
+                    }
                 }
-                drafts.getOrPut(date) { loaded }
-                if (request == token) { loading = false; publish() }
+                if (request == token) activate(date, draft, selected)
+                else trim()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) {
                 if (request == token) {
@@ -105,11 +127,56 @@ class JournalEditor(
         }
     }
 
+    private fun activate(date: LocalDate, draft: Draft, preferred: Uuid?) {
+        if (preferred != null && draft.entry.pages.any { it.metadata.id == preferred }) draft.selected = preferred
+        draft.accessed = ++accessClock
+        val id = draft.selected
+        selectedPages.remove(date); selectedPages[date] = id
+        while (selectedPages.size > 128) selectedPages.remove(selectedPages.keys.first())
+        draft.pageAccess[id] = ++accessClock
+        if (id in draft.histories) {
+            loading = false; trim(); publish(); return
+        }
+        loading = true
+        publish()
+        val key = date to id
+        if (!loads.add(key)) return
+        scope.launch {
+            try {
+                val history = StrokeHistory(repository.loadStrokes(id))
+                draft.histories[id] = history
+                draft.nextOrders[id] = (history.current.maxOfOrNull { it.order } ?: -1) + 1
+                if (activeDate == date && draft.selected == id) { loading = false; readError = null; publish() }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                if (activeDate == date && draft.selected == id) {
+                    loading = false; readError = "Cannot load page. ${failure.message ?: "Storage failed"}"; publish()
+                }
+            } finally { loads.remove(key); trim() }
+        }
+    }
+
     fun selectPage(id: Uuid) {
         val draft = drafts[activeDate] ?: return
-        require(id in draft.histories)
-        draft.selected = id
-        publish()
+        require(draft.entry.pages.any { it.metadata.id == id })
+        ++request; readError = null
+        activate(activeDate, draft, id)
+    }
+
+    private fun trim() {
+        fun protected(date: LocalDate, id: Uuid) = date == activeDate && drafts[date]?.selected == id ||
+            retained.containsKey(date to id) || (date to id) in loads ||
+            pending.any { it.date == date && it.page.metadata.id == id }
+        for ((date, draft) in drafts.entries.sortedBy { it.value.accessed }) {
+            if (drafts.size <= maxLoadedDates) break
+            if (date != activeDate && draft.entry.pages.none { protected(date, it.metadata.id) }) drafts.remove(date)
+        }
+        val candidates = drafts.flatMap { (date, draft) -> draft.histories.keys.map { Triple(date, it, draft.pageAccess[it] ?: 0L) } }
+            .sortedBy { it.third }
+        for ((date, id) in candidates.map { it.first to it.second }) {
+            if (loadedPageCount <= maxLoadedPages) break
+            if (!protected(date, id)) { drafts[date]?.histories?.remove(id); drafts[date]?.nextOrders?.remove(id) }
+        }
     }
 
     fun addPage() {
@@ -122,6 +189,8 @@ class JournalEditor(
         draft.histories[page.metadata.id] = StrokeHistory(emptyList())
         draft.nextOrders[page.metadata.id] = 0
         draft.selected = page.metadata.id
+        selectedPages[activeDate] = page.metadata.id
+        draft.pageAccess[page.metadata.id] = ++accessClock
         submit(page, null)
     }
 
@@ -129,7 +198,7 @@ class JournalEditor(
         date: LocalDate = activeDate, pageId: Uuid? = null): InkStroke? {
         val draft = drafts[date] ?: return null
         val page = draft.entry.pages.first { it.metadata.id == (pageId ?: draft.selected) }
-        val order = draft.nextOrders.getValue(page.metadata.id)
+        val order = draft.nextOrders[page.metadata.id] ?: 0L
         check(order < Long.MAX_VALUE)
         val stroke = InkStroke(newMetadata(), page.metadata.id, order, tool, colorArgb, width, points.toList())
         val change = draft.histories.getValue(page.metadata.id).add(stroke)
@@ -161,21 +230,24 @@ class JournalEditor(
     private fun submit(page: JournalPage, change: StrokeChange?, date: LocalDate = activeDate) {
         val draft = drafts.getValue(date)
         val at = maxOf(Clock.System.now(), draft.entry.metadata.updatedAt, page.metadata.updatedAt)
-        val entryMetadata = if (draft.submitted) draft.entry.metadata.revised(at) else draft.entry.metadata
-        val pageMetadata = if (page.metadata.id in draft.submittedPages) page.metadata.revised(at) else page.metadata
+        val entryMetadata = if (draft.submitted) draft.entry.metadata.revised(at) else draft.entry.metadata.copy(updatedAt = at)
+        val pageMetadata = if (page.metadata.id in draft.submittedPages) page.metadata.revised(at) else page.metadata.copy(updatedAt = at)
         draft.entry = draft.entry.copy(metadata = entryMetadata,
             pages = draft.entry.pages.map { if (it.metadata.id == page.metadata.id) it.copy(metadata = pageMetadata) else it })
+        draft.accessed = ++accessClock
+        draft.pageAccess[page.metadata.id] = ++accessClock
         draft.submitted = true
         draft.submittedPages.add(page.metadata.id)
         pending.addLast(PageEdit(date, page, change?.added ?: emptyList(),
             change?.removed?.map { it.metadata.id }?.toSet() ?: emptySet()))
         signal.trySend(Unit)
+        trim()
         publish()
     }
     private fun publish() {
         val draft = drafts[activeDate]
         val history = draft?.histories?.get(draft.selected)
-        mutableState.value = EditorState(activeDate, draft?.entry, draft?.selected,
+        mutableState.value = EditorState(activeDate, if (readError == null) draft?.entry else null, draft?.selected,
             history?.current ?: emptyList(), loading, pending.size, readError ?: writeError,
             history?.canUndo == true, history?.canRedo == true)
     }

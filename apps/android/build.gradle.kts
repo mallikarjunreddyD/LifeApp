@@ -9,8 +9,8 @@ android {
         applicationId = "com.myjournal.android"
         minSdk = 23
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
@@ -31,6 +31,7 @@ dependencies {
     implementation(libs.ink.rendering)
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.lifecycle.savedstate)
+    androidTestImplementation(libs.room.runtime)
     androidTestImplementation(libs.android.test.runner)
     androidTestImplementation(libs.android.test.core)
     androidTestImplementation(libs.android.test.junit)

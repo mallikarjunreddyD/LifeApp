@@ -27,7 +27,7 @@ fun DailyJournalScreen(model: JournalViewModel) {
     var markerWidth by rememberSaveable { mutableFloatStateOf(18f) }
     val tool = EditorTool.valueOf(toolName)
     var canvas by remember { mutableStateOf<JournalCanvas?>(null) }
-    fun open(date: LocalDate) { canvas?.finishInProgress(); model.editor.open(date) }
+    fun open(date: LocalDate) { canvas?.finishInProgress(); model.changeJournalDate(date) }
     val date = state.date
     val page = state.page
     val pageIndex = state.entry?.pages?.indexOfFirst { it.metadata.id == state.pageId } ?: 0
@@ -51,17 +51,9 @@ fun DailyJournalScreen(model: JournalViewModel) {
                 "${date.month.name.lowercase().replaceFirstChar { it.titlecase() }} ${date.year}",
                 style = MaterialTheme.typography.titleLarge)
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            EditorTool.entries.forEach { item ->
-                FilterChip(selected = item == tool, onClick = { canvas?.finishInProgress(); toolName = item.name },
-                    label = { Text(when (item) { EditorTool.PEN -> "Pen"; EditorTool.HIGHLIGHTER -> "Highlighter"; EditorTool.ERASER -> "Eraser" }) })
-            }
-            TextButton(enabled = state.canUndo, onClick = { canvas?.finishInProgress(); model.editor.undo() }) { Text("Undo") }
-            TextButton(enabled = state.canRedo, onClick = { canvas?.finishInProgress(); model.editor.redo() }) { Text("Redo") }
-            listOf("Black" to 0xFF252A30L, "Blue" to 0xFF2859A8L, "Red" to 0xFFB43F3FL, "Green" to 0xFF3F704CL).forEach { (name, argb) ->
-                FilterChip(selected = color == argb, onClick = { canvas?.finishInProgress(); color = argb }, label = { Text(name) })
-            }
-        }
+        TextButton(onClick = { canvas?.finishInProgress(); model.viewMonthlyHabits(date) }) { Text("View monthly habits") }
+        SharedInkTools(tool, color, { canvas?.finishInProgress(); toolName = it.name }, { canvas?.finishInProgress(); color = it },
+            state.canUndo, state.canRedo, { canvas?.finishInProgress(); model.editor.undo() }, { canvas?.finishInProgress(); model.editor.redo() })
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(if (tool == EditorTool.ERASER) "Whole-stroke eraser" else "Thickness", Modifier.padding(top = 16.dp))
             if (tool != EditorTool.ERASER) Slider(
@@ -86,13 +78,21 @@ fun DailyJournalScreen(model: JournalViewModel) {
                 state.error != null -> state.error!!
                 state.pending > 0 -> "Saving ${state.pending} change(s)…"
                 state.strokes.isEmpty() && state.entry?.metadata?.revision == 1L -> "Blank page · Ready for your stylus"
-                else -> "All changes saved locally"
+                else -> "Journal saved locally"
             }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f).padding(vertical = 8.dp))
             if (state.error != null) TextButton(onClick = { model.editor.retry() }) { Text("Retry") }
         }
         if (page != null && !state.loading) {
             key(page.metadata.id) {
-                AndroidView(factory = { ctx -> JournalCanvas(ctx).also { canvas = it } },
+                AndroidView(factory = { ctx ->
+                    model.editor.retainSurface(date, page.metadata.id)
+                    JournalCanvas(ctx).also { canvas = it }
+                },
+                    onReset = null,
+                    onRelease = { view ->
+                        view.finishInProgress()
+                        model.editor.releaseSurface(date, page.metadata.id)
+                    },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     update = { view ->
                         canvas = view
