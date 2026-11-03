@@ -11,16 +11,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
+      - name: Set up required Android SDK packages
+        uses: android-actions/setup-android@v3
+        with:
+          # Override the action default, which includes the obsolete `tools` package.
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
-      - run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
-      - run: ./gradlew :shared:core:jvmTest :shared:domain:jvmTest :shared:data:jvmTest :shared:ui:jvmTest :apps:android:assembleDebug :apps:android:lintDebug :apps:desktop:classes --stacktrace
+      - name: Verify Android and JVM foundation
+        id: verification
+        run: ./gradlew :shared:core:jvmTest :shared:domain:jvmTest :shared:data:jvmTest :shared:ui:jvmTest :apps:android:assembleDebug :apps:android:lintDebug :apps:desktop:classes --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: my-journal-debug
           path: apps/android/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.verification.outcome != 'skipped'
         with:
           name: test-reports
-          path: shared/**/build/reports/tests/
+          path: |
+            shared/**/build/reports/tests/
+            shared/**/build/test-results/
+            apps/android/build/reports/lint-results-debug.*
+          if-no-files-found: error
