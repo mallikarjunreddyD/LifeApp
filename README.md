@@ -42,7 +42,9 @@ adb install -r apps/android/build/outputs/apk/debug/android-debug.apk
 The debug APK is under apps/android/build/outputs/apk/debug/. GitHub Actions uploads
 it as my-journal-debug plus test/lint reports, and runs Android input/UI tests on a
 hardware-accelerated API 36 emulator. Initial Gradle/SDK downloads need internet;
-the application itself uses no online services. See [validation](docs/validation.md)
+the application itself uses no online services. Debug APKs use builder-specific
+signing keys; retain the same signing key for in-place updates. Backup/export is
+not implemented in this phase. See [validation](docs/validation.md)
 for the actual checks and [stylus testing](docs/stylus-testing.md) for remaining
 physical Xiaomi validation. Do not infer device behavior from compilation alone.
 

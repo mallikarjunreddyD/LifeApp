@@ -68,8 +68,23 @@ instrumentation APK. Its first passing hosted artifacts are:
 A focused test follow-up now injects stylus events through the actual screen's
 native canvas into its autosave pipeline, and uses system display rotation rather
 than an app orientation request that Android 16 may ignore on large screens.
-That strengthened instrumentation APK compiles locally (BUILD SUCCESSFUL in 16s);
-its hosted execution is pending the follow-up push. Production source is unchanged.
+That strengthened instrumentation APK compiled locally (BUILD SUCCESSFUL in 16s).
+Hosted [run 41597292819](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41597292819)
+on test follow-up commit be506e6 passed both jobs; the corresponding PR run
+41597298906 also passed. Downloaded Android reports confirm **5 tests, 0 failures,
+0 errors, 0 skipped**, including the native-to-autosave and real display-rotation
+scenario. The full suite remains **26 JVM + 5 Android tests passing**.
+Production source is unchanged from implementation commit f912f37.
+
+Validated follow-up artifacts:
+
+- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41597292819/artifacts/13212578940)
+- [JVM/lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41597292819/artifacts/13212533903)
+- [Android native input/UI reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41597292819/artifacts/13212749015)
+
+[PR #2](https://github.com/mallikarjunreddyD/LifeApp/pull/2) targets main and is left
+unmerged. A final documentation-only commit records these results; its source and
+test implementation are identical to the successful tested commit above.
 
 ## Debug APK
 
