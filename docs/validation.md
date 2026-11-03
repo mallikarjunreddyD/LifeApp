@@ -57,10 +57,28 @@ Android/JVM checks require no Xcode. shared/ui has no separate test cases.
 
 ## Android execution
 
-13 instrumented tests compile: all eight Phase1/2 tests plus NotebookUiTest(1),
-PdfExportTest(2), BackupOperationsTest(2). Hosted emulator execution is pending;
-compilation is not claimed as executed-test success. The existing API36 Pixel Tablet
-KVM job executes them and uploads reports; verify uploads the debug APK/JVM/lint reports.
+Hosted [run41628469399](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41628469399)
+on implementation commit16bd0bc passed both verify and android-input jobs. Downloaded
+JUnit XML confirms **64 JVM and13 Android tests, zero failures/errors/skips**.
+All eight Phase1/2 Android regressions are retained, plus NotebookUiTest(1),
+PdfExportTest(2) and BackupOperationsTest(2). The13 Android cases completed in108.173s
+on the API36 Pixel Tablet KVM emulator. Lint has no errors; seven non-blocking warnings
+are version notices/UseKtx suggestions. The existing CI workflow is unchanged.
+
+Validated artifacts:
+
+- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41628469399/artifacts/13226348547)
+- [JVM/lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41628469399/artifacts/13227002819)
+- [Android input/UI/PDF/backup reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41628469399/artifacts/13226589255)
+
+The local debug APK is `apps/android/build/outputs/apk/debug/android-debug.apk`,
+23,369,152 bytes; SHA-256
+`0f6944f0902e1849fe6fadcd3a03187bffb005bd48dccc4f7a1db48aa2966d96`.
+Hosted APK bytes/signing keys can differ; retain a consistent key for in-place updates.
+
+A documentation-only follow-up records these results; source/tests remain identical
+to the passing implementation commit above. The correction branch targets main and
+is not merged automatically.
 
 New tests inject native stylus events in Notebook, change templates/order/archive,
 recreate the Activity, rasterize PDFs with PdfRenderer for visible pen/highlighter
