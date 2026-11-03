@@ -11,7 +11,7 @@ import kotlin.uuid.Uuid
 data class Viewport(val zoom: Float = 1f, val centerX: Float = 500f, val centerY: Float = 0f)
 
 class JournalViewModel(val editor: JournalEditor, private val saved: SavedStateHandle,
-    val planner: PlannerEditor, val habits: HabitEditor) : ViewModel() {
+    val planner: PlannerEditor, val habits: HabitEditor, val notebooks: NotebookEditor) : ViewModel() {
     val navigation = AppNavigator(saved.get<ArrayList<String>>("routes")?.map(AppRoute::decode)
         ?: listOf(AppRoute(AppSection.JOURNAL, date = saved.get<String>("date")?.let(LocalDate::parse) ?: today())))
     private var plannerMonth = saved.get<String>("plannerMonth")?.let(JournalMonth::parse) ?: JournalMonth.from(today())
@@ -37,6 +37,7 @@ class JournalViewModel(val editor: JournalEditor, private val saved: SavedStateH
             AppSection.JOURNAL -> editor.open(route.date!!)
             AppSection.PLANNER -> { plannerMonth = route.month!!; saved["plannerMonth"] = plannerMonth.toString(); planner.open(plannerMonth) }
             AppSection.HABITS -> { habitMonth = route.month!!; saved["habitMonth"] = habitMonth.toString(); habits.open(habitMonth) }
+            AppSection.NOTEBOOK -> notebooks.open(saved.get<String>("notebook")?.let(Uuid::parse), saved.get<String>("notebookPage")?.let(Uuid::parse))
             else -> Unit
         }
     }
@@ -60,6 +61,8 @@ class JournalViewModel(val editor: JournalEditor, private val saved: SavedStateH
         val route = AppRoute(section, month = month); navigation.replace(route); applyRoute(route)
     }
     fun back() { if (navigation.back()) applyRoute(navigation.current) }
+    fun openNotebook(id: Uuid?) { saved["notebook"] = id?.toString(); notebooks.open(id) }
+    fun rememberNotebookSelection(id: Uuid, page: Uuid?) { saved["notebook"] = id.toString(); saved["notebookPage"] = page?.toString() }
     fun habitScroll(month: JournalMonth): List<Int> = saved["habitScroll:$month"] ?: listOf(0, 0, 0)
     fun rememberHabitScroll(month: JournalMonth, row: Int, offset: Int, x: Int) { saved["habitScroll:$month"] = listOf(row, offset, x) }
     fun savedViewport(id: Uuid) = viewports[id]

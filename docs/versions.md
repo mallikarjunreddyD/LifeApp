@@ -51,3 +51,12 @@ MotionEvent/palm/cancellation decisions follow the official
 [advanced stylus guide](https://developer.android.com/develop/ui/views/touch-and-input/stylus-input/advanced-stylus-features).
 The hosted emulator job follows the documented Linux/KVM setup of
 [android-emulator-runner](https://github.com/ReactiveCircus/android-emulator-runner).
+
+## Phase 3 addition
+
+Stable kotlinx.serialization-json1.11.0 is added for portable JSON tree encoding/validation,
+without a serialization compiler plugin or changing pinned Kotlin/Compose/AGP/Gradle/
+Room/SQLite/Ink versions. [Official setup](https://kotlinlang.org/docs/serialization-get-started.html)
+and [release notes](https://github.com/Kotlin/kotlinx.serialization/blob/master/CHANGELOG.md#1110--2026-04-10)
+identify this stable version (based on Kotlin2.3.20); it is compiled/tested with the
+existing Kotlin2.4.21 toolchain. PDF and ZIP use platform/standard-library APIs.

@@ -104,3 +104,27 @@ Physical latency/palm rejection/pressure calibration remain unverified. These pe
 checks are deliberately deferred and do not block Phase 2 automated acceptance.
 Saved-history cache eviction can discard Undo/Redo, never committed vectors. Pending
 queues remain memory-only and must not be described as surviving a process kill.
+
+## Additional Phase 3 device checks (all pending)
+
+- [ ] Create Research Notes with ruled/dotted pages; write, change templates, reorder,
+      archive/restore and reopen. Confirm editable ink stays at identical positions.
+- [ ] Test pressure, palm/hover, eraser, highlighter, pan/zoom and both orientations in
+      Notebook. Exercise many pages/notebooks and observe saved-cache reload latency.
+- [ ] Export handwritten journal dates, a planner month and a whole notebook. Open the
+      PDFs in a standard viewer; compare positions, colours, transparency and page order.
+      PDF brush-edge/pressure approximation is documented, not promised pixel-identical.
+- [ ] Use the actual system picker with local providers for backup, JSON, native ZIP,
+      Markdown and PDF. Test cancellation, full storage, revoked/unreadable destinations
+      and failed verification. No incomplete file may report success.
+- [ ] Back up all modules, review the manifest, restore on a disposable clean install,
+      and check exact history/archives/templates and editable vectors offline.
+- [ ] On a disposable populated install, confirm the strong replacement warning,
+      separately chosen verified recovery ZIP and successful recovery through Restore.
+- [ ] Select corrupted/unsupported ZIPs and confirm original content remains intact.
+      Test background/recreation during long operations and app reopen after completion.
+- [ ] Do not uninstall a personal-data installation or discard recovery ZIPs while
+      investigating failures. Unexpected kill before local commit can still lose edits.
+
+Automated PDF pixel assertions and synthetic notebook stylus tests do not replace
+these physical/provider checks. Xiaomi latency and palm rejection remain unverified.

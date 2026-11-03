@@ -1,12 +1,12 @@
-# Architecture — Phase 2
+# Architecture — Phase 3
 
-Phase 2 branches from merged Phase 1 main ac38145. Android on Xiaomi Pad 7 remains
+Phase 3 branches from merged Phase 2 main a042672. Android on Xiaomi Pad 7 remains
 primary. Shared Android/JVM targets build without Xcode; iOS arm64 targets remain
-opt-in with `-PenableIos=true`. Existing toolchain/dependency versions are unchanged.
+opt-in with `-PenableIos=true`. Existing toolchain/core dependency versions are unchanged; stable serialization JSON1.11.0 is added.
 
 ## Boundaries
 
-- apps/android owns three Compose editing screens, MotionEvent/Jetpack Ink adapters,
+- apps/android owns four Compose editing screens and Settings, MotionEvent/Jetpack Ink adapters,
   Android lifecycle/SavedStateHandle and the application composition root.
 - shared/ui owns paper colours, typography and adaptive navigation. JournalApp takes
   optional journal/planner/habit slots plus explicit selected-section state. Android
@@ -19,9 +19,9 @@ opt-in with `-PenableIos=true`. Existing toolchain/dependency versions are uncha
   Screens never access databases; application composition injects domain interfaces.
 
 Dependencies point inward: Android → UI/data/domain; UI/data → domain → core.
-No new production dependencies, accounts, network permissions, backup service or
-cloud integration. Automatic Android system backup remains disabled. Notebook and
-Settings, iOS editing and Windows editing remain unfinished.
+No accounts, network permissions or cloud integration. User-controlled local backup/export
+is implemented; automatic Android system backup remains disabled. iOS/Windows editing
+remain unfinished.
 
 ## Reusable Android handwriting
 
@@ -56,7 +56,7 @@ journal_entries, journal_pages and ink_strokes. Explicit MIGRATION_2_3 adds:
 | habit_completions | FK to habit, unique habit/date, checked boolean, record metadata |
 
 Separate planner stroke ownership avoids invalid journal-page FKs and a risky redesign
-of existing journals. Both stroke tables use identical portable vectors/LJPT1 encoding.
+of existing journals. All three stroke tables use identical portable vectors/LJPT1 encoding.
 Schemas 1/2 remain committed unchanged; schema 3 is exported. MIGRATION_1_2 remains
 registered so both 1→2→3 and 2→3 work without destructive fallback. Tests construct
 real old-schema files, preserve old IDs/revisions/timestamps/bytes and add new content.
@@ -101,3 +101,24 @@ Successful commits survive database reopening. Queues and undo stacks are in app
 memory, not a durable write-ahead edit journal. Unexpected process termination before
 commit can lose pending/in-progress work. Physical Xiaomi latency, palm rejection,
 pressure, long-page performance and acceptance checks remain deliberately deferred.
+
+## Phase 3 additions
+
+Notebook models/editor live in domain, separate notebook Room tables in data, and the
+Android NotebookScreen reuses JournalCanvas. Shared paper rendering supplies four
+procedural notebook templates. Schema4 adds only notebooks/notebook_pages/
+notebook_ink_strokes; MIGRATION_3_4 preserves the full1→2→3→4 chain. See notebook-design.md.
+
+JournalSnapshot is a portable complete record graph with validation/canonical ordering.
+RoomSnapshotRepository reads it atomically and replaces records in one writer transaction
+without regenerating metadata. SnapshotJson, manifest semantics and LJPT are portable;
+ZIP/SHA/file operations share Android/JVM code. Android owns SAF and PdfDocument adapters.
+The default KMP source hierarchy remains applied and Apple targets remain opt-in.
+
+Application-owned DataOperations blocks UI input while awaiting all editor queues and
+performing capture/verification. Restore validates staging before writing, requires an
+externally verified recovery ZIP for populated replacement, then cancels old editor
+scopes and rebuilds all caches after its atomic transaction. No stale queue survives
+restoration. Settings exposes progress/error/success and explicit two-step warnings.
+No UI screen accesses Room/DAOs; the composition root injects repositories/operations.
+See backup-format.md, backup-restore.md and export-formats.md for precise bounds/limits.

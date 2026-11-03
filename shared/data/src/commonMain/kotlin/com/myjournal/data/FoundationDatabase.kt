@@ -30,12 +30,14 @@ interface MetadataDao {
     suspend fun save(row: MetadataRow)
 }
 
-@Database(entities = [MetadataRow::class, EntryRow::class, PageRow::class, StrokeRow::class, PlannerRow::class, PlannerStrokeRow::class, LedgerRow::class, HabitRow::class, CompletionRow::class], version = 3, exportSchema = true)
+@Database(entities = [MetadataRow::class, EntryRow::class, PageRow::class, StrokeRow::class, PlannerRow::class, PlannerStrokeRow::class, LedgerRow::class, HabitRow::class, CompletionRow::class, NotebookRow::class, NotebookPageRow::class, NotebookStrokeRow::class], version = 4, exportSchema = true)
 @ConstructedBy(FoundationDatabaseConstructor::class)
 abstract class FoundationDatabase : RoomDatabase() {
     abstract fun metadata(): MetadataDao
     abstract fun journal(): JournalDao
     abstract fun planner(): PlannerDao
+    abstract fun snapshot(): SnapshotDao
+    abstract fun notebooks(): NotebookDao
     abstract fun habits(): HabitDao
 }
 

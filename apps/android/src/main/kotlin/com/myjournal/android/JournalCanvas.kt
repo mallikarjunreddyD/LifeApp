@@ -70,17 +70,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
             val p = page ?: return
             canvas.drawColor(Color.rgb(230, 229, 222))
             canvas.save(); canvas.concat(matrix); canvas.clipRect(0f, 0f, p.width, p.height)
-            paperPaint.color = Color.rgb(255, 252, 245)
-            canvas.drawRect(0f, 0f, p.width, p.height, paperPaint)
-            val calendar = p.calendar
-            if (calendar != null) CalendarPaper.draw(canvas, paperPaint, calendar)
-            else {
-                paperPaint.color = Color.rgb(208, 218, 224); paperPaint.strokeWidth = 0.8f
-                var y = 96f
-                while (y < p.height - 40) { canvas.drawLine(48f, y, p.width - 48, y, paperPaint); y += 32 }
-                paperPaint.color = Color.rgb(220, 191, 181)
-                canvas.drawLine(84f, 48f, 84f, p.height - 40, paperPaint)
-            }
+            PaperDrawing.draw(canvas, paperPaint, p)
             for (stroke in strokes) if (stroke.metadata.id !in erased) nativeStrokes[stroke.metadata.id]?.let { native ->
                 canvas.save()
                 p.calendar?.let { layout ->
@@ -141,6 +131,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
         viewport: Viewport, onViewport: (Viewport) -> Unit,
         onStroke: (BrushTool, Long, Float, List<InkPoint>) -> InkStroke?, onErase: (Set<Uuid>) -> Unit,
         fitPage: Boolean = false, onDateTap: (LocalDate) -> Unit = {}) {
+        val paperChanged = this.page != page
         val geometryChanged = fitWholePage != fitPage
         fitWholePage = fitPage
         this.onDateNumberTap = onDateTap
@@ -148,6 +139,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
             else "Monthly calendar. Stylus writes in cells. Tap date numbers with a finger to open the daily journal."
         if (this.page == null) { this.viewport = viewport; this.page = page; updateTransform() }
         this.page = page
+        if (paperChanged) dry.invalidate()
         if (geometryChanged) { finishInProgress(); updateTransform() }
         this.selectedTool = tool; this.selectedColor = color; this.selectedWidth = width
         this.onViewport = onViewport; this.onStroke = onStroke; this.onErase = onErase
