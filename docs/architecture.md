@@ -68,7 +68,7 @@ UUIDs, zero completions and targets capped to the new month's days (disclosed in
 Each checkbox toggles the latest optimistic value, then queues the desired boolean.
 Completion UUIDs stay stable even through unchecked states. Counts use checked records;
 percentages divide by all calendar days. Transactions reject cross-ledger identities,
-duplicate dates/orders and stale revisions. Reorder temporarily assigns negative SQL
+duplicate dates/orders and conflicting immutable stroke identities. Reorder temporarily assigns negative SQL
 orders within its transaction to avoid uniqueness collisions; readers see atomic state.
 
 ## Saving, memory and lifecycle

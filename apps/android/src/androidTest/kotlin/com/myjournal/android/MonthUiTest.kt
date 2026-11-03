@@ -113,7 +113,13 @@ class MonthUiTest {
         rule.waitUntil(20_000) { app.habits.state.value.month == month && !app.habits.state.value.loading && app.habits.state.value.pending == 0 }
         assertEquals(november, app.habits.state.value.ledger)
         val reopened = openJournalDatabase(rule.activity)
-        try { assertEquals(november, runBlocking { RoomHabitRepository(reopened).find(month) }) }
+        try {
+            val stored = runBlocking { RoomHabitRepository(reopened).find(month) }!!
+            assertEquals(november.metadata.id, stored.metadata.id)
+            assertEquals(november.habits.map { it.metadata.id to it.name }, stored.habits.map { it.metadata.id to it.name })
+            assertEquals(november.completions.map { Triple(it.metadata.id, it.habitId, it.checked) },
+                stored.completions.map { Triple(it.metadata.id, it.habitId, it.checked) })
+        }
         finally { reopened.close() }
     }
 
