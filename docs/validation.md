@@ -92,8 +92,25 @@ Local verification reran the complete command above with `--rerun-tasks
 --no-build-cache --no-daemon --stacktrace`: **BUILD SUCCESSFUL in 42s; all 146
 actionable tasks executed**. All six tests passed, including the Room metadata
 upsert integration test. Android debug assembly, Android lint and desktop classes
-passed on Linux without Xcode or `enableIos` enabled. Hosted CI verification is
-pending publication of this correction branch; no hosted success is claimed yet.
+passed on Linux without Xcode or `enableIos` enabled.
+
+Hosted [run 41589340890](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41589340890)
+on correction commit `b2d7638` completed successfully: **BUILD SUCCESSFUL in
+3m 10s; all 146 tasks executed**. The logs confirm installation of each required
+SDK package, Android/JVM verification and both artifact uploads. Downloaded JUnit
+reports confirm **6 tests, 0 failures, 0 errors, 0 skipped**, including the Room
+integration test. Domain/UI test tasks correctly report NO-SOURCE.
+
+Published artifacts from this run:
+
+- [my-journal-debug](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41589340890/artifacts/13209915721):
+  one Android debug APK (artifact ZIP 14,061,476 bytes).
+- [test-reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41589340890/artifacts/13209820955):
+  26 files including test HTML, three JUnit suites and Android lint HTML/SARIF.
+
+The documentation-only follow-up does not alter the successfully verified
+workflow or application source. The pull request's checks provide the status for
+its latest head; the run above remains the recorded evidence for this correction.
 
 Additional review confirmed:
 
