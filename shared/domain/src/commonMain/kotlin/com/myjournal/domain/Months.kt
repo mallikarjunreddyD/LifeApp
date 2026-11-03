@@ -66,8 +66,8 @@ data class CalendarLayout(
     }
 }
 
-data class InkSurface(val id: Uuid, val width: Float, val height: Float, val calendar: CalendarLayout? = null)
-fun JournalPage.inkSurface() = InkSurface(metadata.id, width, height)
+data class InkSurface(val id: Uuid, val width: Float, val height: Float, val calendar: CalendarLayout? = null, val paper: PaperTemplate = PaperTemplate.RULED)
+fun JournalPage.inkSurface() = InkSurface(metadata.id, width, height, paper = paper)
 
 data class MonthlyPlanner(val metadata: RecordMetadata, val layout: CalendarLayout) {
     val month get() = layout.month

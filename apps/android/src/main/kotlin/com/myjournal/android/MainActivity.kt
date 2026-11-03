@@ -22,27 +22,41 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val factory = viewModelFactory {
             initializer { (application as JournalApplication).let { app ->
-                JournalViewModel(app.editor, createSavedStateHandle(), app.planner, app.habits)
+                JournalViewModel(app.editor, createSavedStateHandle(), app.planner, app.habits, app.notebooks)
             } }
         }
         val model = ViewModelProvider(this, factory)[JournalViewModel::class.java]
         setContent {
+            val applicationState = application as JournalApplication
+            val originalGeneration = remember { applicationState.generation.value }
+            val generation by applicationState.generation.collectAsState()
+            val operation by applicationState.operations.state.collectAsState()
+            LaunchedEffect(generation) {
+                if(generation != originalGeneration) { viewModelStore.clear();recreate() }
+            }
             val routes by model.navigation.stack.collectAsState()
             val journal by model.editor.state.collectAsState()
             val planner by model.planner.state.collectAsState()
             val habits by model.habits.state.collectAsState()
-            BackHandler(enabled = routes.size > 1) { model.back() }
+            val notebook by model.notebooks.state.collectAsState()
+            BackHandler(enabled = routes.size > 1 || routes.last().section == com.myjournal.domain.AppSection.NOTEBOOK && notebook.notebook != null) {
+                if (routes.last().section == com.myjournal.domain.AppSection.NOTEBOOK && notebook.notebook != null) model.openNotebook(null) else model.back()
+            }
+            if(operation.busy) androidx.compose.ui.window.Dialog(onDismissRequest = {}, properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress=false,dismissOnClickOutside=false)) {
+                Surface { Column(Modifier.padding(24.dp)) { CircularProgressIndicator();Text(operation.message ?: "Working…") } }
+            }
             JournalApp(dailyJournal = { DailyJournalScreen(model) },
                 monthlyPlanner = { MonthlyPlannerScreen(model) }, habitTracker = { HabitTrackerScreen(model) },
+                notebook = { NotebookScreen(model) }, settings = { SettingsScreen(applicationState.operations) },
                 selectedSection = routes.last().section, onSectionSelected = model::selectSection,
                 globalStatus = {
                     listOf(Triple("Journal", journal.error, model.editor::retry),
-                        Triple("Planner", planner.error, model.planner::retry), Triple("Habits", habits.error, model.habits::retry))
+                        Triple("Planner", planner.error, model.planner::retry), Triple("Habits", habits.error, model.habits::retry), Triple("Notebook", notebook.error, model.notebooks::retry))
                         .forEach { (name, error, retry) -> if (error != null) Row(Modifier.padding(horizontal = 12.dp)) {
                             Text("$name: $error", color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
                             TextButton(onClick = retry) { Text("Retry $name") }
                         } }
-                    val pending = journal.pending + planner.pending + habits.pending
+                    val pending = journal.pending + planner.pending + habits.pending + notebook.pending
                     if (pending > 0) Text("Saving $pending local changes…", Modifier.padding(horizontal = 24.dp),
                         style = MaterialTheme.typography.labelSmall)
                 })

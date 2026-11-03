@@ -1,14 +1,15 @@
-# Validation — Phase 2
+# Validation — Phase 3
 
-Phase 1 PR #2 was merged. Phase 2 branches from updated main ac38145 on
-phase-2-monthly-planner-habits; main is not modified. Validation date: 2026-11-03.
-Kotlin/Compose/AGP/Gradle/Room/SQLite/Ink versions remain unchanged from Phase 1.
-No production dependency or Apple toolchain requirement was added.
+Branched from latest merged/validated main a042672 (Phase2 PR#3) on
+phase-3-notebook-export-backup. Validation date: 2026-11-03. Main is not modified.
+Existing Kotlin/Compose/AGP/Gradle/Room/SQLite/Ink versions are preserved; the only
+new production library is stable serialization-json1.11.0 for portable records.
 
-## Local Android/JVM suite
+## Local checks
 
-Linux/WSL2 amd64, Temurin JDK21.0.13, SDK platform37.0 / Build Tools36.0.0,
-pinned Gradle9.7.0. Tooling/caches live outside the repository.
+Linux/WSL2 amd64, Temurin JDK21.0.13, Gradle9.7.0, SDK platform37.0 / Build Tools36.0.0.
+Tool installations/caches remain outside the repository; no SDK path, APK, credentials
+or generated build artifacts are committed. Room schema exports are intentional source.
 
 ```sh
 ./gradlew :shared:core:jvmTest :shared:domain:jvmTest :shared:data:jvmTest \
@@ -16,96 +17,78 @@ pinned Gradle9.7.0. Tooling/caches live outside the repository.
   :apps:desktop:classes :apps:android:assembleDebugAndroidTest
 ```
 
-**BUILD SUCCESSFUL in 8s; 178 tasks (21 executed, 157 up-to-date).**
-JUnit XML confirms **46 JVM tests, zero failures/errors**. All 26 Phase 1 tests
-remain, with 20 new tests:
+Full suite: **BUILD SUCCESSFUL in 1m14s; 178 tasks (37 executed,141 up-to-date)**.
+JUnit XML confirms **64 JVM tests, zero failures/errors/skips**. All 46 Phase1/2 tests
+are retained, plus 18 Phase3 cases:
 
-| Suite | Passed |
+| New suite | Passed |
 | --- | ---: |
-| RecordMetadataTest | 3 |
-| JournalDomainTest | 7 |
-| JournalEditorTest | 6 |
-| JournalMemoryTest | 4 |
-| MonthDomainTest | 6 |
-| MonthEditorTest | 4 |
-| MetadataMappingTest | 2 |
-| FoundationDatabaseTest | 1 |
-| JournalRepositoryTest | 5 |
-| MonthRepositoryTest | 6 |
-| StrokePointCodecTest | 2 |
+| NotebookEditorTest | 4 |
+| CommittedWritesTest | 3 |
+| NotebookRepositoryTest | 1 |
+| BackupRoundTripTest | 4 |
+| BackupCorruptionTest | 5 |
+| SchemaThreeMigrationTest | 1 |
 
-Tests cover lazy selected-page loading, saved LRU eviction/reload/selection,
-failed-write and native-bound protection, leap/month/year/Monday/5–6 row geometry,
-coordinate transforms, explicit copy/independent definitions, stable history after
-rename/reorder/archive, rapid toggles, retry across month navigation, transactional
-identity validation, planner vectors after real-file reopening and erasure/restore.
-Existing schema1 migration now executes the complete 1→2→3 chain. A schema2 fixture
-preserves journal UUIDs, timestamps, revisions and exact vector bytes through 2→3.
-Schemas1/2 remain unchanged; schema3 is exported. No destructive fallback.
+Coverage includes notebook create/rename/page order/templates/archive/restore, exact
+Undo/Redo, lazy bounded caches and failed/native-bound work, save barriers across
+all four modules and timeout/error refusal, real-file notebook reopening, all-module
+backup validation/restore/reopen with exact IDs/timestamps/revisions/point bytes,
+editable restored ink, JSON/native-vector round trips, and failed/interrupted write
+rollback after earlier replacement mutations. Invalid graphs never change current data.
 
-Android debug APK, lint, desktop classes and instrumentation APK compile successfully.
-shared/ui has test infrastructure but no separate test cases. Non-blocking test-rule
-deprecation, Room expect/actual and native debug stripping notices remain.
+Corruption cases include malformed manifests/JSON, missing/extra entries, checksums,
+unsupported schema/point versions, duplicate IDs/dates/completions, orphan ownership,
+corrupt LJPT, truncated ZIP, duplicate paths, traversal/absolute/backslash paths,
+expansion limits and deep JSON. Schema3 is built from its committed SQL/hash with all
+prior modules populated, then migrated to4 and compared exactly. Older schema1/2
+migration tests now run through the full chain to4. Schemas1/2/3 remain unchanged.
 
-## Android instrumentation execution
+The tests found and fixed transaction-local temporary page-order validation and
+snapshot initialization before old-schema migration. No destructive fallback or
+flattening was used. Notebook background changes now explicitly invalidate native
+paper rendering while preserving all vectors; per-book remembered page selection
+falls back correctly when a different book's saved page ID is supplied.
 
-Eight instrumented tests compile: the five retained Phase 1 tests plus three new
-MonthUiTest scenarios. They synthesize native stylus input through the real shared
-canvas and test planner cell ink/Undo/Redo/month isolation/date taps, habit touch
-editing/archive/restore/copy, linked journal ink, Back/scroll restoration, rotation,
-Activity recreation and reopening a database connection.
+Android debug build, lint, desktop classes and instrumentation APK assembly pass.
+Lint/Gradle/test-rule deprecation and Room expect/actual notices remain non-blocking.
+No desktop GUI session or iOS/Xcode build was run; Apple targets remain opt-in and
+Android/JVM checks require no Xcode. shared/ui has no separate test cases.
 
-Hosted [push run 41612983421](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421)
-on source/test commit 41dabfb passed both verify and android-input jobs. The matching
-[PR run 41612991256](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612991256)
-also passed. Downloaded JUnit reports confirm **46 JVM tests and 8 Android tests,
-zero failures/errors/skips**. Lint passed with five non-blocking warnings (three
-version notices and two UseKtx suggestions). The existing CI workflow is unchanged.
+## Android execution
 
-Validated artifacts from the passing push run:
+13 instrumented tests compile: all eight Phase1/2 tests plus NotebookUiTest(1),
+PdfExportTest(2), BackupOperationsTest(2). Hosted emulator execution is pending;
+compilation is not claimed as executed-test success. The existing API36 Pixel Tablet
+KVM job executes them and uploads reports; verify uploads the debug APK/JVM/lint reports.
 
-- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421/artifacts/13220635146)
-- [JVM and lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421/artifacts/13218989602)
-- [Android input/UI reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421/artifacts/13219438806)
+New tests inject native stylus events in Notebook, change templates/order/archive,
+recreate the Activity, rasterize PDFs with PdfRenderer for visible pen/highlighter
+colour/alpha/geometry/background/order assertions, exercise the CreateDocument result
+contract, verify selected-file backup output, clean/replacement restore, mandatory
+verified recovery, cache rebuild and corrupt input refusal against isolated data.
+The file-picker contract test intercepts its result with a test file URI; actual
+third-party provider interaction/durability remains a manual check.
 
-All five retained Phase1 Android cases passed. New tests passed for planner cell
-strokes/Undo/Redo/month separation/date-tap/Back/rotation/recreation/database reopen,
-four-habit touch editing/rename/reorder/archive/restore/definitions-only copy/month
-isolation, and linked journal ink with vertical/horizontal ledger-position restoration.
-The first emulator run exposed only an assertion comparing optimistic timestamps to
-authoritative transaction timestamps; the assertion now checks durable identity and
-content. Production source did not need changing for that failure.
+No local device is connected and /dev/kvm is unavailable to this user. The previous
+software emulator did not complete boot and was stopped; no local connected-test
+success is claimed. Physical Xiaomi testing is explicitly deferred, not a Phase3 blocker.
 
-No physical Xiaomi test has been performed. Local connected tests are unavailable:
-no device is attached and the current user cannot use /dev/kvm; the prior software
-emulator did not finish booting and was stopped. Hosted tests execute on the KVM
-API36 Pixel Tablet emulator. Synthetic input is not physical stylus validation.
+## Limits and remaining validation
 
-The local debug APK is `apps/android/build/outputs/apk/debug/android-debug.apk`,
-22,682,408 bytes; SHA-256
-`cb23f3231f15a3ba852ca6d4c4a5d45a24a4913f120649e3587e38fb44899838`.
-Hosted APKs use the runner's debug signing key and can have different bytes. Retain
-one signing key for in-place device updates; backup/export is not implemented.
-No APK, SDK path, credential or build output is committed.
+Read backup-format.md, backup-restore.md and export-formats.md for exact format,
+bounds, transaction and recovery behavior. Full snapshots allow50,000 records and
+2,000,000 points; ZIP compressed/expanded total64MiB; record/manifest JSON8MiB each.
+Oversized operations fail rather than silently omit content. PDF is ≤500 pages/128MiB.
+Backups are unencrypted and checksums do not authenticate their author. A failed
+provider write can leave a partial destination; success requires reread verification.
 
-[PR #3](https://github.com/mallikarjunreddyD/LifeApp/pull/3) targets main and is left
-open/unmerged. A documentation-only follow-up records this evidence; source and test
-implementation are identical to the successful commit above.
+Pending/in-progress edits remain memory-only until committed and can be lost on
+unexpected process death. Undo/Redo is session-only and can be unloaded with saved
+cache entries. Restored committed content is editable; no guarantee is made that
+unfinished provider writes survive power loss. PDF pressure/brush smoothing is a
+controlled approximation of native Ink, not a pixel-identical mesh rendering.
 
-## Remaining validation and limitations
-
-All physical Xiaomi Pad7 checks in stylus-testing.md remain pending and are explicitly
-deferred by agreement. Real stylus latency, palm/hover rejection, pressure calibration,
-edge behavior, long-page performance, large text and tablet usability are unverified.
-Synthetic emulator events are not hardware validation. The manual November12/20
-planner, four-habit ledger and linked journal scenarios are listed in that checklist.
-
-Saved content is tested across real database close/reopen. Queues remain memory-only:
-unexpected process termination before commit can lose pending/in-progress work.
-Ordinary Activity recreation retains the application queues; no loss-free process-kill
-claim is made. Saved page-cache eviction can unload Undo/Redo while preserving stored
-vectors. Pending/native-bound/in-flight work may temporarily exceed soft cache caps.
-
-No iOS build or desktop GUI session was executed. Desktop compilation passes and
-Apple targets remain opt-in. No Xcode was installed or needed for Android/JVM checks.
-Notebook/Settings and later product phases remain unimplemented.
+All physical Xiaomi latency/palm/pressure/edge/large-page/orientation/provider checks
+remain pending in stylus-testing.md. No hardware validation or cloud/account/sync,
+iOS editing, Windows editing, handwriting recognition or Phase4 work is claimed.

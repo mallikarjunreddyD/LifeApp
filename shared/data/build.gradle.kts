@@ -18,9 +18,14 @@ kotlin {
         iosArm64()
         iosSimulatorArm64()
     }
+    applyDefaultHierarchyTemplate()
     sourceSets {
+        val jvmAndAndroidMain by creating { dependsOn(commonMain.get()) }
+        jvmMain.get().dependsOn(jvmAndAndroidMain)
+        androidMain.get().dependsOn(jvmAndAndroidMain)
         commonMain.dependencies {
             api(project(":shared:domain"))
+            implementation(libs.serialization.json)
             implementation(libs.room.runtime)
             implementation(libs.sqlite.bundled)
         }

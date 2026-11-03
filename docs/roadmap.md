@@ -1,7 +1,7 @@
 # Roadmap
 
-Phase 2 implements the Monthly Planner, customizable habits and Daily Journal links.
-Do not begin Phase 3 automatically. Physical Xiaomi checks remain explicitly deferred.
+Phase 3 adds Free Notebook, PDF/structured exports and validated local backup/restore.
+Do not begin Phase 4 automatically. Physical Xiaomi checks remain explicitly deferred.
 
 1. **Phase 0/0.1 — Foundation:** modular KMP, Android/JVM launchers, opt-in Apple
    targets, metadata, tests and corrected supported Android SDK provisioning.
@@ -12,7 +12,10 @@ Do not begin Phase 3 automatically. Physical Xiaomi checks remain explicitly def
    independent customizable monthly checkbox ledgers, archive/restore/copy,
    typed date links and Back restoration, bounded lazy journal cache, Room schema3
    and non-destructive migrations. Actual automated results are in validation.md.
-4. **Later — Free Notebook and user-controlled backup/export.**
+4. **Phase 3 — Notebook and data protection:** named notebooks, ordered/titled/archived
+   pages with four templates, reused Ink, PDF/JSON/Markdown/native export, versioned
+   checksum-validated local ZIP backup and atomic restore with verified recovery.
+   Actual execution evidence and remaining limits are in validation.md.
 5. **Later — Companion clients and synchronization:** iOS and Windows initially
    mostly viewing. Provider/conflict/backup decisions require separate design.
 6. **Later — Gym and expense trackers.**

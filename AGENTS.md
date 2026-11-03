@@ -4,7 +4,7 @@
 
 Work only on the requested phase. Android on Xiaomi Pad 7 is primary. Keep all
 features offline-first, with no mandatory registration. Do not introduce backend,
-cloud, synchronization or account dependencies during Phases 0–2. Never present
+cloud, synchronization or account dependencies during Phases 0–3. Never present
 placeholder editing, saving or settings as working functionality.
 
 Apps own launchers and platform adapters. shared/ui owns Compose and design tokens;
@@ -17,7 +17,10 @@ handwriting format is documented in docs/handwriting-format.md; preserve old rea
 and exact vectors on changes. Hardware behavior must be checked on Xiaomi Pad 7;
 never label synthetic/emulator input checks as hardware validation. Avoid speculative
 frameworks and abstractions. Phase 2 implements Daily Journal, Monthly Planner and Monthly Habit Tracker only.
-Notebook/Settings remain placeholders; do not begin Phase 3.
+Phase 3 adds Notebook and local export/backup/restore Settings; do not begin Phase 4.
+Backup must drain every editor queue, validate a committed snapshot and verify output.
+Restore must validate before writes, require recovery backup for replacement, commit
+atomically and rebuild editor caches. Never merge archives or discard pending edits.
 Use the same Android ink adapter for journal/planner. Preserve canonical calendar
 geometry versions and LJPT readers. Habits use stable IDs, monthly isolation and
 boolean completions; archive historical definitions rather than deleting their data.

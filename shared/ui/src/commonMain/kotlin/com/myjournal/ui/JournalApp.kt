@@ -30,6 +30,7 @@ private val PaperColors = lightColorScheme(
 @Composable
 fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
     monthlyPlanner: (@Composable () -> Unit)? = null, habitTracker: (@Composable () -> Unit)? = null,
+    notebook: (@Composable () -> Unit)? = null, settings: (@Composable () -> Unit)? = null,
     selectedSection: AppSection? = null, onSectionSelected: ((AppSection) -> Unit)? = null,
     globalStatus: (@Composable () -> Unit)? = null) {
     MaterialTheme(colorScheme = PaperColors, typography = Typography(
@@ -61,6 +62,8 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
                             AppSection.JOURNAL -> dailyJournal
                             AppSection.PLANNER -> monthlyPlanner
                             AppSection.HABITS -> habitTracker
+                            AppSection.NOTEBOOK -> notebook
+                            AppSection.SETTINGS -> settings
                             else -> null
                         }
                         if (screen != null) {

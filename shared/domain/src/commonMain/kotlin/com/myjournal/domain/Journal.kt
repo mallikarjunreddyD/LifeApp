@@ -6,7 +6,7 @@ import kotlinx.datetime.LocalDate
 import kotlin.uuid.Uuid
 
 enum class BrushTool { PEN, HIGHLIGHTER }
-enum class PaperTemplate { RULED }
+enum class PaperTemplate { RULED, BLANK, DOTTED, GRID }
 
 data class InkPoint(val x: Float, val y: Float, val elapsedMillis: Long, val pressure: Float? = null) {
     init {

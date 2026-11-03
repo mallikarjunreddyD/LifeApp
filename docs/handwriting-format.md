@@ -1,7 +1,8 @@
 # Editable handwriting storage, version 1
 
 LifeApp stores vectors, not page screenshots. This is an application-owned format,
-not a universal `.ink` standard; no export/import UI is implemented in Phase 2.
+not a universal `.ink` standard. Phase3 exports PDF/JSON/native ZIP and imports full
+backups; see export-formats.md and backup-format.md.
 No Android, Compose, Ink JNI object, bitmap or generated mesh is persisted.
 
 ## Identity, geometry and order
@@ -10,7 +11,7 @@ Journal dates use kotlinx.datetime.LocalDate, stored as ISO calendar dates such 
 `2026-11-03`. They are not UTC instants. A unique database index enforces one entry
 per date. Entry, page and stroke IDs are independent UUIDs, never list positions.
 Created/updated timestamps are UTC Kotlin Instants. Positive record schema versions
-and revisions are separate from Room's database version (currently 3).
+and revisions are separate from Room's database version (currently 4).
 
 Pages have an entry UUID, stable UUID, unique zero-based order within the entry,
 width/height and RULED paper template. The Android editor currently creates
@@ -96,3 +97,17 @@ just by viewing them. Month, orientation and zoom changes never rewrite source p
 Room MIGRATION_2_3 only adds planner/habit tables and indexes. Journal schema 2 SQL,
 IDs, metadata and stroke bytes remain unchanged; old schema exports are preserved.
 Tests cover 1→2→3 and 2→3 and real-file planner vectors across reopen/erase/restore.
+
+## Notebook and portable export (Phase 3)
+
+Notebook pages use separate FK-owned notebook_ink_strokes but the same InkStroke,
+InkPoint and unchanged LJPT1 bytes. Stored logical dimensions and BLANK/RULED/DOTTED/
+GRID templates are independent of vector coordinates. Template changes never rewrite
+ink. Archives/backups preserve stroke/owner IDs, metadata, brush, alpha, width and order.
+JSON includes pointsBase64; native/full-backup ZIP uses pointsFile and ink/UUID.ljpt
+plus full stroke metadata. Schema4 migration is additive; schemas1–3 are unchanged.
+
+PDF uses a dedicated Canvas path pressure envelope/highlighter adapter with clipping,
+not the native on-screen Ink renderer. It is a visual export with approximate brush
+edge smoothing, not an editable native stroke interchange file. Stored vectors remain
+editable. Markdown has no handwriting text or editable vector representation.
