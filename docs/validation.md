@@ -55,12 +55,42 @@ canvas and test planner cell ink/Undo/Redo/month isolation/date taps, habit touc
 editing/archive/restore/copy, linked journal ink, Back/scroll restoration, rotation,
 Activity recreation and reopening a database connection.
 
-Hosted execution results will be recorded here after the correction branch CI runs.
-Compilation alone is not represented as executed instrumentation success. No physical
-Xiaomi test has been performed. Local connected tests are unavailable: no device is
-attached and the current user cannot use /dev/kvm; the prior software emulator did
-not finish booting and was stopped. Hosted CI uses its existing KVM API36 Pixel
-Tablet emulator and uploads the debug APK, JVM/lint and Android input/UI reports.
+Hosted [push run 41612983421](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421)
+on source/test commit 41dabfb passed both verify and android-input jobs. The matching
+[PR run 41612991256](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612991256)
+also passed. Downloaded JUnit reports confirm **46 JVM tests and 8 Android tests,
+zero failures/errors/skips**. Lint passed with five non-blocking warnings (three
+version notices and two UseKtx suggestions). The existing CI workflow is unchanged.
+
+Validated artifacts from the passing push run:
+
+- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421/artifacts/13220635146)
+- [JVM and lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421/artifacts/13218989602)
+- [Android input/UI reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421/artifacts/13219438806)
+
+All five retained Phase1 Android cases passed. New tests passed for planner cell
+strokes/Undo/Redo/month separation/date-tap/Back/rotation/recreation/database reopen,
+four-habit touch editing/rename/reorder/archive/restore/definitions-only copy/month
+isolation, and linked journal ink with vertical/horizontal ledger-position restoration.
+The first emulator run exposed only an assertion comparing optimistic timestamps to
+authoritative transaction timestamps; the assertion now checks durable identity and
+content. Production source did not need changing for that failure.
+
+No physical Xiaomi test has been performed. Local connected tests are unavailable:
+no device is attached and the current user cannot use /dev/kvm; the prior software
+emulator did not finish booting and was stopped. Hosted tests execute on the KVM
+API36 Pixel Tablet emulator. Synthetic input is not physical stylus validation.
+
+The local debug APK is `apps/android/build/outputs/apk/debug/android-debug.apk`,
+22,682,408 bytes; SHA-256
+`cb23f3231f15a3ba852ca6d4c4a5d45a24a4913f120649e3587e38fb44899838`.
+Hosted APKs use the runner's debug signing key and can have different bytes. Retain
+one signing key for in-place device updates; backup/export is not implemented.
+No APK, SDK path, credential or build output is committed.
+
+[PR #3](https://github.com/mallikarjunreddyD/LifeApp/pull/3) targets main and is left
+open/unmerged. A documentation-only follow-up records this evidence; source and test
+implementation are identical to the successful commit above.
 
 ## Remaining validation and limitations
 
