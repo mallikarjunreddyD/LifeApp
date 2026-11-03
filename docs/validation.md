@@ -69,3 +69,44 @@ SHA-256: `0452af0d7f59cc1d036b37c1a98a178269865106f098ca0841b768297e119302`.
 
 APK signature verification passed. The APK is a generated build output and is not
 committed; GitHub Actions uploads it as a build artifact.
+
+## Phase 0.1 — CI SDK provisioning correction
+
+Reviewed latest main `79b2bc1` and failed [run 41588620771](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41588620771)
+on 2026-11-03. Job `125759869425` failed before Gradle: setup-android@v3's
+implicit `packages: tools platform-tools` invoked `sdkmanager tools`. The obsolete
+`tools` package was unavailable, producing `Failed to find package 'tools'` and
+exit code 1. License acceptance had succeeded; the Gradle and explicit SDK install
+steps were skipped. This was an SDK action default failure, not a Kotlin/AGP,
+compilation or unit-test failure.
+
+The workflow now overrides that default with `platform-tools`,
+`platforms;android-37.0` and `build-tools;36.0.0`, using the action's supported
+[packages input](https://github.com/android-actions/setup-android/blob/v3/action.yml).
+The action installs each package and accepts licenses; the duplicate downstream
+SDK install step is removed. APK/report uploads fail if expected files are absent;
+reports include HTML tests, JUnit XML and Android lint output, including after a
+verification failure. Reports are skipped if verification never started.
+
+Local verification reran the complete command above with `--rerun-tasks
+--no-build-cache --no-daemon --stacktrace`: **BUILD SUCCESSFUL in 42s; all 146
+actionable tasks executed**. All six tests passed, including the Room metadata
+upsert integration test. Android debug assembly, Android lint and desktop classes
+passed on Linux without Xcode or `enableIos` enabled. Hosted CI verification is
+pending publication of this correction branch; no hosted success is claimed yet.
+
+Additional review confirmed:
+
+- All four shared modules keep Apple targets behind `-PenableIos=true`.
+- Core/domain remain free of platform, Compose and Room imports; shared UI has no
+  database access. Module dependencies and application source are unchanged.
+- The shell still explicitly labels its screens as previews and says writing,
+  editing and saving are unavailable; no Phase 1 functionality was added.
+- JDK 21 and all Kotlin/Compose/AGP/Gradle versions are unchanged.
+- No generated build outputs, local.properties, SDK installations or credentials
+  are tracked. Ignore checks cover local.properties, build outputs and .gradle;
+  a tracked-file scan found no private-key/token indicators. No machine-specific
+  SDK configuration was added.
+
+The iOS and Xiaomi Pad 7 device checks listed above remain outstanding. No device,
+handwriting, desktop GUI or iOS runtime validation is implied by the build results.
