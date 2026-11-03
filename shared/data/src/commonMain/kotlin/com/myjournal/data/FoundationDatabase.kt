@@ -11,7 +11,7 @@ import androidx.room.RoomDatabaseConstructor
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
-/** Schema foundation only. Feature tables and repository implementations follow later. */
+/** Phase 0 metadata table is retained unchanged for migration compatibility. */
 @Entity(tableName = "record_metadata")
 data class MetadataRow(
     @PrimaryKey val id: String,
@@ -30,10 +30,11 @@ interface MetadataDao {
     suspend fun save(row: MetadataRow)
 }
 
-@Database(entities = [MetadataRow::class], version = 1, exportSchema = true)
+@Database(entities = [MetadataRow::class, EntryRow::class, PageRow::class, StrokeRow::class], version = 2, exportSchema = true)
 @ConstructedBy(FoundationDatabaseConstructor::class)
 abstract class FoundationDatabase : RoomDatabase() {
     abstract fun metadata(): MetadataDao
+    abstract fun journal(): JournalDao
 }
 
 @Suppress("KotlinNoActualForExpect")

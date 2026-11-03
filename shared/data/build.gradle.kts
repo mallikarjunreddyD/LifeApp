@@ -20,7 +20,7 @@ kotlin {
     }
     sourceSets {
         commonMain.dependencies {
-            implementation(project(":shared:domain"))
+            api(project(":shared:domain"))
             implementation(libs.room.runtime)
             implementation(libs.sqlite.bundled)
         }
