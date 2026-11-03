@@ -1,15 +1,14 @@
-# Validation — Phase 1
+# Validation — Phase 2
 
-Reviewed main 3eb4108 (Phase 0.1 CI fix merged) before creating phase-1-daily-journal.
-All dates below are 2026-11-03. The working Phase 0 versions and module boundaries
-were retained; the only new production libraries are stable Ink 1.0.0,
-kotlinx-datetime 0.8.0 and Android lifecycle components (see versions.md).
+Phase 1 PR #2 was merged. Phase 2 branches from updated main ac38145 on
+phase-2-monthly-planner-habits; main is not modified. Validation date: 2026-11-03.
+Kotlin/Compose/AGP/Gradle/Room/SQLite/Ink versions remain unchanged from Phase 1.
+No production dependency or Apple toolchain requirement was added.
 
-## Local Android/JVM checks
+## Local Android/JVM suite
 
-Linux/WSL2 amd64, Temurin JDK 21.0.13, Android SDK platform 37.0 / Build Tools
-36.0.0, pinned Gradle wrapper 9.7.0. Tool installations/caches are outside the repo;
-no local.properties, SDK installation, credentials or build outputs are committed.
+Linux/WSL2 amd64, Temurin JDK21.0.13, SDK platform37.0 / Build Tools36.0.0,
+pinned Gradle9.7.0. Tooling/caches live outside the repository.
 
 ```sh
 ./gradlew :shared:core:jvmTest :shared:domain:jvmTest :shared:data:jvmTest \
@@ -17,104 +16,96 @@ no local.properties, SDK installation, credentials or build outputs are committe
   :apps:desktop:classes :apps:android:assembleDebugAndroidTest
 ```
 
-**BUILD SUCCESSFUL in 2m 3s; 178 tasks, 64 executed and 114 up-to-date.**
-The final suite has **26 JVM tests, 0 failures and 0 errors**:
+**BUILD SUCCESSFUL in 8s; 178 tasks (21 executed, 157 up-to-date).**
+JUnit XML confirms **46 JVM tests, zero failures/errors**. All 26 Phase 1 tests
+remain, with 20 new tests:
 
-- RecordMetadataTest[jvm]: 3 passed.
-- JournalDomainTest[jvm]: 7 passed.
-- JournalEditorTest[jvm]: 6 passed.
-- MetadataMappingTest[jvm]: 2 passed.
-- FoundationDatabaseTest[jvm]: 1 passed.
-- JournalRepositoryTest[jvm]: 5 passed.
-- StrokePointCodecTest[jvm]: 2 passed.
+| Suite | Passed |
+| --- | ---: |
+| RecordMetadataTest | 3 |
+| JournalDomainTest | 7 |
+| JournalEditorTest | 6 |
+| JournalMemoryTest | 4 |
+| MonthDomainTest | 6 |
+| MonthEditorTest | 4 |
+| MetadataMappingTest | 2 |
+| FoundationDatabaseTest | 1 |
+| JournalRepositoryTest | 5 |
+| MonthRepositoryTest | 6 |
+| StrokePointCodecTest | 2 |
 
-Domain/UI feature-independent test infrastructure remains available; shared/ui has
-no separate test cases. The new 13 domain/editor tests and seven new data tests
-exercise real invariants, vectors, failed-write retry, identity/order, rollback,
-file-database reopen and the schema 1→2 migration, in addition to the six existing
-foundation tests. Android lint passes; non-blocking library/Gradle version notices
-and Room expect/actual language-feature warnings remain. Native debug libraries may
-be packaged without stripping. No failed test is represented as passed.
+Tests cover lazy selected-page loading, saved LRU eviction/reload/selection,
+failed-write and native-bound protection, leap/month/year/Monday/5–6 row geometry,
+coordinate transforms, explicit copy/independent definitions, stable history after
+rename/reorder/archive, rapid toggles, retry across month navigation, transactional
+identity validation, planner vectors after real-file reopening and erasure/restore.
+Existing schema1 migration now executes the complete 1→2→3 chain. A schema2 fixture
+preserves journal UUIDs, timestamps, revisions and exact vector bytes through 2→3.
+Schemas1/2 remain unchanged; schema3 is exported. No destructive fallback.
 
-An early migration test exposed a Room initialization/invalidation opening stall
-when starting legacy metadata observation before migration. The repository now
-finishes initial read/migration before starting invalidation observation. The test
-uses the actual schema 1 SQL/hash, opens through journal observation and verifies
-that old metadata and new editable journal data both survive. No destructive
-fallback or dependency downgrade was used.
+Android debug APK, lint, desktop classes and instrumentation APK compile successfully.
+shared/ui has test infrastructure but no separate test cases. Non-blocking test-rule
+deprecation, Room expect/actual and native debug stripping notices remain.
 
-## Android input/UI execution
+## Android instrumentation execution
 
-The Android instrumentation APK compiles. Tests include native synthesized
-finger/stylus/eraser events, pressure/highlighter properties, cancellations,
-logical-coordinate capture, erase commit/cancel and Compose date/tool/page
-navigation, system display rotation and Activity recreation. These test methods
-are not hardware stylus validation.
+Eight instrumented tests compile: the five retained Phase 1 tests plus three new
+MonthUiTest scenarios. They synthesize native stylus input through the real shared
+canvas and test planner cell ink/Undo/Redo/month isolation/date taps, habit touch
+editing/archive/restore/copy, linked journal ink, Back/scroll restoration, rotation,
+Activity recreation and reopening a database connection.
 
-No physical device is connected locally. A temporary API 36 x86_64 emulator was
-provisioned, but software emulation did not complete boot in this environment;
-the current user lacks read/write permission on /dev/kvm. It was stopped without
-changing host security settings. No local connectedAndroidTest success is claimed.
-Hosted [run 41595553392](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41595553392)
-on implementation commit f912f37 passed both jobs. Downloaded JUnit reports confirm
-**26 JVM tests and 5 Android instrumentation tests, all with zero failures/errors/skips**.
-The original CI verification/APK/report job is preserved and also compiles the
-instrumentation APK. Its first passing hosted artifacts are:
+Hosted [push run 41612983421](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421)
+on source/test commit 41dabfb passed both verify and android-input jobs. The matching
+[PR run 41612991256](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612991256)
+also passed. Downloaded JUnit reports confirm **46 JVM tests and 8 Android tests,
+zero failures/errors/skips**. Lint passed with five non-blocking warnings (three
+version notices and two UseKtx suggestions). The existing CI workflow is unchanged.
 
-- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41595553392/artifacts/13212606140)
-- [JVM/lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41595553392/artifacts/13212795716)
-- [Android input/UI reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41595553392/artifacts/13211693464)
+Validated artifacts from the passing push run:
 
-A focused test follow-up now injects stylus events through the actual screen's
-native canvas into its autosave pipeline, and uses system display rotation rather
-than an app orientation request that Android 16 may ignore on large screens.
-That strengthened instrumentation APK compiled locally (BUILD SUCCESSFUL in 16s).
-Hosted [run 41597292819](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41597292819)
-on test follow-up commit be506e6 passed both jobs; the corresponding PR run
-41597298906 also passed. Downloaded Android reports confirm **5 tests, 0 failures,
-0 errors, 0 skipped**, including the native-to-autosave and real display-rotation
-scenario. The full suite remains **26 JVM + 5 Android tests passing**.
-Production source is unchanged from implementation commit f912f37.
+- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421/artifacts/13220635146)
+- [JVM and lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421/artifacts/13218989602)
+- [Android input/UI reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41612983421/artifacts/13219438806)
 
-Validated follow-up artifacts:
+All five retained Phase1 Android cases passed. New tests passed for planner cell
+strokes/Undo/Redo/month separation/date-tap/Back/rotation/recreation/database reopen,
+four-habit touch editing/rename/reorder/archive/restore/definitions-only copy/month
+isolation, and linked journal ink with vertical/horizontal ledger-position restoration.
+The first emulator run exposed only an assertion comparing optimistic timestamps to
+authoritative transaction timestamps; the assertion now checks durable identity and
+content. Production source did not need changing for that failure.
 
-- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41597292819/artifacts/13212578940)
-- [JVM/lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41597292819/artifacts/13212533903)
-- [Android native input/UI reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41597292819/artifacts/13212749015)
+No physical Xiaomi test has been performed. Local connected tests are unavailable:
+no device is attached and the current user cannot use /dev/kvm; the prior software
+emulator did not finish booting and was stopped. Hosted tests execute on the KVM
+API36 Pixel Tablet emulator. Synthetic input is not physical stylus validation.
 
-[PR #2](https://github.com/mallikarjunreddyD/LifeApp/pull/2) targets main and is left
-unmerged. A final documentation-only commit records these results; its source and
-test implementation are identical to the successful tested commit above.
+The local debug APK is `apps/android/build/outputs/apk/debug/android-debug.apk`,
+22,682,408 bytes; SHA-256
+`cb23f3231f15a3ba852ca6d4c4a5d45a24a4913f120649e3587e38fb44899838`.
+Hosted APKs use the runner's debug signing key and can have different bytes. Retain
+one signing key for in-place device updates; backup/export is not implemented.
+No APK, SDK path, credential or build output is committed.
 
-## Debug APK
+[PR #3](https://github.com/mallikarjunreddyD/LifeApp/pull/3) targets main and is left
+open/unmerged. A documentation-only follow-up records this evidence; source and test
+implementation are identical to the successful commit above.
 
-`apps/android/build/outputs/apk/debug/android-debug.apk` — 22372553 bytes.
+## Remaining validation and limitations
 
-SHA-256: `278ea2ccadd86641591f8a32ee1b9602463f9841a5b76349d620a9b83481f6bb`.
+All physical Xiaomi Pad7 checks in stylus-testing.md remain pending and are explicitly
+deferred by agreement. Real stylus latency, palm/hover rejection, pressure calibration,
+edge behavior, long-page performance, large text and tablet usability are unverified.
+Synthetic emulator events are not hardware validation. The manual November12/20
+planner, four-habit ledger and linked journal scenarios are listed in that checklist.
 
+Saved content is tested across real database close/reopen. Queues remain memory-only:
+unexpected process termination before commit can lose pending/in-progress work.
+Ordinary Activity recreation retains the application queues; no loss-free process-kill
+claim is made. Saved page-cache eviction can unload Undo/Redo while preserving stored
+vectors. Pending/native-bound/in-flight work may temporarily exceed soft cache caps.
 
-## Remaining device/platform validation
-
-All physical Xiaomi Pad 7 checks in stylus-testing.md remain pending: real pen
-latency, small handwriting, pressure calibration, palm/hover rejection, edges,
-large multi-page performance, portrait/landscape, offline use and force-stop after
-Saved. Saved vectors survive database close/reopen in automated tests; that is not
-a claim that the physical-tablet acceptance scenario was executed.
-
-No iOS build or desktop GUI session was run. Desktop compilation passes. Apple
-targets remain opt-in behind -PenableIos=true; the Linux Android/JVM build does not
-need Xcode. iOS requires macOS/Xcode 26.4 and is outside Phase 1 editing scope.
-
-Undo history is session-only. Uncommitted/in-progress work survives ordinary
-Activity changes in application memory, but can be lost if Android kills the
-process before commit. The app shows pending/error status until writes succeed.
-Other product sections remain unfinished placeholders; Phase 2 has not begun.
-
-## Earlier CI foundation evidence
-
-Phase 0 had six passing JVM tests, Android assembly/lint and desktop compilation.
-Phase 0.1 corrected setup-android@v3's obsolete tools package default after
-[failed run 41588620771](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41588620771).
-[Corrected run 41589340890](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41589340890)
-and PR #1 checks passed and uploaded APK/test artifacts. PR #1 was subsequently
-merged by the user; Phase 1 does not undo that supported SDK provisioning setup.
+No iOS build or desktop GUI session was executed. Desktop compilation passes and
+Apple targets remain opt-in. No Xcode was installed or needed for Android/JVM checks.
+Notebook/Settings and later product phases remain unimplemented.

@@ -9,6 +9,8 @@ import android.graphics.Paint
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.ViewConfiguration
+import kotlinx.datetime.LocalDate
 import android.widget.FrameLayout
 import androidx.ink.brush.Brush
 import androidx.ink.brush.InputToolType
@@ -25,7 +27,12 @@ import kotlin.uuid.Uuid
 
 /** Native Android adapter. Domain coordinates/serialization contain no Android/Ink objects. */
 class JournalCanvas(context: Context) : FrameLayout(context) {
-    private var page: JournalPage? = null
+    private var page: InkSurface? = null
+    private var fitWholePage = false
+    private var activeCell: LogicalRect? = null
+    private var onDateNumberTap: (LocalDate) -> Unit = {}
+    private var fingerDown: Pair<Float, Float>? = null
+    private var fingerMoved = false
     private var strokes: List<InkStroke> = emptyList()
     private val nativeStrokes = mutableMapOf<Uuid, Stroke>()
     private val constructing = mutableSetOf<Uuid>()
@@ -34,6 +41,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var viewport = Viewport()
     private var transform = PageTransform(1f, 0f, 0f)
+    internal fun viewPosition(x: Float, y: Float) = transform.toScreen(x, y)
     private val matrix = Matrix()
     private var selectedTool = EditorTool.PEN
     private var selectedColor = 0xFF252A30L
@@ -64,13 +72,25 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
             canvas.save(); canvas.concat(matrix); canvas.clipRect(0f, 0f, p.width, p.height)
             paperPaint.color = Color.rgb(255, 252, 245)
             canvas.drawRect(0f, 0f, p.width, p.height, paperPaint)
-            paperPaint.color = Color.rgb(208, 218, 224); paperPaint.strokeWidth = 0.8f
-            var y = 96f
-            while (y < p.height - 40) { canvas.drawLine(48f, y, p.width - 48, y, paperPaint); y += 32 }
-            paperPaint.color = Color.rgb(220, 191, 181)
-            canvas.drawLine(84f, 48f, 84f, p.height - 40, paperPaint)
-            for (stroke in strokes) if (stroke.metadata.id !in erased)
-                nativeStrokes[stroke.metadata.id]?.let { renderer.draw(canvas, it, matrix) }
+            val calendar = p.calendar
+            if (calendar != null) CalendarPaper.draw(canvas, paperPaint, calendar)
+            else {
+                paperPaint.color = Color.rgb(208, 218, 224); paperPaint.strokeWidth = 0.8f
+                var y = 96f
+                while (y < p.height - 40) { canvas.drawLine(48f, y, p.width - 48, y, paperPaint); y += 32 }
+                paperPaint.color = Color.rgb(220, 191, 181)
+                canvas.drawLine(84f, 48f, 84f, p.height - 40, paperPaint)
+            }
+            for (stroke in strokes) if (stroke.metadata.id !in erased) nativeStrokes[stroke.metadata.id]?.let { native ->
+                canvas.save()
+                p.calendar?.let { layout ->
+                    layout.dateAt(stroke.points.first().x, stroke.points.first().y)?.let { date ->
+                        val cell = layout.cell(date.day); canvas.clipRect(cell.left, cell.top, cell.right, cell.bottom)
+                    }
+                }
+                renderer.draw(canvas, native, matrix)
+                canvas.restore()
+            }
             canvas.restore()
         }
     }
@@ -78,6 +98,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
         override fun onDraw(canvas: Canvas) {
             val p = page ?: return
             canvas.save(); canvas.concat(matrix); canvas.clipRect(0f, 0f, p.width, p.height)
+            activeCell?.let { canvas.clipRect(it.left, it.top, it.right, it.bottom) }
             drawing?.let { renderer.draw(canvas, it, matrix) }
             if (erasing) erasePoint?.let { (x, y) ->
                 paperPaint.color = Color.argb(100, 80, 95, 80)
@@ -90,6 +111,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             if (pointerId != -1 || hoverStylus) return false
+            fingerMoved = true
             val anchor = transform.toPage(detector.focusX, detector.focusY)
             val zoom = (viewport.zoom * detector.scaleFactor).coerceIn(1f, 4f)
             val scale = baseScale() * zoom
@@ -112,8 +134,21 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
     fun bind(page: JournalPage, strokes: List<InkStroke>, tool: EditorTool, color: Long, width: Float,
         viewport: Viewport, onViewport: (Viewport) -> Unit,
         onStroke: (BrushTool, Long, Float, List<InkPoint>) -> InkStroke?, onErase: (Set<Uuid>) -> Unit) {
+        bindSurface(page.inkSurface(), strokes, tool, color, width, viewport, onViewport, onStroke, onErase)
+    }
+
+    fun bindSurface(page: InkSurface, strokes: List<InkStroke>, tool: EditorTool, color: Long, width: Float,
+        viewport: Viewport, onViewport: (Viewport) -> Unit,
+        onStroke: (BrushTool, Long, Float, List<InkPoint>) -> InkStroke?, onErase: (Set<Uuid>) -> Unit,
+        fitPage: Boolean = false, onDateTap: (LocalDate) -> Unit = {}) {
+        val geometryChanged = fitWholePage != fitPage
+        fitWholePage = fitPage
+        this.onDateNumberTap = onDateTap
+        contentDescription = if (page.calendar == null) "Ruled journal page. Write with a stylus. Use a finger to pan and two fingers to zoom."
+            else "Monthly calendar. Stylus writes in cells. Tap date numbers with a finger to open the daily journal."
         if (this.page == null) { this.viewport = viewport; this.page = page; updateTransform() }
         this.page = page
+        if (geometryChanged) { finishInProgress(); updateTransform() }
         this.selectedTool = tool; this.selectedColor = color; this.selectedWidth = width
         this.onViewport = onViewport; this.onStroke = onStroke; this.onErase = onErase
         if (this.strokes != strokes) {
@@ -122,6 +157,9 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
             nativeStrokes.keys.retainAll(strokes.map { it.metadata.id }.toSet())
             dry.invalidate()
         }
+        ensureNativeStrokes()
+    }
+    private fun ensureNativeStrokes() {
         for (stroke in strokes) if (stroke.metadata.id !in nativeStrokes && constructing.add(stroke.metadata.id)) {
             scope.launch {
                 try {
@@ -140,7 +178,11 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
         if (oldw > 0 && oldh > 0 && (w != oldw || h != oldh)) finishInProgress()
         updateTransform()
     }
-    private fun baseScale() = width.toFloat() / (page?.width ?: 1000f)
+    private fun baseScale(): Float {
+        val p = page ?: return 1f
+        val horizontal = width.toFloat() / p.width
+        return if (fitWholePage) min(horizontal, height.toFloat() / p.height) else horizontal
+    }
     private fun updateTransform() {
         val p = page ?: return
         if (width == 0 || height == 0) return
@@ -159,7 +201,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
-        if (action == MotionEvent.ACTION_CANCEL) { cancelInProgress(); return true }
+        if (action == MotionEvent.ACTION_CANCEL) { fingerDown = null; cancelInProgress(); return true }
         val actionIndex = event.actionIndex
         val isStylus = event.getToolType(actionIndex) == MotionEvent.TOOL_TYPE_STYLUS ||
             event.getToolType(actionIndex) == MotionEvent.TOOL_TYPE_ERASER
@@ -168,6 +210,10 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
             val p = page ?: return true
             val down = transform.toPage(event.getX(actionIndex), event.getY(actionIndex))
             if (down.first !in 0f..p.width || down.second !in 0f..p.height) return true
+            val wantsErase = selectedTool == EditorTool.ERASER || event.getToolType(actionIndex) == MotionEvent.TOOL_TYPE_ERASER
+            val cellDate = p.calendar?.dateAt(down.first, down.second)
+            if (p.calendar != null && !wantsErase && cellDate == null) return true
+            activeCell = if (!wantsErase && cellDate != null) p.calendar?.cell(cellDate.day) else null
             pointerId = event.getPointerId(actionIndex)
             startedAt = event.eventTime
             val range = event.device?.getMotionRange(MotionEvent.AXIS_PRESSURE, event.source)
@@ -195,6 +241,11 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
             return true // Ignore every finger/palm while the stylus is active.
         }
         if (hoverStylus || isStylus || event.getToolType(0) != MotionEvent.TOOL_TYPE_FINGER) return true
+        if (action == MotionEvent.ACTION_DOWN) { fingerDown = event.x to event.y; fingerMoved = false }
+        if (event.pointerCount > 1) fingerMoved = true
+        fingerDown?.let { start ->
+            if (hypot(event.x - start.first, event.y - start.second) > ViewConfiguration.get(context).scaledTouchSlop) fingerMoved = true
+        }
         scaleDetector.onTouchEvent(event)
         when (action) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_UP -> {
@@ -202,13 +253,20 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
                 lastFingerX = event.getX(index); lastFingerY = event.getY(index)
             }
             MotionEvent.ACTION_MOVE -> {
-                if (event.pointerCount == 1 && !scaleDetector.isInProgress) {
+                if (event.pointerCount == 1 && !scaleDetector.isInProgress && fingerMoved) {
                     viewport = viewport.copy(centerX = viewport.centerX - (event.x - lastFingerX) / transform.scale,
                         centerY = viewport.centerY - (event.y - lastFingerY) / transform.scale)
                     updateTransform()
                 }
                 lastFingerX = event.x; lastFingerY = event.y
             }
+        }
+        if (action == MotionEvent.ACTION_UP) {
+            if (!fingerMoved && fingerDown != null) {
+                val logical = transform.toPage(event.x, event.y)
+                page?.calendar?.dateNumberAt(logical.first, logical.second)?.let(onDateNumberTap)
+            }
+            fingerDown = null
         }
         return true
     }
@@ -223,7 +281,9 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
         fun add(x: Float, y: Float, time: Long, pressure: Float) {
             if (!x.isFinite() || !y.isFinite()) return
             val position = transform.toPage(x, y)
-            val point = InkPoint(position.first.coerceIn(0f, p.width), position.second.coerceIn(0f, p.height),
+            val bounds = activeCell ?: LogicalRect(0f, 0f, p.width, p.height)
+            val point = InkPoint(position.first.coerceIn(bounds.left, bounds.right - 0.001f),
+                position.second.coerceIn(bounds.top, bounds.bottom - 0.001f),
                 maxOf(time - startedAt, (points.lastOrNull()?.elapsedMillis ?: -1) + 1),
                 if (supportsPressure && pressure.isFinite()) (pressure / pressureMaximum).coerceIn(0f, 1f) else null)
             if (erasing) {
@@ -261,7 +321,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
     }
     private fun cancelInProgress() { clearActive() }
     private fun clearActive() {
-        pointerId = -1; drawing = null; erasing = false; points.clear(); erased.clear(); erasePoint = null
+        pointerId = -1; drawing = null; erasing = false; activeCell = null; points.clear(); erased.clear(); erasePoint = null
         parent?.requestDisallowInterceptTouchEvent(false)
         dry.invalidate(); wet.invalidate()
     }
@@ -272,11 +332,13 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
     override fun onDetachedFromWindow() {
         finishInProgress()
         scope.cancel()
+        constructing.clear()
         super.onDetachedFromWindow()
     }
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         if (!scope.isActive) scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        ensureNativeStrokes()
     }
     private fun brush(tool: BrushTool, color: Long, width: Float) = Brush.createWithColorIntArgb(
         family = if (tool == BrushTool.PEN) StockBrushes.pressurePen(StockBrushes.PressurePenVersion.V1)

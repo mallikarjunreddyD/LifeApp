@@ -1,7 +1,7 @@
 # Editable handwriting storage, version 1
 
 LifeApp stores vectors, not page screenshots. This is an application-owned format,
-not a universal `.ink` standard; no export/import UI is implemented in Phase 1.
+not a universal `.ink` standard; no export/import UI is implemented in Phase 2.
 No Android, Compose, Ink JNI object, bitmap or generated mesh is persisted.
 
 ## Identity, geometry and order
@@ -10,7 +10,7 @@ Journal dates use kotlinx.datetime.LocalDate, stored as ISO calendar dates such 
 `2026-11-03`. They are not UTC instants. A unique database index enforces one entry
 per date. Entry, page and stroke IDs are independent UUIDs, never list positions.
 Created/updated timestamps are UTC Kotlin Instants. Positive record schema versions
-and revisions are separate from Room's database version (currently 2).
+and revisions are separate from Room's database version (currently 3).
 
 Pages have an entry UUID, stable UUID, unique zero-based order within the entry,
 width/height and RULED paper template. The Android editor currently creates
@@ -71,3 +71,28 @@ stroke insert or already-applied deletion is a no-op, so a retry after uncertain
 acknowledgment does not duplicate ink. Replacing an existing stroke ID with different
 content is rejected and the whole transaction rolls back. Eraser undo reinserts
 the original immutable stroke, while page/entry revisions advance.
+
+## Monthly planner ownership and geometry (Phase 2)
+
+Planner strokes use the same LJPT version 1 BLOB and Ink brush versions. No point
+format change or existing journal-vector rewrite occurs. planner_ink_strokes has a
+surfaceId FK to planner_pages, never journal_pages. Its domain InkStroke.pageId is
+that planner surface UUID. Stable cellDay plus the first logical point identify the
+owning date; repository validation rejects inconsistent/cross-cell data.
+
+planner_pages stores a UUID, ISO year-month, layoutVersion=1, row count, width1400,
+headerHeight70, cellHeight120 and record metadata. Version 1 has seven 200-unit
+columns, Monday first, and max(5, ceil((Monday offset + days)/7)) rows. Page height
+is 70 + rows×120. A day cell begins at column=(offset+day−1)%7 and
+row=(offset+day−1)/7. Unknown or inconsistent geometry is rejected visibly, never
+reinterpreted. A future template change requires a new layout reader/version.
+
+Capture transforms screen samples into this canonical coordinate system. A stroke
+starts only in a valid date cell and stays clamped to it; rendering clips its brush
+to that cell. A finger tap in the upper-left 100×90 logical-unit date target opens
+its journal; stylus input there remains ink. Blank dates never create journal rows
+just by viewing them. Month, orientation and zoom changes never rewrite source points.
+
+Room MIGRATION_2_3 only adds planner/habit tables and indexes. Journal schema 2 SQL,
+IDs, metadata and stroke bytes remain unchanged; old schema exports are preserved.
+Tests cover 1→2→3 and 2→3 and real-file planner vectors across reopen/erase/restore.
