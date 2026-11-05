@@ -1,6 +1,7 @@
 # LifeApp — My Journal
 
 An offline-first personal journal, primarily for Xiaomi Pad 7 and a compatible stylus.
+Phase 3.1 corrects tablet workspace/ink alignment and adds recoverable journal-page deletion.
 Phase 3 implements the Android Daily Journal, handwritten Monthly Planner and
 customizable Monthly Habit Tracker, Free Notebook and local export/backup/restore. No account or network connection is needed.
 Notebook and Settings are functional on Android. Desktop/iOS launchers
@@ -36,6 +37,19 @@ visible across module navigation. Retry retains the original edit targets. Wait 
 successful saving before force stopping: a process kill before commit can lose pending
 or in-progress work. Saved vectors remain editable after restart. Undo history is
 session-only and may be unloaded with saved pages under the bounded memory cache.
+
+Use **Delete page** to move the current journal page into a recoverable archive after
+confirmation; **Restore pages** returns it at its original order with all vectors.
+The last active page cannot be deleted. All pages, including archived pages, remain
+in backups/structured exports and labelled PDF pages.
+
+Tablet drawing now uses one explicit page matrix for input, paper and wet/dry ink.
+Fit Width fills the writing width; Calendar offers Fit Calendar and Calendar Writing
+Width, with pan/zoom for portrait. No stored point coordinates are rewritten.
+See [alignment details](docs/tablet-ink-alignment.md) and
+[safe Android upgrades](docs/safe-android-upgrade.md) before updating an installed app.
+A matching signing key and a verified Phase3 backup are essential; never uninstall
+to work around a signature mismatch.
 
 ## Notebook and data protection
 
@@ -103,7 +117,7 @@ physical Xiaomi validation. Do not infer device behavior from compilation alone.
 | apps/ios | Prepared SwiftUI/Xcode host |
 | shared/core | UUID/UTC metadata and revision invariants |
 | shared/domain | Portable records, calendar geometry, typed routes and editor state/history |
-| shared/data | Room schema 4, explicit migrations, codec and local repositories |
+| shared/data | Room schema 5, explicit migrations, codec and local repositories |
 | shared/ui | Shared adaptive navigation, paper colors and typography |
 
 Apple targets are disabled by default on every host. On macOS with Xcode 26.4 use

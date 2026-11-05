@@ -42,6 +42,12 @@ fun SettingsScreen(operations: DataOperations) {
         } }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            var diagnostic by remember { mutableStateOf(JournalCanvas.debugAlignmentEnabled) }
+            Row { Switch(checked = diagnostic, onCheckedChange = { diagnostic = it; JournalCanvas.debugAlignmentEnabled = it })
+                Text("Input alignment diagnostic (debug only)", Modifier.padding(12.dp)) }
+        }
         Text("Backup & Restore",style=MaterialTheme.typography.headlineMedium)
         Text("Your files stay under your control. Choose a local destination in the system picker. Backups are not encrypted; store them privately.")
         state.message?.let { Text(it,color=if(state.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
@@ -85,7 +91,7 @@ fun SettingsScreen(operations: DataOperations) {
         when(pdfKind) {
             "journal" -> { OutlinedTextField(from,{from=it},label={Text("First date (YYYY-MM-DD)")},singleLine=true)
                 OutlinedTextField(through,{through=it},label={Text("Last date (YYYY-MM-DD)")},singleLine=true)
-                Text("Includes every saved page in the inclusive date range, sorted by date and page order.") }
+                Text("Includes every saved page, including labelled archived pages, sorted by date and original page order.") }
             "planner" -> OutlinedTextField(month,{month=it},label={Text("Month (YYYY-MM)")},singleLine=true)
             else -> {
                 if(snapshot.notebooks.isEmpty()) Text("No saved notebooks")

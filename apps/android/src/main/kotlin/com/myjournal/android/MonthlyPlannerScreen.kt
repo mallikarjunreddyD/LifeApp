@@ -33,7 +33,8 @@ fun MonthlyPlannerScreen(model: JournalViewModel) {
             if (tool != EditorTool.ERASER) Slider(value = if (tool == EditorTool.PEN) penWidth else markerWidth,
                 onValueChange = { if (tool == EditorTool.PEN) penWidth = it else markerWidth = it },
                 valueRange = if (tool == EditorTool.PEN) 1f..8f else 8f..40f, modifier = Modifier.width(144.dp))
-            TextButton(onClick = { canvas?.resetViewport() }) { Text("Fit calendar") }
+            TextButton(onClick = { canvas?.resetViewport(fitPage = true) }) { Text("Fit calendar") }
+            TextButton(onClick = { canvas?.resetViewport() }) { Text("Calendar writing width") }
             Text("Stylus writes · Finger taps dates · Pinch to zoom", style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(top = 18.dp, start = 8.dp))
         }
@@ -50,7 +51,7 @@ fun MonthlyPlannerScreen(model: JournalViewModel) {
         val planner = state.planner
         if (!state.loading && planner != null) BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val landscape = isLandscape
-            val initial = Viewport(if (landscape) 1f else maxOf(1f, 1000f / maxWidth.value).coerceAtMost(4f), 0f, 0f)
+            val initial = Viewport(if (landscape) 1f else maxOf(1f, 1000f / maxWidth.value).coerceAtMost(4f), 0f, 0f, fitPage = landscape)
             key(planner.metadata.id) {
                 AndroidView(factory = { context ->
                     model.planner.retain(month)
@@ -62,7 +63,7 @@ fun MonthlyPlannerScreen(model: JournalViewModel) {
                             model.savedViewport(planner.metadata.id) ?: initial,
                             { model.rememberViewport(planner.metadata.id, it) },
                             { brush, argb, width, points -> model.planner.addStroke(brush, argb, width, points, month) },
-                            { model.planner.erase(it, month) }, fitPage = landscape,
+                            { model.planner.erase(it, month) },
                             onDateTap = { view.finishInProgress(); model.openJournal(it) })
                     })
             }

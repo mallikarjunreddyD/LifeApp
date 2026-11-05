@@ -60,13 +60,24 @@ class RoomJournalRepository(private val database: FoundationDatabase) : JournalE
                 require(entry.id == entryId) { "Another journal already exists for this date; reload before editing" }
                 var changed = false
                 if (existing == null) {
-                    require(page.order == dao.pages(entryId).size) { "Pages must be appended in order" }
+                    require(!page.archived && edit.setArchived != true) { "A new journal page must be active" }
+                    require(page.order == (dao.pages(entryId).maxOfOrNull { it.pageOrder } ?: -1) + 1) { "Pages must be appended in order" }
                     dao.insertPage(PageRow(pageId, entryId, page.order, page.width, page.height, page.paper.name,
                         page.metadata.createdAt.toString(), at, 1))
                     changed = true
                 } else {
                     require(existing.entryId == entryId && existing.pageOrder == page.order &&
                         existing.width == page.width && existing.height == page.height && existing.paper == page.paper.name)
+                }
+                // Only an explicit archival command changes visibility. A late, correctly
+                // targeted gesture must not restore a page using a stale page descriptor.
+                edit.setArchived?.let { archived ->
+                    require(existing != null) { "Archive only persisted pages" }
+                    if (existing.archived != archived) {
+                        require(!archived || dao.pages(entryId).count { !it.archived } > 1) { "Keep at least one active page" }
+                        dao.setArchived(pageId, archived)
+                        changed = true
+                    }
                 }
                 edit.remove.forEach {
                     val previous = dao.stroke(it.toString())
@@ -92,7 +103,7 @@ private fun metadata(id: String, created: String, updated: String, revision: Lon
     RecordMetadata(Uuid.parse(id), Instant.parse(created), Instant.parse(updated), schema, revision)
 
 private fun PageRow.toDomain() = JournalPage(metadata(id, createdAt, updatedAt, revision, schemaVersion),
-    Uuid.parse(entryId), pageOrder, width, height, PaperTemplate.valueOf(paper))
+    Uuid.parse(entryId), pageOrder, width, height, PaperTemplate.valueOf(paper), archived)
 
 private fun StrokeRow.toDomain() = InkStroke(metadata(id, createdAt, updatedAt, revision, schemaVersion),
     Uuid.parse(pageId), strokeOrder, BrushTool.valueOf(tool), colorArgb, width, StrokePointCodec.decode(points), formatVersion)

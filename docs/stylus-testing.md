@@ -128,3 +128,41 @@ queues remain memory-only and must not be described as surviving a process kill.
 
 Automated PDF pixel assertions and synthetic notebook stylus tests do not replace
 these physical/provider checks. Xiaomi latency and palm rejection remain unverified.
+
+## Phase3.1 Xiaomi Pad7 acceptance (repeat after corrective APK)
+
+Earlier physical testing reported narrow paper and approximately one-inch ink offset.
+A software cause is confirmed in compiled code; the following hardware retest remains
+pending. Record APK/commit/certificate, Android/HyperOS/stylus model, density, screen
+orientation and observed error in pixels or dp. Do not treat emulator results as a
+physical accuracy measurement.
+
+- [ ] Create and verify a complete backup in the installed Phase3 app and copy it off
+      the tablet. Compare signing certificate digests before an in-place update. Never
+      uninstall/clear data to bypass a signature mismatch; use safe-android-upgrade.md.
+- [ ] Open Daily Journal at default view and Fit Width. Paper should use the editor's
+      width with small margins; pan vertically without changing line spacing or aspect.
+- [ ] Compare physical tip, wet ink and dry ink at center and all four page corners,
+      using pan when needed. Repeat at1×/1.5×/2× with translated viewports in both
+      orientations. Record displacement; aim for a few pixels/approximately5dp.
+- [ ] Enable debug Settings → Input alignment diagnostic. Compare magenta touch and
+      cyan expected markers with actual ink. Photograph a fixed contact if offset
+      remains; disable the overlay afterward. No Xiaomi-specific compensation exists.
+- [ ] Write a small diagonal, dots, loops and fine text with pen and highlighter;
+      compare contact alignment and pressure. Erase exactly at the visible stroke.
+- [ ] Wait for saving, reopen and rotate. Previously saved strokes must retain their
+      intended logical positions without rewriting stored coordinates.
+- [ ] Test Monthly Planner default landscape/portrait, Fit Calendar, Calendar Writing
+      Width and pinch/pan; verify cell clipping, date taps and Back restoration.
+- [ ] Repeat fine-position tests on blank/ruled/dotted/grid notebook pages.
+- [ ] Add multiple journal pages, start a stroke, open Delete Page, cancel once and
+      confirm once. The gesture must finish on its original page, with no lost ink.
+- [ ] Confirm the last active page's Delete action is disabled and explained. Restore
+      archived pages, add new pages, repeat deletion/restoration and recreate/reopen.
+      Original order, UUIDs and exact vectors must remain recoverable.
+- [ ] Verify archived journal pages survive full backup/restore and labelled PDF/JSON/
+      native export; verify an original Phase3 backup restores into the corrected app.
+
+Uniform full-page fits may leave centered aspect-ratio letterboxing; stretching width
+and height independently is forbidden. Large grey areas caused by unscaled logical
+pixel rendering are the corrected defect, not a background-colour change.

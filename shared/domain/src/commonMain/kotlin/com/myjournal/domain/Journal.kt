@@ -42,6 +42,7 @@ data class JournalPage(
     val width: Float = 1000f,
     val height: Float = 1414f,
     val paper: PaperTemplate = PaperTemplate.RULED,
+    val archived: Boolean = false,
 ) {
     init {
         require(order >= 0)
@@ -50,8 +51,10 @@ data class JournalPage(
 }
 
 data class JournalEntry(val metadata: RecordMetadata, val date: LocalDate, val pages: List<JournalPage>) {
+    val activePages get() = pages.filterNot { it.archived }.sortedBy { it.order }
+    val archivedPages get() = pages.filter { it.archived }.sortedBy { it.order }
     init {
-        require(pages.isNotEmpty())
+        require(pages.isNotEmpty() && pages.any { !it.archived }) { "A journal must retain an active page" }
         require(pages.all { it.entryId == metadata.id })
         require(pages.map { it.metadata.id }.distinct().size == pages.size)
         require(pages.map { it.order }.distinct().size == pages.size)
@@ -64,6 +67,7 @@ data class PageEdit(
     val page: JournalPage,
     val put: List<InkStroke> = emptyList(),
     val remove: Set<Uuid> = emptySet(),
+    val setArchived: Boolean? = null,
 ) {
     init {
         require(put.all { it.pageId == page.metadata.id })

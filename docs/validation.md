@@ -1,15 +1,26 @@
-# Validation — Phase 3
+# Validation — Phase 3.1
 
-Branched from latest merged/validated main a042672 (Phase2 PR#3) on
-phase-3-notebook-export-backup. Validation date: 2026-11-03. Main is not modified.
-Existing Kotlin/Compose/AGP/Gradle/Room/SQLite/Ink versions are preserved; the only
-new production library is stable serialization-json1.11.0 for portable records.
+2026-11-05. Branch fix/phase-3-1-tablet-ink-layout starts at latest merged main2c82a17
+(Phase3 PR#4). Application ID and Kotlin/Compose/AGP/Gradle/Ink versions are preserved.
+Main is not modified. Physical Xiaomi tests reported sizing/offset issues; corrective
+hardware acceptance is still pending, not claimed from synthetic events.
 
-## Local checks
+## Confirmed software evidence
 
-Linux/WSL2 amd64, Temurin JDK21.0.13, Gradle9.7.0, SDK platform37.0 / Build Tools36.0.0.
-Tool installations/caches remain outside the repository; no SDK path, APK, credentials
-or generated build artifacts are committed. Room schema exports are intentional source.
+Bytecode from the original dry/wet anonymous View classes calls child View.getMatrix()
+at both Canvas.concat and CanvasStrokeRenderer.draw. That inherited identity property
+shadowed the outer matrix, whereas input inverted the correct page transform. Bytecode
+from the repaired classes calls JournalCanvas.access$getPageToViewMatrix instead.
+The exact pinned Ink1.0.0 source JAR confirms the renderer argument does not itself
+apply a Canvas transformation. See tablet-ink-alignment.md for pipeline/examples.
+Stored point coordinates/LJPT1 and calendar geometry version1 are not rewritten.
+
+## Local Android/JVM checks
+
+Linux/WSL2, Temurin JDK21.0.13, SDK platform37.0/Build Tools36.0.0 and Gradle9.7.0.
+Tools/caches live outside the repository. No SDK paths, keys, passwords or APK/build
+outputs are committed. The small frozen Phase3 ZIP/JSON files are synthetic compatibility
+fixtures intentionally kept under jvmTest/resources, not application backups/artifacts.
 
 ```sh
 ./gradlew :shared:core:jvmTest :shared:domain:jvmTest :shared:data:jvmTest \
@@ -17,96 +28,91 @@ or generated build artifacts are committed. Room schema exports are intentional 
   :apps:desktop:classes :apps:android:assembleDebugAndroidTest
 ```
 
-Full suite: **BUILD SUCCESSFUL in 1m14s; 178 tasks (37 executed,141 up-to-date)**.
-JUnit XML confirms **64 JVM tests, zero failures/errors/skips**. All 46 Phase1/2 tests
-are retained, plus 18 Phase3 cases:
+Full local suite: **BUILD SUCCESSFUL in2m15s;179 tasks(34 executed,145 up-to-date)**.
+71 JVM tests passed, zero failures/errors/skips. All64 Phase1–3 tests remain plus:
 
-| New suite | Passed |
-| --- | ---: |
-| NotebookEditorTest | 4 |
-| CommittedWritesTest | 3 |
-| NotebookRepositoryTest | 1 |
-| BackupRoundTripTest | 4 |
-| BackupCorruptionTest | 5 |
-| SchemaThreeMigrationTest | 1 |
+- JournalArchiveTest:4 — last-page constraint, exact archive/restore/order/identity,
+  failed writes/late bound gestures/navigation/retry and repeated deletion/restoration.
+- JournalArchiveRepositoryTest:2 — transactional/idempotent archive, late writes,
+  reopening, exact vectors, full backup/restore/PDF preservation, and authentic old
+  Phase3 ZIP/JSON reading/restoration into schema5.
+- SchemaFourMigrationTest:1 — committed schema4 SQL with every prior module populated,
+  first journal read, default-active pages and exact metadata/vector preservation.
 
-Coverage includes notebook create/rename/page order/templates/archive/restore, exact
-Undo/Redo, lazy bounded caches and failed/native-bound work, save barriers across
-all four modules and timeout/error refusal, real-file notebook reopening, all-module
-backup validation/restore/reopen with exact IDs/timestamps/revisions/point bytes,
-editable restored ink, JSON/native-vector round trips, and failed/interrupted write
-rollback after earlier replacement mutations. Invalid graphs never change current data.
+All earlier migration tests retain their original data assertions and now run through
+1→2→3→4→5. Schema exports1–4 remain unchanged;5 is exported. Schema4 fixture construction
+was batched in one SQL transaction after tracing a test timeout to its per-row file
+writes, before migration was reached. No production initialization workaround or test
+timeout increase was used for that fixture issue.
 
-Corruption cases include malformed manifests/JSON, missing/extra entries, checksums,
-unsupported schema/point versions, duplicate IDs/dates/completions, orphan ownership,
-corrupt LJPT, truncated ZIP, duplicate paths, traversal/absolute/backslash paths,
-expansion limits and deep JSON. Schema3 is built from its committed SQL/hash with all
-prior modules populated, then migrated to4 and compared exactly. Older schema1/2
-migration tests now run through the full chain to4. Schemas1/2/3 remain unchanged.
+Android debug APK, lint, desktop classes and instrumentation APK compile successfully.
+No iOS/Xcode or desktop GUI session was executed. Apple targets remain opt-in; no Xcode
+was required for Android/JVM. Local connected testing remains unavailable because
+this user lacks /dev/kvm access and no device is attached. The full final implementation passes both hosted jobs; execution evidence is below.
 
-The tests found and fixed transaction-local temporary page-order validation and
-snapshot initialization before old-schema migration. No destructive fallback or
-flattening was used. Notebook background changes now explicitly invalidate native
-paper rendering while preserving all vectors; per-book remembered page selection
-falls back correctly when a different book's saved page ID is supplied.
+## Android rendering/UI coverage
 
-Android debug build, lint, desktop classes and instrumentation APK assembly pass.
-Lint/Gradle/test-rule deprecation and Room expect/actual notices remain non-blocking.
-No desktop GUI session or iOS/Xcode build was run; Apple targets remain opt-in and
-Android/JVM checks require no Xcode. shared/ui has no separate test cases.
+18 Android instrumentation tests compile: all13 existing cases plus three
+CanvasRenderAlignmentTest methods, one JournalPageArchiveUiTest and one
+EditorHeaderLayoutTest. Pixel tests use
+hardware-window PixelCopy, not software drawing substitutes or only serialized points.
+They compare physical contacts with wet/dry/Room-reloaded red-pixel centroids within5
+screen pixels at1×/1.5×/2×, logical page corners/center, translated viewports, diagonal
+strokes, actual system display rotation, eraser hits, notebook templates/highlighter
+and calendar cell clipping/date taps. Nonzero native parent offsets exercise window
+coordinate handling. EditorHeaderLayoutTest prevents autosave status from moving/resizing the editor.
+The UI test verifies actual Compose/native child bounds and
+right-edge Fit Width paper pixels, active gesture handoff, confirmation/cancel,
+last-page disabling, selection/counts, archived vectors and restoration after recreation.
+Hosted [run41977721629](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41977721629)
+on implementation fbf2318 passed both jobs. Downloaded reports confirm71 JVM and17
+Android cases with zero failures/errors/skips; the Android cases completed in114.766s.
+The strengthened saved-vector/rotated-size test follow-up dd1f746 also passed both jobs
+in [run41978339799](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41978339799).
+The final implementation/test follow-up8c88139 passed both jobs in
+[run41980697532](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41980697532).
+Downloaded final JUnit XML confirms **71 JVM and18 Android tests, zero failures,
+errors or skips**. EditorHeaderLayoutTest verifies stable writing bounds across save
+states. JournalPageArchiveUiTest additionally injects screen-coordinate stylus events
+through the real Window/Compose/AndroidView path, compares resulting ink centroids
+within5 pixels, and checks the native origin is unchanged after autosave. No hardware
+tip calibration is claimed from these synthetic tests.
 
-## Android execution
+Validated final-source artifacts:
 
-Hosted [run41628469399](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41628469399)
-on implementation commit16bd0bc passed both verify and android-input jobs. Downloaded
-JUnit XML confirms **64 JVM and13 Android tests, zero failures/errors/skips**.
-All eight Phase1/2 Android regressions are retained, plus NotebookUiTest(1),
-PdfExportTest(2) and BackupOperationsTest(2). The13 Android cases completed in108.173s
-on the API36 Pixel Tablet KVM emulator. Lint has no errors; seven non-blocking warnings
-are version notices/UseKtx suggestions. The existing CI workflow is unchanged.
+- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41980697532/artifacts/13393219851)
+- [JVM/lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41980697532/artifacts/13393369460)
+- [Android rendering/UI reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41980697532/artifacts/13394445433)
 
-Validated artifacts:
+After the autosave header change, local targeted Android build/lint/desktop/instrument
+assembly also passed in12s(165 tasks;30 executed,135 up-to-date), and final screen-input
+instrumentation assembly passed in1s. Full hosted verification includes all current
+source/tests. The local debug APK is23,436,279 bytes, SHA-256
+`93fcfa13fdc1c9f7e628a68287f8fdb522aa71c51b733a2ed9497cef3fcc0e8c`;
+its path is apps/android/build/outputs/apk/debug/android-debug.apk. CI signatures/bytes
+can differ. A documentation-only follow-up records these results; implementation and
+tests are unchanged from passing8c88139. Existing PDF pixel, backup/restore,
+habit/navigation/stylus tests remain enabled in the same CI job.
 
-- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41628469399/artifacts/13226348547)
-- [JVM/lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41628469399/artifacts/13227002819)
-- [Android input/UI/PDF/backup reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41628469399/artifacts/13226589255)
+## Signing and device limits
 
-The local debug APK is `apps/android/build/outputs/apk/debug/android-debug.apk`,
-23,369,152 bytes; SHA-256
-`0f6944f0902e1849fe6fadcd3a03187bffb005bd48dccc4f7a1db48aa2966d96`.
-Hosted APK bytes/signing keys can differ; retain a consistent key for in-place updates.
+Optional LIFEAPP_SIGNING_* environment configuration supports the original external
+keystore without committed keys/passwords. SigningReport compares the builder's default
+certificate with explicitly configured use of that same existing key. The installed
+Xiaomi certificate is unavailable here; compatibility is not inferred from an APK build.
+Read-only apksigner checks confirm the previously linked Phase3 CI artifact's signer
+is different from the first correction CI artifact's signer (public digests are recorded
+in safe-android-upgrade.md). Those two APKs cannot update one another in place.
+Follow safe-android-upgrade.md: create/verify/copy a Phase3 backup first, compare installed
+and candidate certificate SHA-256, use the original private key and adb install -r.
+Do not uninstall/clear data to bypass a mismatch. A discarded CI runner key cannot be
+recovered from the artifact's public APK. CI debug APKs are not guaranteed matching keys.
 
-A documentation-only follow-up records these results; source/tests remain identical
-to the passing implementation commit above. The correction branch targets main and
-is not merged automatically.
+Repeat the Phase3.1 checklist in stylus-testing.md on Xiaomi Pad7 for real tip/contact
+alignment, pressure/palm/hover/latency, both orientations, fit modes, deletion/recovery
+and original-backup restoration after a matching-key update. None is claimed completed.
 
-New tests inject native stylus events in Notebook, change templates/order/archive,
-recreate the Activity, rasterize PDFs with PdfRenderer for visible pen/highlighter
-colour/alpha/geometry/background/order assertions, exercise the CreateDocument result
-contract, verify selected-file backup output, clean/replacement restore, mandatory
-verified recovery, cache rebuild and corrupt input refusal against isolated data.
-The file-picker contract test intercepts its result with a test file URI; actual
-third-party provider interaction/durability remains a manual check.
-
-No local device is connected and /dev/kvm is unavailable to this user. The previous
-software emulator did not complete boot and was stopped; no local connected-test
-success is claimed. Physical Xiaomi testing is explicitly deferred, not a Phase3 blocker.
-
-## Limits and remaining validation
-
-Read backup-format.md, backup-restore.md and export-formats.md for exact format,
-bounds, transaction and recovery behavior. Full snapshots allow50,000 records and
-2,000,000 points; ZIP compressed/expanded total64MiB; record/manifest JSON8MiB each.
-Oversized operations fail rather than silently omit content. PDF is ≤500 pages/128MiB.
-Backups are unencrypted and checksums do not authenticate their author. A failed
-provider write can leave a partial destination; success requires reread verification.
-
-Pending/in-progress edits remain memory-only until committed and can be lost on
-unexpected process death. Undo/Redo is session-only and can be unloaded with saved
-cache entries. Restored committed content is editable; no guarantee is made that
-unfinished provider writes survive power loss. PDF pressure/brush smoothing is a
-controlled approximation of native Ink, not a pixel-identical mesh rendering.
-
-All physical Xiaomi latency/palm/pressure/edge/large-page/orientation/provider checks
-remain pending in stylus-testing.md. No hardware validation or cloud/account/sync,
-iOS editing, Windows editing, handwriting recognition or Phase4 work is claimed.
+Unchanged limits: pending edits/Undo are memory-only until committed/session history
+is unloaded; full snapshots50,000 records/2,000,000 points, ZIP64MiB compressed/expanded,
+JSON8MiB each, PDF500 pages/128MiB. Backups are unencrypted/checksummed, PDF brush fidelity
+is approximate, actual provider durability needs device testing. No Phase4 work.

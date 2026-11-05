@@ -14,7 +14,7 @@ class RoomSnapshotRepository(private val database: FoundationDatabase) : Snapsho
         // transaction; opening an old database from an outer read can stall upgrade.
         dao.metadata()
         database.useReaderConnection { connection -> connection.deferredTransaction {
-            val pages = dao.pages().map { JournalPage(notebookMeta(it.id,it.createdAt,it.updatedAt,it.revision,it.schemaVersion), Uuid.parse(it.entryId),it.pageOrder,it.width,it.height,PaperTemplate.valueOf(it.paper)) }
+            val pages = dao.pages().map { JournalPage(notebookMeta(it.id,it.createdAt,it.updatedAt,it.revision,it.schemaVersion), Uuid.parse(it.entryId),it.pageOrder,it.width,it.height,PaperTemplate.valueOf(it.paper),it.archived) }
             val entries = dao.entries().map { JournalEntry(notebookMeta(it.id,it.createdAt,it.updatedAt,it.revision,it.schemaVersion), LocalDate.parse(it.date),pages.filter { p -> p.entryId.toString() == it.id }.sortedBy { p -> p.order }) }
             require(entries.sumOf { it.pages.size } == pages.size) { "Orphan journal pages in database" }
             val planners = dao.planners().map { MonthlyPlanner(notebookMeta(it.id,it.createdAt,it.updatedAt,it.revision,it.schemaVersion),CalendarLayout(JournalMonth.parse(it.month),it.layoutVersion,it.rows,it.width,it.headerHeight,it.cellHeight)) }
@@ -55,7 +55,7 @@ class RoomSnapshotRepository(private val database: FoundationDatabase) : Snapsho
             dao.insertMetadataRow(snapshot.metadata.map { MetadataRow(it.id.toString(),it.createdAt.toString(),it.updatedAt.toString(),it.schemaVersion,it.revision) })
             dao.insertEntryRow(snapshot.journals.map { EntryRow(it.metadata.id.toString(),it.date.toString(),it.metadata.createdAt.toString(),it.metadata.updatedAt.toString(),it.metadata.revision,it.metadata.schemaVersion) })
             val journalPages = snapshot.journals.flatMap { it.pages }
-            dao.insertPageRow(journalPages.map { PageRow(it.metadata.id.toString(),it.entryId.toString(),it.order,it.width,it.height,it.paper.name,it.metadata.createdAt.toString(),it.metadata.updatedAt.toString(),it.metadata.revision,it.metadata.schemaVersion) })
+            dao.insertPageRow(journalPages.map { PageRow(it.metadata.id.toString(),it.entryId.toString(),it.order,it.width,it.height,it.paper.name,it.metadata.createdAt.toString(),it.metadata.updatedAt.toString(),it.metadata.revision,it.metadata.schemaVersion,it.archived) })
             val journalIds = journalPages.map { it.metadata.id }.toSet()
             dao.insertStrokeRow(snapshot.strokes.filter { it.pageId in journalIds }.map { StrokeRow(it.metadata.id.toString(),it.pageId.toString(),it.order,it.tool.name,it.colorArgb,it.width,StrokePointCodec.encode(it.points),it.metadata.createdAt.toString(),it.metadata.updatedAt.toString(),it.metadata.revision,it.metadata.schemaVersion,it.formatVersion) })
             dao.insertPlannerRow(snapshot.planners.map { p -> val l=p.layout; val m=p.metadata

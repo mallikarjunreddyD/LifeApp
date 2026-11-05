@@ -33,7 +33,7 @@ page dimensions, notebook ordering, paper marks and calendar placement.
 
 SnapshotJson lives in shared/data common code and uses stable kotlinx.serialization
 JSON tree APIs (1.11.0); no Android/Room file representation is exposed. Header:
-`format: LifeAppRecords`, `formatVersion: 1`, `dataSchemaVersion: 4`.
+`format: LifeAppRecords`, `formatVersion: 1`, `dataSchemaVersion: 5`.
 Top-level arrays: metadata, journals (with pages), planners (with layout), habits
 (with definitions and completions), notebooks, notebookPages, strokes.
 
@@ -74,3 +74,9 @@ all saved records; it does not omit archived or unchecked records.
 - [Android document picker](https://developer.android.com/training/data-storage/shared/documents-files)
 
 Existing Kotlin, Compose, AGP, Gradle, Room, SQLite and Ink versions are retained.
+
+Phase3.1 adds explicit journal-page archived visibility to data schema5 and retains
+schema4 readers (missing visibility means active). Full date-range PDFs include
+archived pages labelled as such, preserving original order and vectors. The PDF
+renderer itself is unchanged: the native View.matrix correction does not alter
+exported/source point coordinates or the controlled PDF rendering adapter.

@@ -42,7 +42,17 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
     private var viewport = Viewport()
     private var transform = PageTransform(1f, 0f, 0f)
     internal fun viewPosition(x: Float, y: Float) = transform.toScreen(x, y)
-    private val matrix = Matrix()
+    internal fun pagePosition(x: Float, y: Float) = transform.toPage(x, y)
+    internal val nativeInkReady get() = strokes.all { it.metadata.id in nativeStrokes }
+    internal val currentViewport get() = viewport
+    companion object { var debugAlignmentEnabled = false }
+    private data class Contact(val x: Float, val y: Float, val logicalX: Float, val logicalY: Float)
+    private var diagnosticContact: Contact? = null
+    private val diagnosticPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val isDebuggable get() = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+    // Do not call this `matrix`: anonymous child Views inherit View.getMatrix(),
+    // which otherwise silently shadows this page transform inside their onDraw.
+    private val pageToViewMatrix = Matrix()
     private var selectedTool = EditorTool.PEN
     private var selectedColor = 0xFF252A30L
     private var selectedWidth = 2.8f
@@ -69,7 +79,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
         override fun onDraw(canvas: Canvas) {
             val p = page ?: return
             canvas.drawColor(Color.rgb(230, 229, 222))
-            canvas.save(); canvas.concat(matrix); canvas.clipRect(0f, 0f, p.width, p.height)
+            canvas.save(); canvas.concat(this@JournalCanvas.pageToViewMatrix); canvas.clipRect(0f, 0f, p.width, p.height)
             PaperDrawing.draw(canvas, paperPaint, p)
             for (stroke in strokes) if (stroke.metadata.id !in erased) nativeStrokes[stroke.metadata.id]?.let { native ->
                 canvas.save()
@@ -78,7 +88,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
                         val cell = layout.cell(date.day); canvas.clipRect(cell.left, cell.top, cell.right, cell.bottom)
                     }
                 }
-                renderer.draw(canvas, native, matrix)
+                renderer.draw(canvas, native, this@JournalCanvas.pageToViewMatrix)
                 canvas.restore()
             }
             canvas.restore()
@@ -87,15 +97,29 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
     private val wet = object : View(context) {
         override fun onDraw(canvas: Canvas) {
             val p = page ?: return
-            canvas.save(); canvas.concat(matrix); canvas.clipRect(0f, 0f, p.width, p.height)
+            canvas.save(); canvas.concat(this@JournalCanvas.pageToViewMatrix); canvas.clipRect(0f, 0f, p.width, p.height)
             activeCell?.let { canvas.clipRect(it.left, it.top, it.right, it.bottom) }
-            drawing?.let { renderer.draw(canvas, it, matrix) }
+            drawing?.let { renderer.draw(canvas, it, this@JournalCanvas.pageToViewMatrix) }
             if (erasing) erasePoint?.let { (x, y) ->
                 paperPaint.color = Color.argb(100, 80, 95, 80)
                 paperPaint.style = Paint.Style.STROKE; paperPaint.strokeWidth = 1f
                 canvas.drawCircle(x, y, 16f, paperPaint); paperPaint.style = Paint.Style.FILL
             }
             canvas.restore()
+            if (isDebuggable && debugAlignmentEnabled) diagnosticContact?.let { contact ->
+                // Screen-pixel overlay is deliberately outside the page canvas transform.
+                val expected = transform.toScreen(contact.logicalX, contact.logicalY)
+                fun cross(x: Float, y: Float, color: Int, radius: Float) {
+                    diagnosticPaint.color = color; diagnosticPaint.strokeWidth = 2f
+                    canvas.drawLine(x-radius,y,x+radius,y,diagnosticPaint)
+                    canvas.drawLine(x,y-radius,x,y+radius,diagnosticPaint)
+                }
+                cross(contact.x,contact.y,Color.MAGENTA,16f)
+                cross(expected.first,expected.second,Color.CYAN,10f)
+                diagnosticPaint.color = Color.MAGENTA; diagnosticPaint.textSize = 24f
+                canvas.drawText("Touch %.1f,%.1f · Page %.1f,%.1f".format(contact.x,contact.y,contact.logicalX,contact.logicalY),12f,28f,diagnosticPaint)
+                canvas.drawText("Expected %.1f,%.1f · View %d×%d".format(expected.first,expected.second,this@JournalCanvas.width,this@JournalCanvas.height),12f,56f,diagnosticPaint)
+            }
         }
     }
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -106,7 +130,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
             val zoom = (viewport.zoom * detector.scaleFactor).coerceIn(1f, 4f)
             val scale = baseScale() * zoom
             viewport = Viewport(zoom, anchor.first + (width / 2f - detector.focusX) / scale,
-                anchor.second + (height / 2f - detector.focusY) / scale)
+                anchor.second + (height / 2f - detector.focusY) / scale, fitWholePage)
             updateTransform()
             return true
         }
@@ -130,17 +154,20 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
     fun bindSurface(page: InkSurface, strokes: List<InkStroke>, tool: EditorTool, color: Long, width: Float,
         viewport: Viewport, onViewport: (Viewport) -> Unit,
         onStroke: (BrushTool, Long, Float, List<InkPoint>) -> InkStroke?, onErase: (Set<Uuid>) -> Unit,
-        fitPage: Boolean = false, onDateTap: (LocalDate) -> Unit = {}) {
+        fitPage: Boolean = viewport.fitPage, onDateTap: (LocalDate) -> Unit = {}) {
+        val surfaceChanged = this.page?.id != page.id
         val paperChanged = this.page != page
         val geometryChanged = fitWholePage != fitPage
+        if (surfaceChanged || geometryChanged) finishInProgress()
         fitWholePage = fitPage
+        this.onViewport = onViewport
         this.onDateNumberTap = onDateTap
         contentDescription = if (page.calendar == null) "Ruled journal page. Write with a stylus. Use a finger to pan and two fingers to zoom."
             else "Monthly calendar. Stylus writes in cells. Tap date numbers with a finger to open the daily journal."
-        if (this.page == null) { this.viewport = viewport; this.page = page; updateTransform() }
+        if (surfaceChanged) { this.viewport = viewport.copy(fitPage = fitPage); this.page = page; updateTransform() }
         this.page = page
         if (paperChanged) dry.invalidate()
-        if (geometryChanged) { finishInProgress(); updateTransform() }
+        if (geometryChanged) { this.viewport = this.viewport.copy(fitPage = fitPage); updateTransform() }
         this.selectedTool = tool; this.selectedColor = color; this.selectedWidth = width
         this.onViewport = onViewport; this.onStroke = onStroke; this.onErase = onErase
         if (this.strokes != strokes) {
@@ -179,15 +206,17 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
         val p = page ?: return
         if (width == 0 || height == 0) return
         val scale = baseScale() * viewport.zoom
-        val tx = (width / 2f - viewport.centerX * scale).coerceIn(min(0f, width - p.width * scale), 0f)
-        val ty = (height / 2f - viewport.centerY * scale).coerceIn(min(0f, height - p.height * scale), 0f)
+        val tx = if (fitWholePage && p.width * scale < width) (width - p.width * scale) / 2 else
+            (width / 2f - viewport.centerX * scale).coerceIn(min(0f, width - p.width * scale), 0f)
+        val ty = if (fitWholePage && p.height * scale < height) (height - p.height * scale) / 2 else
+            (height / 2f - viewport.centerY * scale).coerceIn(min(0f, height - p.height * scale), 0f)
         transform = PageTransform(scale, tx, ty)
-        matrix.setValues(floatArrayOf(scale, 0f, tx, 0f, scale, ty, 0f, 0f, 1f))
-        this.viewport = Viewport(viewport.zoom, (width / 2f - tx) / scale, (height / 2f - ty) / scale)
+        pageToViewMatrix.setValues(floatArrayOf(scale, 0f, tx, 0f, scale, ty, 0f, 0f, 1f))
+        this.viewport = Viewport(viewport.zoom, (width / 2f - tx) / scale, (height / 2f - ty) / scale, fitWholePage)
         onViewport(this.viewport)
         dry.invalidate(); wet.invalidate()
     }
-    fun resetViewport() { finishInProgress(); viewport = Viewport(); updateTransform() }
+    fun resetViewport(fitPage: Boolean = false) { finishInProgress(); fitWholePage = fitPage; viewport = Viewport(fitPage = fitPage); updateTransform() }
     override fun onInterceptTouchEvent(event: MotionEvent) = true
 
     @SuppressLint("ClickableViewAccessibility")
@@ -287,6 +316,7 @@ class JournalCanvas(context: Context) : FrameLayout(context) {
                 }
                 erasePoint = point.x to point.y
             } else batch.add(InputToolType.STYLUS, point.x, point.y, point.elapsedMillis, pressure = point.pressure ?: 1f)
+            if (isDebuggable && debugAlignmentEnabled) diagnosticContact = Contact(x,y,point.x,point.y)
             points.add(point)
         }
         for (history in 0 until event.historySize)

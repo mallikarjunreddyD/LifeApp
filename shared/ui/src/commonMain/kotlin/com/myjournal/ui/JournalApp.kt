@@ -46,9 +46,14 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
             BoxWithConstraints(Modifier.safeDrawingPadding()) {
                 val wide = maxWidth >= 720.dp
                 Column {
-                    globalStatus?.invoke()
-                    Text("My Journal", style = MaterialTheme.typography.headlineLarge,
-                        modifier = Modifier.padding(24.dp))
+                    // Saving a gesture must not insert a row above the paper and
+                    // move the contact origin while the next gesture is underway.
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("My Journal", style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                        Column(Modifier.weight(1f)) { globalStatus?.invoke() }
+                    }
                     Row(Modifier.weight(1f)) {
                         if (wide) NavigationRail {
                             AppSection.entries.forEach { destination ->

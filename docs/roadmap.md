@@ -24,3 +24,8 @@ Do not begin Phase 4 automatically. Physical Xiaomi checks remain explicitly def
 Future directions are unimplemented. No cloud provider, AI recognition, Daily
 Highlights, gamification, account system or online service was added. Each next
 phase needs explicit authorization and its own acceptance/tests/documentation.
+
+Phase3.1 corrective work addresses tablet ink/workspace matrix resolution and safe
+journal-page archival before Phase4. Physical accuracy retesting is pending; the
+architecture/format/validation documents distinguish software evidence from hardware
+measurement. No Phase4 implementation is authorized by this correction.

@@ -27,6 +27,7 @@ data class PageRow(
     val updatedAt: String,
     val revision: Long,
     val schemaVersion: Int = 1,
+    @ColumnInfo(defaultValue = "0") val archived: Boolean = false,
 )
 
 @Entity(tableName = "ink_strokes",
@@ -61,6 +62,8 @@ interface JournalDao {
     suspend fun strokes(id: String): List<StrokeRow>
     @Query("SELECT * FROM ink_strokes WHERE id = :id")
     suspend fun stroke(id: String): StrokeRow?
+    @Query("UPDATE journal_pages SET archived = :archived WHERE id = :id")
+    suspend fun setArchived(id: String, archived: Boolean)
     @Insert suspend fun insertEntry(row: EntryRow)
     @Insert suspend fun insertPage(row: PageRow)
     @Insert suspend fun insertStroke(row: StrokeRow)

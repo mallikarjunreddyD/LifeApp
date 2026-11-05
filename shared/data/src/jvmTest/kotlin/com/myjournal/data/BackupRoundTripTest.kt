@@ -12,7 +12,7 @@ import kotlin.test.*
 
 class BackupRoundTripTest {
     private fun database(file: File, driver: SQLiteDriver = BundledSQLiteDriver()) = Room.databaseBuilder<FoundationDatabase>(file.path)
-        .setDriver(driver).setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4).build()
+        .setDriver(driver).setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4, MIGRATION_4_5).build()
     @Test fun completeArchiveRestoresExactEditableStateAcrossRealDatabaseReopening() = runTest {
         val directory=Files.createTempDirectory("lifeapp-roundtrip").toFile()
         val original=backupFixture()

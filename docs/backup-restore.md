@@ -61,3 +61,22 @@ Tests inject database write failures and cancellation after earlier replacement 
 and verify every original record survives. Real-file round trips compare all metadata
 and exact point bytes and then erase/reinsert restored notebook ink to prove editability.
 Physical Xiaomi testing and third-party document-provider durability remain pending.
+
+## Phase3.1 updates and archived journal pages
+
+The existing Phase3 app can create a complete verified backup before installing an
+update. Preserve that file off the tablet. Phase3.1 accepts original schema4 archives
+with all journal pages active, and writes schema5 with explicit archived page flags.
+Both active and deleted/recoverable pages retain their vectors/order/metadata through
+backup and restore. New schema5 archives require Phase3.1 or later.
+
+Delete Page is reversible visibility, not stroke deletion. It requires confirmation;
+the last active page is protected in both editor and repository. Pending edits remain
+FIFO and target original page UUIDs; late gestures cannot reassign or unarchive pages.
+Restore Pages returns them to normal navigation at original order. Page/entry updated
+metadata advances; creation times and immutable stroke metadata are preserved.
+
+Before upgrading the installed app, follow safe-android-upgrade.md: compare signing
+certificates, use the original private key and install with -r. CI debug signatures
+may differ; never uninstall or erase data to resolve a mismatch. Tablet certificate
+compatibility cannot be inferred from successful compilation or emulator tests.
