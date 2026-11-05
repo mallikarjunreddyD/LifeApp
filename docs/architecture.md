@@ -1,6 +1,6 @@
 # Architecture — Phase 3.1
 
-Phase 3 branches from merged Phase 2 main a042672. Android on Xiaomi Pad 7 remains
+Phase 3.1 branches from merged Phase 3 main2c82a17. Android on Xiaomi Pad 7 remains
 primary. Shared Android/JVM targets build without Xcode; iOS arm64 targets remain
 opt-in with `-PenableIos=true`. Existing toolchain/core dependency versions are unchanged; stable serialization JSON1.11.0 is added.
 

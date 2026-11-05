@@ -61,8 +61,8 @@ merging and synchronization/conflict policy are intentionally absent.
 
 Archive format stays1; new writers declare dataSchemaVersion5 in manifest/data.json
 and include a boolean archived on every journal page. Manifest and payload schema
-versions must match. Schema5 requires the visibility field; schema4 readers in this
-app default missing journal visibility to false. Both4 and5 are accepted; unknown
+versions must match. Schema5 requires the visibility field; when reading schema4, this
+app defaults missing journal visibility to false. Both4 and5 are accepted; unknown
 versions are rejected. Frozen Phase3 ZIP/JSON fixtures generated using the original
 codec prove backward reading and restoration. Previously exported schema4 backups
 remain supported. Older Phase3 apps cannot read new schema5 exports; keep an original

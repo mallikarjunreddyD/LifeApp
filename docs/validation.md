@@ -48,7 +48,7 @@ timeout increase was used for that fixture issue.
 Android debug APK, lint, desktop classes and instrumentation APK compile successfully.
 No iOS/Xcode or desktop GUI session was executed. Apple targets remain opt-in; no Xcode
 was required for Android/JVM. Local connected testing remains unavailable because
-this user lacks /dev/kvm access and no device is attached. The first hosted run passed both jobs; final header-regression execution is pending.
+this user lacks /dev/kvm access and no device is attached. The full final implementation passes both hosted jobs; execution evidence is below.
 
 ## Android rendering/UI coverage
 
@@ -69,8 +69,29 @@ on implementation fbf2318 passed both jobs. Downloaded reports confirm71 JVM and
 Android cases with zero failures/errors/skips; the Android cases completed in114.766s.
 The strengthened saved-vector/rotated-size test follow-up dd1f746 also passed both jobs
 in [run41978339799](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41978339799).
-The new18th case checks writing-surface bounds across pending/committed save status;
-its hosted execution will be recorded separately. No unexecuted case is called passed. Existing PDF pixel, backup/restore,
+The final implementation/test follow-up8c88139 passed both jobs in
+[run41980697532](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41980697532).
+Downloaded final JUnit XML confirms **71 JVM and18 Android tests, zero failures,
+errors or skips**. EditorHeaderLayoutTest verifies stable writing bounds across save
+states. JournalPageArchiveUiTest additionally injects screen-coordinate stylus events
+through the real Window/Compose/AndroidView path, compares resulting ink centroids
+within5 pixels, and checks the native origin is unchanged after autosave. No hardware
+tip calibration is claimed from these synthetic tests.
+
+Validated final-source artifacts:
+
+- [Debug APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41980697532/artifacts/13393219851)
+- [JVM/lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41980697532/artifacts/13393369460)
+- [Android rendering/UI reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41980697532/artifacts/13394445433)
+
+After the autosave header change, local targeted Android build/lint/desktop/instrument
+assembly also passed in12s(165 tasks;30 executed,135 up-to-date), and final screen-input
+instrumentation assembly passed in1s. Full hosted verification includes all current
+source/tests. The local debug APK is23,436,279 bytes, SHA-256
+`93fcfa13fdc1c9f7e628a68287f8fdb522aa71c51b733a2ed9497cef3fcc0e8c`;
+its path is apps/android/build/outputs/apk/debug/android-debug.apk. CI signatures/bytes
+can differ. A documentation-only follow-up records these results; implementation and
+tests are unchanged from passing8c88139. Existing PDF pixel, backup/restore,
 habit/navigation/stylus tests remain enabled in the same CI job.
 
 ## Signing and device limits
