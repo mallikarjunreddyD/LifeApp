@@ -71,3 +71,13 @@ source points must survive erasure undo exactly. Do not add destructive migratio
 fallbacks or flatten handwriting as primary storage.
 Run applicable checks, fix failures, and report exact blockers if tools or network
 are missing. Never call an unexecuted test passing. Keep docs/validation.md accurate.
+
+## APK signing
+
+Install/update artifacts must use the existing GitHub-secret-backed persistent key
+and match config/android-signing-certificate.sha256. Never generate a key in CI or
+silently fall back to an ephemeral signer. Keep signing secrets out of PR jobs, Git,
+logs and artifacts; runner copies belong in protected temporary storage and must be
+cleaned up. The installable artifact is my-journal-installable; diagnostic CI APKs
+are explicitly ephemeral. Do not rotate the established key/pin without an explicit
+user-approved migration plan. Losing signing identity can block in-place updates.

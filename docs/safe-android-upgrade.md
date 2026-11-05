@@ -83,3 +83,13 @@ key. The optional Gradle signing configuration was separately tested using the e
 local debug key and produced the same certificate as its default builder configuration.
 That does not establish a match to the tablet. Compare the actual installed APK before
 installing any candidate, and preserve the app/backup if its key is unavailable.
+
+## Persistent channel established after Phase3.1
+
+Version0.4.2/code6 introduces the dedicated install/update identity described in
+persistent-apk-signing.md. GitHub's my-journal-installable artifact is certificate-pinned
+to that identity; my-journal-ci-debug-ephemeral remains explicitly separate. The private
+key is retained in encrypted Actions secrets and a protected local recovery set outside
+Git. This prevents future per-run key changes after moving to the persistent channel.
+It still cannot update the original Phase3 CI certificate in place. A saved backup is
+necessary for any later one-time transition, but does not bypass signature checks.

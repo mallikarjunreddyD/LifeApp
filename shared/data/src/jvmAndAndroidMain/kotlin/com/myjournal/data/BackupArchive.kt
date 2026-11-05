@@ -19,7 +19,7 @@ object BackupArchive {
     private val json = Json { prettyPrint = true }
     data class Validated(val snapshot: JournalSnapshot, val createdAt: Instant, val appVersion: String,
         val kind: String, val counts: Map<String, Int>)
-    fun write(file: File, snapshot: JournalSnapshot, kind: String = "backup", appVersion: String = "0.4.1") {
+    fun write(file: File, snapshot: JournalSnapshot, kind: String = "backup", appVersion: String = "0.4.2") {
         require(kind in listOf("backup", "vectors")); snapshot.validate()
         val data = SnapshotJson.encode(snapshot, externalInk = true).encodeToByteArray()
         require(data.size <= MAX_JSON_BYTES) { "Record JSON exceeds 8 MiB" }

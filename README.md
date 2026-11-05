@@ -101,7 +101,7 @@ adb install -r apps/android/build/outputs/apk/debug/android-debug.apk
 ```
 
 The debug APK is under apps/android/build/outputs/apk/debug/. GitHub Actions uploads
-it as my-journal-debug plus test/lint reports, and runs Android input/UI tests on a
+it as my-journal-ci-debug-ephemeral plus test/lint reports, and runs Android input/UI tests on a
 hardware-accelerated API 36 emulator. Initial Gradle/SDK downloads need internet;
 the application itself uses no online services. Debug APKs use builder-specific
 signing keys; retain the same signing key for in-place updates. Local backup/export is available in Settings. See [validation](docs/validation.md)
@@ -127,3 +127,12 @@ configuration is still required when configuring this full Gradle project.
 
 See [architecture](docs/architecture.md), [handwriting format](docs/handwriting-format.md),
 [versions](docs/versions.md), [roadmap](docs/roadmap.md) and [development rules](AGENTS.md).
+
+## Persistent install/update APK
+
+Download **my-journal-installable** from a successful trusted main/bootstrap signing
+run. Future APKs from this channel use the same GitHub-secret-backed identity,
+verified against the public pin. Do not use the ephemeral CI-debug artifact for
+updates. See [persistent signing](docs/persistent-apk-signing.md) for key recovery,
+artifact selection and the existing Phase3 signing mismatch. Keep the saved backup
+and installed app intact while planning the first transition to this new identity.
