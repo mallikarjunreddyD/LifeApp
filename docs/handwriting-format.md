@@ -11,7 +11,7 @@ Journal dates use kotlinx.datetime.LocalDate, stored as ISO calendar dates such 
 `2026-11-03`. They are not UTC instants. A unique database index enforces one entry
 per date. Entry, page and stroke IDs are independent UUIDs, never list positions.
 Created/updated timestamps are UTC Kotlin Instants. Positive record schema versions
-and revisions are separate from Room's database version (currently 4).
+and revisions are separate from Room's database version (currently 5).
 
 Pages have an entry UUID, stable UUID, unique zero-based order within the entry,
 width/height and RULED paper template. The Android editor currently creates
@@ -111,3 +111,18 @@ PDF uses a dedicated Canvas path pressure envelope/highlighter adapter with clip
 not the native on-screen Ink renderer. It is a visual export with approximate brush
 edge smoothing, not an editable native stroke interchange file. Stored vectors remain
 editable. Markdown has no handwriting text or editable vector representation.
+
+## Phase3.1: rendering repair and reversible page visibility
+
+LJPT version1 and all saved coordinates remain unchanged. The old anonymous drawing
+Views accidentally used inherited View.getMatrix() instead of the outer page matrix.
+The repaired display applies pageToViewMatrix once to paper and ink, and supplies
+that same scale/translation hint to Ink1.0.0. Input already used the correct inverse.
+No hardcoded compensation or global transformation is applied to stored data.
+
+JournalPage.archived is stored by additive Room4→5 migration, defaultfalse for old
+pages. Archiving never erases/reorders strokes or recycles page IDs/orders. It advances
+page/entry modification metadata while preserving creation and immutable stroke
+metadata. Restore returns the page to normal navigation. Backup JSON data schema5
+stores this flag; the schema4 reader defaults it to false. All pages remain in complete
+backups/native/JSON exports and labelled PDFs. See tablet-ink-alignment.md.

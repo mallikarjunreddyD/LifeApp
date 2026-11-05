@@ -52,7 +52,7 @@ data class ExportPage(val title: String, val surface: InkSurface, val strokes: L
 fun JournalSnapshot.journalPdf(from: kotlinx.datetime.LocalDate, through: kotlinx.datetime.LocalDate): List<ExportPage> {
     require(from <= through)
     return journals.filter { it.date in from..through }.sortedBy { it.date }.flatMap { entry ->
-        entry.pages.sortedBy { it.order }.map { page -> ExportPage("${entry.date} · Page ${page.order + 1}", page.inkSurface(), strokes.filter { it.pageId == page.metadata.id }.sortedBy { it.order }) }
+        entry.pages.sortedBy { it.order }.map { page -> ExportPage("${entry.date} · Page ${page.order + 1}${if (page.archived) " (archived)" else ""}", page.inkSurface(), strokes.filter { it.pageId == page.metadata.id }.sortedBy { it.order }) }
     }
 }
 fun JournalSnapshot.plannerPdf(month: JournalMonth) = planners.filter { it.month == month }.map {

@@ -47,8 +47,8 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
                 val wide = maxWidth >= 720.dp
                 Column {
                     globalStatus?.invoke()
-                    Text("My Journal", style = MaterialTheme.typography.headlineLarge,
-                        modifier = Modifier.padding(24.dp))
+                    Text("My Journal", style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                     Row(Modifier.weight(1f)) {
                         if (wide) NavigationRail {
                             AppSection.entries.forEach { destination ->

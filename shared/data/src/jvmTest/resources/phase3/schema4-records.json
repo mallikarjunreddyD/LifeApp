@@ -1,0 +1,714 @@
+{
+    "format": "LifeAppRecords",
+    "formatVersion": 1,
+    "dataSchemaVersion": 4,
+    "metadata": [
+        {
+            "id": "bc330436-9a48-4b24-8c27-12f6f89cf005",
+            "createdAt": "2026-01-01T00:00:00.123456789Z",
+            "updatedAt": "2026-10-01T12:00:00.987654321Z",
+            "schemaVersion": 1,
+            "revision": 47
+        }
+    ],
+    "journals": [
+        {
+            "metadata": {
+                "id": "4793f6be-a92e-42e2-b98f-c19007aa7d32",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 1
+            },
+            "date": "2026-11-01",
+            "pages": [
+                {
+                    "metadata": {
+                        "id": "fb9643c4-358c-4c35-be3f-b3d6ca5133eb",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 2
+                    },
+                    "entryId": "4793f6be-a92e-42e2-b98f-c19007aa7d32",
+                    "order": 0,
+                    "width": 1000.0,
+                    "height": 1414.0,
+                    "paper": "RULED"
+                },
+                {
+                    "metadata": {
+                        "id": "06985e23-32d2-4747-add7-335c51ac125b",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 3
+                    },
+                    "entryId": "4793f6be-a92e-42e2-b98f-c19007aa7d32",
+                    "order": 1,
+                    "width": 1000.0,
+                    "height": 1414.0,
+                    "paper": "RULED"
+                }
+            ]
+        },
+        {
+            "metadata": {
+                "id": "19153f86-9b8a-4b7e-a57c-d892d0f1c195",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 4
+            },
+            "date": "2026-11-02",
+            "pages": [
+                {
+                    "metadata": {
+                        "id": "e3e312da-303e-46e5-919f-4e59f4fac8c8",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 5
+                    },
+                    "entryId": "19153f86-9b8a-4b7e-a57c-d892d0f1c195",
+                    "order": 0,
+                    "width": 1000.0,
+                    "height": 1414.0,
+                    "paper": "RULED"
+                },
+                {
+                    "metadata": {
+                        "id": "da5dffc4-ebdf-4a64-b839-1b4111757163",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 6
+                    },
+                    "entryId": "19153f86-9b8a-4b7e-a57c-d892d0f1c195",
+                    "order": 1,
+                    "width": 1000.0,
+                    "height": 1414.0,
+                    "paper": "RULED"
+                }
+            ]
+        }
+    ],
+    "planners": [
+        {
+            "metadata": {
+                "id": "b41b9cbe-ebba-43ef-9b48-e099c4c3cd93",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 7
+            },
+            "layout": {
+                "month": "2026-11",
+                "version": 1,
+                "rows": 6,
+                "width": 1400.0,
+                "headerHeight": 70.0,
+                "cellHeight": 120.0
+            }
+        },
+        {
+            "metadata": {
+                "id": "7ca24a8a-8e4b-4883-8a2f-fba714f7a0c9",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 8
+            },
+            "layout": {
+                "month": "2026-12",
+                "version": 1,
+                "rows": 5,
+                "width": 1400.0,
+                "headerHeight": 70.0,
+                "cellHeight": 120.0
+            }
+        }
+    ],
+    "habits": [
+        {
+            "metadata": {
+                "id": "5cca5158-4973-4c63-ba49-e96ddee16ceb",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 9
+            },
+            "month": "2026-11",
+            "habits": [
+                {
+                    "metadata": {
+                        "id": "88d78f2e-7f45-4067-9744-c482bd2f09fd",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 10
+                    },
+                    "ledgerId": "5cca5158-4973-4c63-ba49-e96ddee16ceb",
+                    "name": "Exercise",
+                    "order": 0,
+                    "category": "Health",
+                    "colorArgb": 4278233600,
+                    "target": 20,
+                    "archived": false
+                },
+                {
+                    "metadata": {
+                        "id": "38507008-085c-45da-bde0-b8ce129c35e5",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 11
+                    },
+                    "ledgerId": "5cca5158-4973-4c63-ba49-e96ddee16ceb",
+                    "name": "Read Books",
+                    "order": 1,
+                    "category": "Mind",
+                    "colorArgb": 4278190335,
+                    "target": 10,
+                    "archived": true
+                }
+            ],
+            "completions": [
+                {
+                    "metadata": {
+                        "id": "bf8b91d6-39d4-47ed-94e6-bd4588e26a5a",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 14
+                    },
+                    "habitId": "38507008-085c-45da-bde0-b8ce129c35e5",
+                    "date": "2026-11-12",
+                    "checked": true
+                },
+                {
+                    "metadata": {
+                        "id": "d9275d21-274c-4f7c-8d09-3eac3b60dca6",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 12
+                    },
+                    "habitId": "88d78f2e-7f45-4067-9744-c482bd2f09fd",
+                    "date": "2026-11-12",
+                    "checked": true
+                },
+                {
+                    "metadata": {
+                        "id": "fe252e7a-f970-46e4-95c8-82ed35f9292e",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 13
+                    },
+                    "habitId": "88d78f2e-7f45-4067-9744-c482bd2f09fd",
+                    "date": "2026-11-13",
+                    "checked": false
+                }
+            ]
+        },
+        {
+            "metadata": {
+                "id": "2f8955bc-2b5b-4ed0-8c13-c7840fbd9c1b",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 15
+            },
+            "month": "2026-12",
+            "habits": [
+                {
+                    "metadata": {
+                        "id": "184b9ca6-120c-449b-84d6-cb2ea2f9f4c3",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 16
+                    },
+                    "ledgerId": "2f8955bc-2b5b-4ed0-8c13-c7840fbd9c1b",
+                    "name": "Exercise",
+                    "order": 0,
+                    "category": "Health",
+                    "colorArgb": 4278233600,
+                    "target": 20,
+                    "archived": false
+                },
+                {
+                    "metadata": {
+                        "id": "3c34e7e5-330b-428b-b281-b65c628d3fd2",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 17
+                    },
+                    "ledgerId": "2f8955bc-2b5b-4ed0-8c13-c7840fbd9c1b",
+                    "name": "Read Books",
+                    "order": 1,
+                    "category": "Mind",
+                    "colorArgb": 4278190335,
+                    "target": 10,
+                    "archived": true
+                }
+            ],
+            "completions": [
+                {
+                    "metadata": {
+                        "id": "33f188a4-e97f-46ab-9957-f97e53bbe2ca",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 18
+                    },
+                    "habitId": "184b9ca6-120c-449b-84d6-cb2ea2f9f4c3",
+                    "date": "2026-12-12",
+                    "checked": true
+                },
+                {
+                    "metadata": {
+                        "id": "cb227a75-99ba-4299-bf42-41766ae7cf2a",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 20
+                    },
+                    "habitId": "3c34e7e5-330b-428b-b281-b65c628d3fd2",
+                    "date": "2026-12-12",
+                    "checked": true
+                },
+                {
+                    "metadata": {
+                        "id": "0f774fff-76dd-4dfb-822b-15d6afc09532",
+                        "createdAt": "2026-01-01T00:00:00.123456789Z",
+                        "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                        "schemaVersion": 1,
+                        "revision": 19
+                    },
+                    "habitId": "184b9ca6-120c-449b-84d6-cb2ea2f9f4c3",
+                    "date": "2026-12-13",
+                    "checked": false
+                }
+            ]
+        }
+    ],
+    "notebooks": [
+        {
+            "metadata": {
+                "id": "6f4698ad-40ce-48a7-8303-c7efa4ee62dc",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 22
+            },
+            "name": "Archived Ideas",
+            "description": null,
+            "defaultTemplate": "BLANK",
+            "archived": true
+        },
+        {
+            "metadata": {
+                "id": "e20d75ff-986b-4535-91bf-a87ab8108058",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 21
+            },
+            "name": "Research Notes",
+            "description": "Paper and vector study",
+            "defaultTemplate": "RULED",
+            "archived": false
+        }
+    ],
+    "notebookPages": [
+        {
+            "metadata": {
+                "id": "030deae6-dd5e-4e2c-aa60-c0e16cb75db5",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 23
+            },
+            "notebookId": "e20d75ff-986b-4535-91bf-a87ab8108058",
+            "order": 1,
+            "title": "Title 0",
+            "paper": "RULED",
+            "width": 1000.0,
+            "height": 1414.0,
+            "archived": false
+        },
+        {
+            "metadata": {
+                "id": "39c63b6e-9c60-4b57-b2a2-ef3833c82b90",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 26
+            },
+            "notebookId": "6f4698ad-40ce-48a7-8303-c7efa4ee62dc",
+            "order": 0,
+            "title": "Title 3",
+            "paper": "GRID",
+            "width": 1000.0,
+            "height": 1414.0,
+            "archived": true
+        },
+        {
+            "metadata": {
+                "id": "420a945f-ac01-4f05-a520-137727aa41d3",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 24
+            },
+            "notebookId": "e20d75ff-986b-4535-91bf-a87ab8108058",
+            "order": 0,
+            "title": "Title 1",
+            "paper": "BLANK",
+            "width": 1000.0,
+            "height": 1414.0,
+            "archived": false
+        },
+        {
+            "metadata": {
+                "id": "bad8b262-2d83-41cc-b356-61b752e1da26",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 25
+            },
+            "notebookId": "6f4698ad-40ce-48a7-8303-c7efa4ee62dc",
+            "order": 1,
+            "title": "Title 2",
+            "paper": "DOTTED",
+            "width": 1000.0,
+            "height": 1414.0,
+            "archived": false
+        }
+    ],
+    "strokes": [
+        {
+            "metadata": {
+                "id": "0b2882d9-dd35-4730-81af-942550261fbf",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 41
+            },
+            "surfaceId": "39c63b6e-9c60-4b57-b2a2-ef3833c82b90",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "1bfd145f-9665-4c23-9fa2-1f32421190c4",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 29
+            },
+            "surfaceId": "06985e23-32d2-4747-add7-335c51ac125b",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "41c858ee-ee10-438b-bff8-95884d4e2a9f",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 27
+            },
+            "surfaceId": "fb9643c4-358c-4c35-be3f-b3d6ca5133eb",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "457cfc46-a742-4246-b192-053370ac2004",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 43
+            },
+            "surfaceId": "420a945f-ac01-4f05-a520-137727aa41d3",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "53348d11-c961-4b82-96d3-ec2ef51eab99",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 35
+            },
+            "surfaceId": "b41b9cbe-ebba-43ef-9b48-e099c4c3cd93",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAIAxRAAAw0MAAIA+AAAAAAAAAAAAgDtEAADIQ2ZmZj8RAAAAAAAAAACAQEQAAM1DAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "6af09d2a-52d5-4130-9b02-accfe2ac6899",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 42
+            },
+            "surfaceId": "39c63b6e-9c60-4b57-b2a2-ef3833c82b90",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "726df8e2-0136-4846-9c63-47dbf13529a4",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 34
+            },
+            "surfaceId": "da5dffc4-ebdf-4a64-b839-1b4111757163",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "7966334c-f7af-41e6-89fd-15594695c79e",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 45
+            },
+            "surfaceId": "bad8b262-2d83-41cc-b356-61b752e1da26",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "86510b66-be3e-4259-ab94-b75eaddb50db",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 40
+            },
+            "surfaceId": "030deae6-dd5e-4e2c-aa60-c0e16cb75db5",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "953b3744-0742-40b1-a6ce-a2f4216fb30e",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 36
+            },
+            "surfaceId": "b41b9cbe-ebba-43ef-9b48-e099c4c3cd93",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAIAxRAAAw0MAAIA+AAAAAAAAAAAAgDtEAADIQ2ZmZj8RAAAAAAAAAACAQEQAAM1DAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "99c9089b-23a6-4904-b96b-2c005eb59c3d",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 44
+            },
+            "surfaceId": "420a945f-ac01-4f05-a520-137727aa41d3",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "99f11bee-de4e-40b2-ab3f-47d8885a85ea",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 32
+            },
+            "surfaceId": "e3e312da-303e-46e5-919f-4e59f4fac8c8",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "a11e3691-fedd-4e8a-bb39-b85cf15342fc",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 33
+            },
+            "surfaceId": "da5dffc4-ebdf-4a64-b839-1b4111757163",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "a43c763d-764c-4157-8b94-f61200ceadff",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 30
+            },
+            "surfaceId": "06985e23-32d2-4747-add7-335c51ac125b",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "acc32220-4944-44ed-bc8e-1a816c8ac541",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 38
+            },
+            "surfaceId": "7ca24a8a-8e4b-4883-8a2f-fba714f7a0c9",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAMCKRAAAh0MAAIA+AAAAAAAAAAAAwI9EAACMQ2ZmZj8RAAAAAAAAAABAkkQAAJFDAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "ba96f43e-eebb-413d-817c-ae3edb4b521f",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 39
+            },
+            "surfaceId": "030deae6-dd5e-4e2c-aa60-c0e16cb75db5",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "d3a9a65e-ba43-4c96-81f0-8828fb4525c8",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 37
+            },
+            "surfaceId": "7ca24a8a-8e4b-4883-8a2f-fba714f7a0c9",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAMCKRAAAh0MAAIA+AAAAAAAAAAAAwI9EAACMQ2ZmZj8RAAAAAAAAAABAkkQAAJFDAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "dc9045f6-d7ca-442c-9a97-0c2bf836218d",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 28
+            },
+            "surfaceId": "fb9643c4-358c-4c35-be3f-b3d6ca5133eb",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "f1c3f0f8-bec2-4b86-9699-c37c2b72f5fe",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 46
+            },
+            "surfaceId": "bad8b262-2d83-41cc-b356-61b752e1da26",
+            "order": 1,
+            "brush": "HIGHLIGHTER",
+            "colorArgb": 1441837088,
+            "width": 18.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        },
+        {
+            "metadata": {
+                "id": "f82d513b-a6cf-4a33-908e-68dd46554ee5",
+                "createdAt": "2026-01-01T00:00:00.123456789Z",
+                "updatedAt": "2026-10-01T12:00:00.987654321Z",
+                "schemaVersion": 1,
+                "revision": 31
+            },
+            "surfaceId": "e3e312da-303e-46e5-919f-4e59f4fac8c8",
+            "order": 0,
+            "brush": "PEN",
+            "colorArgb": 4280834472,
+            "width": 4.0,
+            "pointFormatVersion": 1,
+            "pointsBase64": "TEpQVAEAAAADAAAAAADcQgAAoEIAAIA+AAAAAAAAAAAAABZDAAC0QmZmZj8RAAAAAAAAAAAAKkMAAMhCAACAvyIAAAAAAAAA"
+        }
+    ]
+}

@@ -11,8 +11,8 @@ ink/<stroke-UUID>.ljpt
 
 ## Manifest
 
-`format: LifeAppArchive`, `backupFormatVersion: 1`, `dataSchemaVersion: 4`, `kind`,
-`appVersion: 0.4.0`, `createdAt` (UTC Instant), sections (metadata, journal, planner,
+`format: LifeAppArchive`, `backupFormatVersion: 1`, `dataSchemaVersion: 5`, `kind`,
+`appVersion: 0.4.1`, `createdAt` (UTC Instant), sections (metadata, journal, planner,
 habits, notebooks, ink), counts and files. Counts keys: metadata, journalEntries,
 journalPages, planners, habitLedgers, habitDefinitions, habitCompletions, notebooks,
 notebookPages, strokes. Every data.json/LJPT file has path, exact uncompressed byte
@@ -22,7 +22,7 @@ or encrypt private journal data. Use trusted backup files and private destinatio
 
 ## Records and vectors
 
-Portable LifeAppRecords JSON v1/schema4 has all domain records and complete metadata;
+Portable LifeAppRecords JSON v1/schema5 has all domain records and complete metadata;
 see export-formats.md. ZIP strokes use pointsFile exactly `ink/<their UUID>.ljpt`.
 LJPT1 retains Float32 coordinates/pressure and Int64 elapsed milliseconds exactly.
 No flattening, timestamp/revision regeneration, identity replacement or archive-state
@@ -56,3 +56,19 @@ Common code owns records, JSON, validation and version rules. Android/JVM share 
 standard-library ZIP/SHA/file adapter in jvmAndAndroidMain; a future iOS client needs
 its own archive adapter but can reuse common records and LJPT unchanged. Cloud,
 merging and synchronization/conflict policy are intentionally absent.
+
+## Phase3 archive compatibility
+
+Archive format stays1; new writers declare dataSchemaVersion5 in manifest/data.json
+and include a boolean archived on every journal page. Manifest and payload schema
+versions must match. Schema5 requires the visibility field; schema4 readers in this
+app default missing journal visibility to false. Both4 and5 are accepted; unknown
+versions are rejected. Frozen Phase3 ZIP/JSON fixtures generated using the original
+codec prove backward reading and restoration. Previously exported schema4 backups
+remain supported. Older Phase3 apps cannot read new schema5 exports; keep an original
+Phase3 backup and do not downgrade an upgraded database.
+
+All journal pages, archived or active, their original order and exact LJPT bytes are
+included. At least one active page per journal is validated before restore. Restore
+preserves archived flags, metadata/IDs and indexes; it never drops hidden vectors.
+Room database migrations are1→2→3→4→5; schema exports1–4 remain unchanged.

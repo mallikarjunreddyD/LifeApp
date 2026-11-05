@@ -20,7 +20,10 @@ data class EditorState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
 ) {
-    val page get() = entry?.pages?.firstOrNull { it.metadata.id == pageId }
+    val activePages get() = entry?.activePages ?: emptyList()
+    val archivedPages get() = entry?.archivedPages ?: emptyList()
+    val page get() = activePages.firstOrNull { it.metadata.id == pageId }
+    val canDeletePage get() = !loading && page != null && activePages.size > 1
 }
 
 /** Call on one dispatcher (Android main). The application-owned scope outlives activities.
@@ -105,8 +108,8 @@ class JournalEditor(
             try {
                 val stored = repository.find(date)
                 val entry = stored ?: newEntry(date)
-                val selected = (preferredPage ?: selectedPages[date])?.takeIf { id -> entry.pages.any { it.metadata.id == id } }
-                    ?: entry.pages.first().metadata.id
+                val selected = (preferredPage ?: selectedPages[date])?.takeIf { id -> entry.activePages.any { it.metadata.id == id } }
+                    ?: entry.activePages.first().metadata.id
                 val draft = drafts.getOrPut(date) {
                     Draft(entry, mutableMapOf(), selected).also {
                         it.submitted = stored != null
@@ -128,7 +131,8 @@ class JournalEditor(
     }
 
     private fun activate(date: LocalDate, draft: Draft, preferred: Uuid?) {
-        if (preferred != null && draft.entry.pages.any { it.metadata.id == preferred }) draft.selected = preferred
+        val candidate = listOfNotNull(preferred, draft.selected).firstOrNull { id -> draft.entry.activePages.any { it.metadata.id == id } }
+        draft.selected = candidate ?: draft.entry.activePages.first().metadata.id
         draft.accessed = ++accessClock
         val id = draft.selected
         selectedPages.remove(date); selectedPages[date] = id
@@ -158,7 +162,7 @@ class JournalEditor(
 
     fun selectPage(id: Uuid) {
         val draft = drafts[activeDate] ?: return
-        require(draft.entry.pages.any { it.metadata.id == id })
+        require(draft.entry.activePages.any { it.metadata.id == id })
         ++request; readError = null
         activate(activeDate, draft, id)
     }
@@ -184,7 +188,7 @@ class JournalEditor(
         val draft = drafts[activeDate] ?: return
         // Viewing a date creates nothing; explicitly adding a page persists the initial blank too.
         if (!draft.submitted) submit(draft.entry.pages.first(), null)
-        val page = JournalPage(newMetadata(), draft.entry.metadata.id, draft.entry.pages.size)
+        val page = JournalPage(newMetadata(), draft.entry.metadata.id, (draft.entry.pages.maxOfOrNull { it.order } ?: -1) + 1)
         draft.entry = draft.entry.copy(pages = draft.entry.pages + page)
         draft.histories[page.metadata.id] = StrokeHistory(emptyList())
         draft.nextOrders[page.metadata.id] = 0
@@ -192,6 +196,26 @@ class JournalEditor(
         selectedPages[activeDate] = page.metadata.id
         draft.pageAccess[page.metadata.id] = ++accessClock
         submit(page, null)
+    }
+
+    /** UI flushes its current gesture before confirmation. Explicit late callbacks
+     * still retain their original page ownership and may save into a trashed page. */
+    fun setPageArchived(id: Uuid, archived: Boolean): Boolean {
+        if (loading || readError != null) return false
+        val draft = drafts[activeDate] ?: return false
+        val page = draft.entry.pages.firstOrNull { it.metadata.id == id } ?: return false
+        if (page.archived == archived) return true
+        if (archived && draft.entry.activePages.size <= 1) return false
+        val updated = page.copy(archived = archived)
+        draft.entry = draft.entry.copy(pages = draft.entry.pages.map { if (it.metadata.id == id) updated else it })
+        submit(updated, null, setArchived = archived)
+        if (archived && draft.selected == id) {
+            val remaining = draft.entry.activePages
+            val next = remaining.firstOrNull { it.order > page.order } ?: remaining.last()
+            ++request
+            activate(activeDate, draft, next.metadata.id)
+        }
+        return true
     }
 
     fun addStroke(tool: BrushTool, colorArgb: Long, width: Float, points: List<InkPoint>,
@@ -227,19 +251,20 @@ class JournalEditor(
         val page = draft.entry.pages.first { it.metadata.id == draft.selected }
         action(draft.histories.getValue(page.metadata.id))?.let { submit(page, it) }
     }
-    private fun submit(page: JournalPage, change: StrokeChange?, date: LocalDate = activeDate) {
+    private fun submit(page: JournalPage, change: StrokeChange?, date: LocalDate = activeDate, setArchived: Boolean? = null) {
         val draft = drafts.getValue(date)
-        val at = maxOf(Clock.System.now(), draft.entry.metadata.updatedAt, page.metadata.updatedAt)
+        val currentPage = draft.entry.pages.single { it.metadata.id == page.metadata.id }
+        val at = maxOf(Clock.System.now(), draft.entry.metadata.updatedAt, currentPage.metadata.updatedAt)
         val entryMetadata = if (draft.submitted) draft.entry.metadata.revised(at) else draft.entry.metadata.copy(updatedAt = at)
-        val pageMetadata = if (page.metadata.id in draft.submittedPages) page.metadata.revised(at) else page.metadata.copy(updatedAt = at)
+        val pageMetadata = if (page.metadata.id in draft.submittedPages) currentPage.metadata.revised(at) else currentPage.metadata.copy(updatedAt = at)
         draft.entry = draft.entry.copy(metadata = entryMetadata,
             pages = draft.entry.pages.map { if (it.metadata.id == page.metadata.id) it.copy(metadata = pageMetadata) else it })
         draft.accessed = ++accessClock
         draft.pageAccess[page.metadata.id] = ++accessClock
         draft.submitted = true
         draft.submittedPages.add(page.metadata.id)
-        pending.addLast(PageEdit(date, page, change?.added ?: emptyList(),
-            change?.removed?.map { it.metadata.id }?.toSet() ?: emptySet()))
+        pending.addLast(PageEdit(date, currentPage.copy(metadata = pageMetadata), change?.added ?: emptyList(),
+            change?.removed?.map { it.metadata.id }?.toSet() ?: emptySet(), setArchived))
         signal.trySend(Unit)
         trim()
         publish()

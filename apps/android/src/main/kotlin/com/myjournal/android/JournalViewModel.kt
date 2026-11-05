@@ -8,7 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import kotlin.uuid.Uuid
 
-data class Viewport(val zoom: Float = 1f, val centerX: Float = 500f, val centerY: Float = 0f)
+data class Viewport(val zoom: Float = 1f, val centerX: Float = 500f, val centerY: Float = 0f, val fitPage: Boolean = false)
 
 class JournalViewModel(val editor: JournalEditor, private val saved: SavedStateHandle,
     val planner: PlannerEditor, val habits: HabitEditor, val notebooks: NotebookEditor) : ViewModel() {
@@ -20,7 +20,7 @@ class JournalViewModel(val editor: JournalEditor, private val saved: SavedStateH
     init {
         val date = saved.get<String>("date")?.let(LocalDate::parse) ?: today()
         val page = saved.get<String>("page")?.let(Uuid::parse)
-        if (page != null) viewports[page] = Viewport(saved["zoom"] ?: 1f, saved["centerX"] ?: 500f, saved["centerY"] ?: 0f)
+        if (page != null) viewports[page] = Viewport(saved["zoom"] ?: 1f, saved["centerX"] ?: 500f, saved["centerY"] ?: 0f, saved["fitPage"] ?: false)
         val initial = navigation.current
         if (initial.section == AppSection.JOURNAL) editor.open(initial.date!!, page.takeIf { initial.date == date })
         else { editor.open(date, page); applyRoute(initial) }
@@ -70,6 +70,7 @@ class JournalViewModel(val editor: JournalEditor, private val saved: SavedStateH
     fun rememberViewport(id: Uuid, viewport: Viewport) {
         viewports[id] = viewport
         if (editor.state.value.pageId == id) {
+            saved["fitPage"] = viewport.fitPage
             saved["zoom"] = viewport.zoom
             saved["centerX"] = viewport.centerX
             saved["centerY"] = viewport.centerY

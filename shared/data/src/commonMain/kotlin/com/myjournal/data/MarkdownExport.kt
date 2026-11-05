@@ -12,7 +12,7 @@ object MarkdownExport {
         appendLine()
         snapshot.journals.sortedBy { it.date }.forEach { entry ->
             appendLine("## Daily Journal ${entry.date}")
-            entry.pages.sortedBy { it.order }.forEach { appendLine("- Page ${it.order + 1}: ${it.metadata.id} · ${snapshot.strokes.count { s -> s.pageId == it.metadata.id }} strokes") }
+            entry.pages.sortedBy { it.order }.forEach { appendLine("- Page ${it.order + 1}${if (it.archived) " (archived)" else ""}: ${it.metadata.id} · ${snapshot.strokes.count { s -> s.pageId == it.metadata.id }} strokes") }
         }
         snapshot.planners.sortedBy { it.month }.forEach { appendLine("## Monthly Planner ${it.month}"); appendLine("Surface ${it.metadata.id} · layout ${it.layout.version}") }
         snapshot.habits.sortedBy { it.month }.forEach { ledger ->

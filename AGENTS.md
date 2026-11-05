@@ -21,7 +21,13 @@ Phase 3 adds Notebook and local export/backup/restore Settings; do not begin Pha
 Backup must drain every editor queue, validate a committed snapshot and verify output.
 Restore must validate before writes, require recovery backup for replacement, commit
 atomically and rebuild editor caches. Never merge archives or discard pending edits.
-Use the same Android ink adapter for journal/planner. Preserve canonical calendar
+Use the same Android ink adapter for journal/planner/notebook.
+Phase3.1 corrects rendering and adds recoverable journal page archival. Keep at least
+one active page, preserve original IDs/order/ink, and retain schema4 backup readers.
+Use an explicitly named pageToViewMatrix from child Views; inherited View.matrix
+must never shadow the page transform. Pixel-test actual hardware rendering.
+Never change stored vectors to compensate for a display bug. Verify certificate
+compatibility for in-place updates; never require uninstall or commit signing secrets. Preserve canonical calendar
 geometry versions and LJPT readers. Habits use stable IDs, monthly isolation and
 boolean completions; archive historical definitions rather than deleting their data.
 Keep pending/in-flight/native-bound drafts protected when trimming saved caches.

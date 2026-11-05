@@ -1,4 +1,4 @@
-# Architecture — Phase 3
+# Architecture — Phase 3.1
 
 Phase 3 branches from merged Phase 2 main a042672. Android on Xiaomi Pad 7 remains
 primary. Shared Android/JVM targets build without Xcode; iOS arm64 targets remain
@@ -122,3 +122,21 @@ scopes and rebuilds all caches after its atomic transaction. No stale queue surv
 restoration. Settings exposes progress/error/success and explicit two-step warnings.
 No UI screen accesses Room/DAOs; the composition root injects repositories/operations.
 See backup-format.md, backup-restore.md and export-formats.md for precise bounds/limits.
+
+## Tablet correction and journal archive
+
+Phase3.1 branches from merged Phase3 main2c82a17. A confirmed inherited View.matrix
+shadowing defect caused paper/native ink to render in logical pixels while input
+used the correct inverse transform. Both child layers now explicitly use the outer
+pageToViewMatrix for Canvas.concat and the Ink renderer hint; full details and pinned
+API evidence are in tablet-ink-alignment.md. No vector or calendar geometry changes.
+
+Room5/MIGRATION_4_5 add journal_pages.archived NOT NULL DEFAULT0 without rewriting
+any earlier row or point BLOB. JournalEntry retains all pages and exposes sorted active/
+archived lists. Delete/restore is a separately targeted FIFO PageEdit.setArchived
+command. Ordinary late stroke edits cannot unarchive a page through stale descriptors.
+Both editor and repository enforce at least one active page. Appending uses the
+maximum original order+1, never a reused archived position. Creation metadata and
+stroke metadata/UUIDs remain; page/entry modification revisions advance on visibility
+changes. Backups and labelled PDFs include archived pages. Wire schema5 explicitly
+stores visibility; readers still accept schema4 as all-active. See backup-format.md.

@@ -6,3 +6,8 @@ local.properties
 .idea/
 .DS_Store
 *.xcuserstate
+
+# Signing material stays outside source control.
+*.jks
+*.keystore
+keystore.properties

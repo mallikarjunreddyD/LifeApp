@@ -15,7 +15,7 @@ object SnapshotJson {
         val snapshot = source.canonical()
         snapshot.validate()
         return json.encodeToString(JsonObject.serializer(), buildJsonObject {
-            put("format", "LifeAppRecords"); put("formatVersion", 1); put("dataSchemaVersion", 4)
+            put("format", "LifeAppRecords"); put("formatVersion", 1); put("dataSchemaVersion", 5)
             put("metadata", JsonArray(snapshot.metadata.map { encodeMeta(it) }))
             put("journals", JsonArray(snapshot.journals.map { encodeEntry(it) }))
             put("planners", JsonArray(snapshot.planners.map { encodePlanner(it) }))
@@ -31,11 +31,18 @@ object SnapshotJson {
             } }))
         })
     }
-    fun decode(text: String, readInk: ((String) -> ByteArray)? = null): JournalSnapshot {
+    fun decode(text: String, expectedDataSchemaVersion: Int? = null, readInk: ((String) -> ByteArray)? = null): JournalSnapshot {
         checkJsonSizeAndDepth(text)
         val root = json.parseToJsonElement(text).jsonObject
         require(root.getValue("format").jsonPrimitive.content == "LifeAppRecords")
-        require(root.getValue("formatVersion").jsonPrimitive.int == 1 && root.getValue("dataSchemaVersion").jsonPrimitive.int == 4) { "Unsupported record format/schema" }
+        require(root.getValue("formatVersion").jsonPrimitive.int == 1 && root.getValue("dataSchemaVersion").jsonPrimitive.int in 4..5) { "Unsupported record format/schema" }
+        val dataVersion = root.getValue("dataSchemaVersion").jsonPrimitive.int
+        require(expectedDataSchemaVersion == null || expectedDataSchemaVersion == dataVersion) { "Manifest and record schema disagree" }
+        root.getValue("journals").jsonArray.forEach { entry -> entry.jsonObject.getValue("pages").jsonArray.forEach { page ->
+            val fields = page.jsonObject
+            if (dataVersion == 5) require("archived" in fields) { "Missing journal page visibility" }
+            else require(fields["archived"]?.jsonPrimitive?.boolean != true) { "Schema4 has no archived journal pages" }
+        } }
         return with(root) { JournalSnapshot(
             getValue("metadata").jsonArray.map { decodeMeta(it.jsonObject) },
             getValue("journals").jsonArray.map { decodeEntry(it.jsonObject) },
@@ -94,6 +101,7 @@ private fun encodeJournalPage(value: JournalPage) = buildJsonObject {
     put("width", JsonPrimitive(value.width))
     put("height", JsonPrimitive(value.height))
     put("paper", JsonPrimitive(value.paper.toString()))
+    put("archived", JsonPrimitive(value.archived))
 }
 private fun decodeJournalPage(value: JsonObject): JournalPage = with(value) { JournalPage(
     decodeMeta(getValue("metadata").jsonObject),
@@ -101,7 +109,8 @@ private fun decodeJournalPage(value: JsonObject): JournalPage = with(value) { Jo
     getValue("order").jsonPrimitive.int,
     getValue("width").jsonPrimitive.float,
     getValue("height").jsonPrimitive.float,
-    PaperTemplate.valueOf(getValue("paper").jsonPrimitive.content)
+    PaperTemplate.valueOf(getValue("paper").jsonPrimitive.content),
+    get("archived")?.jsonPrimitive?.boolean ?: false
 ) }
 
 private fun encodeEntry(value: JournalEntry) = buildJsonObject {
