@@ -131,8 +131,23 @@ existing protected key, full signed Android/JVM verification and actual apksigne
 certificate-pin/package checks pass;71 JVM tests have zero failures/errors/skips.
 Android debug/lint, desktop classes and instrumentation assembly pass with the
 persistent key. Workflow YAML/event boundaries and Python syntax are validated.
-Hosted execution and repeated-run certificate comparison are pending; compilation
-alone is not reported as executed Android success for this signing follow-up.
+Hosted [run42006942165](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42006942165)
+passed all three jobs at implementation commit c54db25. Downloaded reports confirm
+71 JVM and18 API36 tablet-emulator tests with zero failures/errors/skips; Android
+lint passed with seven warnings and no errors. The downloaded installable APK passes
+independent apksigner verification, matches the committed persistent certificate and
+local signed build, and reports com.myjournal.android, versionCode6/versionName0.4.2.
+This documentation-only follow-up changes no implementation or tests.
+
+- [Persistent-key installable APK](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42006942165/artifacts/13405024437)
+- [JVM/lint reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42006942165/artifacts/13404599776)
+- [Android instrumentation reports](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42006942165/artifacts/13405043760)
+
+The public certificate SHA-256 is
+`27688897e503889b893458c3dfa53a05268e9255a32f612ec702d9f6900f5cdd`.
+Further independent-run certificate comparisons are recorded in
+[PR6](https://github.com/mallikarjunreddyD/LifeApp/pull/6).
+No physical Xiaomi installation/restore or stylus validation is claimed.
 
 The separate my-journal-installable artifact is uploaded only after the signed APK
 matches config/android-signing-certificate.sha256. CI-only APKs are renamed
