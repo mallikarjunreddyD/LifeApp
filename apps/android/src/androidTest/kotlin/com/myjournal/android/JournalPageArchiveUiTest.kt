@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.*
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.myjournal.data.*
@@ -88,6 +89,47 @@ class JournalPageArchiveUiTest {
         assertTrue(complete.await(10,TimeUnit.SECONDS));assertEquals(PixelCopy.SUCCESS,status)
         assertTrue("Actual Compose editor paper must fill its width",Color.red(bitmap.getPixel(view.width-4,minOf(100,view.height-4)))>245)
         bitmap.recycle()
+
+        // Screen-coordinate injection traverses the actual window/Compose AndroidView
+        // dispatch path, independently of direct local MotionEvent adapter tests.
+        rule.onNodeWithText("Pen",substring=false).performScrollTo().performClick()
+        rule.onNodeWithText("Red",substring=false).performScrollTo().performClick()
+        val locationBefore=IntArray(2)
+        rule.runOnIdle { view.getLocationOnScreen(locationBefore) }
+        val localX=view.width*0.6f;val localY=view.height*0.5f
+        val count=editor.state.value.strokes.size
+        val automation=InstrumentationRegistry.getInstrumentation().uiAutomation
+        val started=SystemClock.uptimeMillis()
+        for((index,action) in listOf(MotionEvent.ACTION_DOWN,MotionEvent.ACTION_MOVE,MotionEvent.ACTION_UP).withIndex()) {
+            val properties=MotionEvent.PointerProperties().apply { id=9;toolType=MotionEvent.TOOL_TYPE_STYLUS }
+            val coordinates=MotionEvent.PointerCoords().apply {
+                x=locationBefore[0]+localX+index*0.5f;y=locationBefore[1]+localY+index*0.5f;pressure=1f;size=0.01f
+            }
+            val event=MotionEvent.obtain(started,SystemClock.uptimeMillis(),action,1,arrayOf(properties),arrayOf(coordinates),0,0,1f,1f,0,0,InputDevice.SOURCE_STYLUS,0)
+            try { assertTrue("System stylus injection failed",automation.injectInputEvent(event,true)) } finally { event.recycle() }
+            SystemClock.sleep(16)
+        }
+        rule.waitUntil(20_000){editor.state.value.strokes.size==count+1 && editor.state.value.pending==0 && view.nativeInkReady}
+        val locationAfter=IntArray(2);rule.runOnIdle{view.getLocationOnScreen(locationAfter)}
+        assertArrayEquals("Autosave must not move the live editor",locationBefore,locationAfter)
+        val inputBitmap=Bitmap.createBitmap(view.width,view.height,Bitmap.Config.ARGB_8888)
+        val copied=CountDownLatch(1);var inputStatus=-1
+        rule.runOnIdle {
+            view.postOnAnimation { view.postOnAnimation {
+                val inWindow=IntArray(2);view.getLocationInWindow(inWindow)
+                PixelCopy.request(rule.activity.window,Rect(inWindow[0],inWindow[1],inWindow[0]+view.width,inWindow[1]+view.height),inputBitmap,
+                    {inputStatus=it;copied.countDown()},Handler(Looper.getMainLooper()))
+            } }
+        }
+        assertTrue(copied.await(10,TimeUnit.SECONDS));assertEquals(PixelCopy.SUCCESS,inputStatus)
+        var sumX=0f;var sumY=0f;var redPixels=0
+        for(y in localY.toInt()-20..localY.toInt()+20)for(x in localX.toInt()-20..localX.toInt()+20) {
+            val color=inputBitmap.getPixel(x,y)
+            if(Color.red(color)>150 && Color.green(color)<100 && Color.blue(color)<100){sumX+=x;sumY+=y;redPixels++}
+        }
+        assertTrue("System contact produced no pixels under the physical input",redPixels>0)
+        assertEquals(localX,sumX/redPixels,5f);assertEquals(localY,sumY/redPixels,5f)
+        inputBitmap.recycle()
     }
     private fun unusedDate(): LocalDate {
         val db=openJournalDatabase(rule.activity)

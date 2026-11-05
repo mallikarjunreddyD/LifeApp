@@ -65,7 +65,9 @@ CanvasRenderAlignmentTest compares actual wet, committed and Room-reloaded pixel
 centroids to physical contacts (≤5 screen pixels) at1×/1.5×/2×, five corner/center
 positions, different translations, all notebook templates, highlighter, calendar cell
 clipping/date taps, diagonal strokes, actual display rotation and eraser hits.
-JournalPageArchiveUiTest additionally checks real Compose/AndroidView child bounds,
+JournalPageArchiveUiTest also injects screen-coordinate stylus events through the
+real Window/Compose/AndroidView dispatch path, checks contact pixels and verifies
+that autosave does not move the view origin. It checks real native child bounds,
 Fit Width and right-edge paper pixels. Existing coordinate/input/UI/PDF tests remain.
 Actual execution/counts are recorded in validation.md; compilation is not execution.
 
