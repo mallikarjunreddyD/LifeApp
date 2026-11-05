@@ -52,7 +52,7 @@ class CanvasRenderAlignmentTest {
         instrumentation.waitForIdleSync()
         scenario.onActivity { activity ->
             JournalCanvas.debugAlignmentEnabled=false
-            val width=min(1400,activity.window.decorView.width-120)
+            val width=min(1800,activity.window.decorView.width-120)
             val height=min(900,activity.window.decorView.height-200)
             assertTrue(width>400 && height>300)
             val host=FrameLayout(activity)
@@ -199,18 +199,31 @@ class CanvasRenderAlignmentTest {
         val automation=instrumentation.uiAutomation
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             try {
+                val page=JournalPage(newRecordMetadata(),Uuid.random(),0,paper=PaperTemplate.BLANK)
+                var previous: InkStroke? = null
                 for(rotation in listOf(0,1)) {
                     assertTrue(automation.setRotation(rotation))
                     waitFor("Display did not rotate") { var current=-1;scenario.onActivity { current=it.windowManager.defaultDisplay.rotation };current==rotation }
-                    val page=JournalPage(newRecordMetadata(),Uuid.random(),0,paper=PaperTemplate.BLANK)
-                    val surface=Surface(page.inkSurface(),Viewport(1.5f,500f,707f));mount(scenario,surface)
+                    val surface=Surface(page.inkSurface(),Viewport(1.5f,500f,707f))
+                    previous?.let { surface.strokes.add(it);surface.nextOrder=it.order+1 }
+                    mount(scenario,surface)
                     val center=PointF(surface.view.width/2f,surface.view.height/2f)
+                    if(previous!=null) {
+                        waitFor("Previously saved stroke did not reconstruct after rotation") { var ready=false;scenario.onActivity{ready=surface.view.nativeInkReady};ready }
+                        capture(scenario,surface.view).let { assertInkAt(it,center,"existing vector after rotation $rotation");it.recycle() }
+                        assertEquals(previous!!.points,surface.strokes.single().points)
+                        scenario.onActivity { surface.tool=EditorTool.ERASER;surface.bind() }
+                        val eraseOld=begin(scenario,surface,listOf(center));finish(scenario,surface,center,eraseOld)
+                        assertTrue(surface.strokes.isEmpty())
+                        scenario.onActivity { surface.tool=EditorTool.PEN;surface.bind() }
+                    }
                     val diagonal=listOf(PointF(center.x-80,center.y-80),center,PointF(center.x+80,center.y+80))
                     val start=begin(scenario,surface,diagonal)
                     capture(scenario,surface.view).let { assertInkAt(it,center,"rotated wet diagonal $rotation");it.recycle() }
                     finish(scenario,surface,diagonal.last(),start)
                     capture(scenario,surface.view).let { assertInkAt(it,center,"rotated dry diagonal $rotation");it.recycle() }
                     val stroke=surface.strokes.single()
+                    previous=stroke
                     scenario.onActivity { surface.tool=EditorTool.ERASER;surface.bind() }
                     val erase=begin(scenario,surface,listOf(center));finish(scenario,surface,center,erase)
                     assertTrue("Eraser must hit the stroke at its visible position",surface.strokes.isEmpty())
