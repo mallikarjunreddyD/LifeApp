@@ -46,7 +46,9 @@ calibration/latency still needs a repeat device test.
 
 Daily/Notebook default to native measured width/logical page width, zoom1. Paper can
 extend vertically; finger pan/pinch remains uniform. Fit Width resets zoom, pan and
-fit policy explicitly. App title/navigation use less vertical space. Daily date controls
+fit policy explicitly. App title/navigation use less vertical space. Healthy autosave status shares the
+stable header row, so saving a gesture does not insert a row and move the paper while
+the next gesture is underway. Daily date controls
 share one row, and the habits link shares its status row, freeing writing space while
 keeping navigation/tools accessible. Background grey was not changed to disguise size.
 

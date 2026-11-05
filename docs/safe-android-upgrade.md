@@ -64,3 +64,22 @@ older app. Keep the original Phase3 backup for independent recovery and future t
 
 [Android signing documentation](https://developer.android.com/studio/publish/app-signing)
 [apksigner](https://developer.android.com/tools/apksigner)
+
+## Certificate comparison performed for this correction
+
+Read-only apksigner verification of the previously linked Phase3 CI artifact and the
+first correction CI artifact confirms they have different signing identities:
+
+| APK | Signer certificate SHA-256 |
+| --- | --- |
+| Phase3 run41630043074, artifact13228505396 | `10db264ffbedc183b8a28a5045938f0640d13ca819fcda4306fd26ad6e2f8028` |
+| Phase3.1 run41977721629, artifact13392209511 | `3606f48136d434cf4ab73e3e7de8f16ac121995bf580d70dff1c8c771b8ac3ac` |
+
+These are public certificate digests, not private keys or APK-file checksums. If the
+installed tablet app is that Phase3 CI APK, that correction CI APK cannot update it
+in place. The old private key/builder identity is still required; source code and a
+verified backup alone cannot recreate a signing key. Future CI runs may have yet another
+key. The optional Gradle signing configuration was separately tested using the existing
+local debug key and produced the same certificate as its default builder configuration.
+That does not establish a match to the tablet. Compare the actual installed APK before
+installing any candidate, and preserve the app/backup if its key is unavailable.

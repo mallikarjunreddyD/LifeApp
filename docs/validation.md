@@ -48,22 +48,29 @@ timeout increase was used for that fixture issue.
 Android debug APK, lint, desktop classes and instrumentation APK compile successfully.
 No iOS/Xcode or desktop GUI session was executed. Apple targets remain opt-in; no Xcode
 was required for Android/JVM. Local connected testing remains unavailable because
-this user lacks /dev/kvm access and no device is attached. Hosted execution is pending.
+this user lacks /dev/kvm access and no device is attached. The first hosted run passed both jobs; final header-regression execution is pending.
 
 ## Android rendering/UI coverage
 
-17 Android instrumentation tests compile: all13 existing cases plus three
-CanvasRenderAlignmentTest methods and one JournalPageArchiveUiTest. Pixel tests use
+18 Android instrumentation tests compile: all13 existing cases plus three
+CanvasRenderAlignmentTest methods, one JournalPageArchiveUiTest and one
+EditorHeaderLayoutTest. Pixel tests use
 hardware-window PixelCopy, not software drawing substitutes or only serialized points.
 They compare physical contacts with wet/dry/Room-reloaded red-pixel centroids within5
 screen pixels at1×/1.5×/2×, logical page corners/center, translated viewports, diagonal
 strokes, actual system display rotation, eraser hits, notebook templates/highlighter
 and calendar cell clipping/date taps. Nonzero native parent offsets exercise window
-coordinate handling. The UI test verifies actual Compose/native child bounds and
+coordinate handling. EditorHeaderLayoutTest prevents autosave status from moving/resizing the editor.
+The UI test verifies actual Compose/native child bounds and
 right-edge Fit Width paper pixels, active gesture handoff, confirmation/cancel,
 last-page disabling, selection/counts, archived vectors and restoration after recreation.
-Compilation is not represented as executed Android success; hosted results will be
-recorded after the emulator workflow finishes. Existing PDF pixel, backup/restore,
+Hosted [run41977721629](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41977721629)
+on implementation fbf2318 passed both jobs. Downloaded reports confirm71 JVM and17
+Android cases with zero failures/errors/skips; the Android cases completed in114.766s.
+The strengthened saved-vector/rotated-size test follow-up dd1f746 also passed both jobs
+in [run41978339799](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/41978339799).
+The new18th case checks writing-surface bounds across pending/committed save status;
+its hosted execution will be recorded separately. No unexecuted case is called passed. Existing PDF pixel, backup/restore,
 habit/navigation/stylus tests remain enabled in the same CI job.
 
 ## Signing and device limits
@@ -72,6 +79,9 @@ Optional LIFEAPP_SIGNING_* environment configuration supports the original exter
 keystore without committed keys/passwords. SigningReport compares the builder's default
 certificate with explicitly configured use of that same existing key. The installed
 Xiaomi certificate is unavailable here; compatibility is not inferred from an APK build.
+Read-only apksigner checks confirm the previously linked Phase3 CI artifact's signer
+is different from the first correction CI artifact's signer (public digests are recorded
+in safe-android-upgrade.md). Those two APKs cannot update one another in place.
 Follow safe-android-upgrade.md: create/verify/copy a Phase3 backup first, compare installed
 and candidate certificate SHA-256, use the original private key and adb install -r.
 Do not uninstall/clear data to bypass a mismatch. A discarded CI runner key cannot be
