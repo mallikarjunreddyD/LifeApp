@@ -116,3 +116,27 @@ Unchanged limits: pending edits/Undo are memory-only until committed/session his
 is unloaded; full snapshots50,000 records/2,000,000 points, ZIP64MiB compressed/expanded,
 JSON8MiB each, PDF500 pages/128MiB. Backups are unencrypted/checksummed, PDF brush fidelity
 is approximate, actual provider durability needs device testing. No Phase4 work.
+
+
+## Persistent signing correction (after merged PR5)
+
+Branch fix/persistent-apk-signing starts at main2a0e6d0. VersionCode6/name0.4.2 retain
+application ID/data schema5 and the Phase3 compatibility readers. A dedicated key is
+stored in encrypted GitHub Actions secrets and a protected local recovery directory
+outside Git; only its public certificate pin is committed. No signing material is
+included in APK/report artifacts.
+
+Local missing-secret and unexpected-signer tests refuse publication. Preparing the
+existing protected key, full signed Android/JVM verification and actual apksigner
+certificate-pin/package checks pass;71 JVM tests have zero failures/errors/skips.
+Android debug/lint, desktop classes and instrumentation assembly pass with the
+persistent key. Workflow YAML/event boundaries and Python syntax are validated.
+Hosted execution and repeated-run certificate comparison are pending; compilation
+alone is not reported as executed Android success for this signing follow-up.
+
+The separate my-journal-installable artifact is uploaded only after the signed APK
+matches config/android-signing-certificate.sha256. CI-only APKs are renamed
+my-journal-ci-debug-ephemeral. The signed job does not run for PRs; it waits for both
+normal verification jobs and accepts only main/the owner-requested bootstrap branch.
+See persistent-apk-signing.md for secret handling, recovery and the unchanged old-CI
+certificate constraint. No tablet data is uninstalled or modified by this task.

@@ -1,5 +1,8 @@
 name: Android verification
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -23,7 +26,7 @@ jobs:
         run: ./gradlew :shared:core:jvmTest :shared:domain:jvmTest :shared:data:jvmTest :shared:ui:jvmTest :apps:android:assembleDebug :apps:android:lintDebug :apps:desktop:classes :apps:android:assembleDebugAndroidTest --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: my-journal-debug
+          name: my-journal-ci-debug-ephemeral
           path: apps/android/build/outputs/apk/debug/*.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -73,3 +76,50 @@ jobs:
             apps/android/build/reports/androidTests/
             apps/android/build/outputs/androidTest-results/
           if-no-files-found: warn
+
+  signed-apk:
+    name: Persistent-key installable APK
+    needs: [verify, android-input]
+    # Never expose the installable signing key to pull-request code. The named
+    # bootstrap branch permits this owner-requested first setup before PR merge.
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/persistent-apk-signing')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Isolate signing build state from shared caches
+        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/lifeapp-signed-gradle" >> "$GITHUB_ENV"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+      - name: Restore and verify the persistent signing identity
+        env:
+          LIFEAPP_SIGNING_KEYSTORE_BASE64: ${{ secrets.LIFEAPP_SIGNING_KEYSTORE_BASE64 }}
+          LIFEAPP_SIGNING_STORE_PASSWORD: ${{ secrets.LIFEAPP_SIGNING_STORE_PASSWORD }}
+          LIFEAPP_SIGNING_KEY_ALIAS: ${{ secrets.LIFEAPP_SIGNING_KEY_ALIAS }}
+        run: python3 .github/scripts/prepare-signing.py
+      - name: Build installable APK with the established key
+        env:
+          LIFEAPP_SIGNING_STORE_PASSWORD: ${{ secrets.LIFEAPP_SIGNING_STORE_PASSWORD }}
+          LIFEAPP_SIGNING_KEY_ALIAS: ${{ secrets.LIFEAPP_SIGNING_KEY_ALIAS }}
+          LIFEAPP_SIGNING_KEY_PASSWORD: ${{ secrets.LIFEAPP_SIGNING_KEY_PASSWORD }}
+        run: ./gradlew :apps:android:assembleDebug --no-daemon --no-build-cache --no-configuration-cache --console=plain
+      - name: Verify APK signer against the public certificate pin
+        run: python3 .github/scripts/verify-installable-apk.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: my-journal-installable
+          path: dist/installable/
+          if-no-files-found: error
+      - name: Remove runner-temporary signing material
+        if: always()
+        run: rm -rf "${RUNNER_TEMP:?}/lifeapp-signing"

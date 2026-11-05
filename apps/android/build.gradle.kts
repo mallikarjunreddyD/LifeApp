@@ -9,8 +9,8 @@ android {
         applicationId = "com.myjournal.android"
         minSdk = 23
         targetSdk = 37
-        versionCode = 5
-        versionName = "0.4.1"
+        versionCode = 6
+        versionName = "0.4.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Optional stable identity for data-preserving updates. Values come only from
