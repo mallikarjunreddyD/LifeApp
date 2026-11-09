@@ -12,7 +12,7 @@ import kotlin.test.*
 
 class BackupRoundTripTest {
     private fun database(file: File, driver: SQLiteDriver = BundledSQLiteDriver()) = Room.databaseBuilder<FoundationDatabase>(file.path)
-        .setDriver(driver).setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build()
+        .setDriver(driver).setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build()
     @Test fun completeArchiveRestoresExactEditableStateAcrossRealDatabaseReopening() = runTest {
         val directory=Files.createTempDirectory("lifeapp-roundtrip").toFile()
         val original=backupFixture()
@@ -39,6 +39,50 @@ class BackupRoundTripTest {
             assertEquals(stroke,repo.loadStrokes(stroke.pageId).first { it.metadata.id==stroke.metadata.id })
         } finally { source.close();destination.close();directory.deleteRecursively() }
     }
+    @Test fun workoutBackupRestoresUnitsAndParentIdentitiesAndRejectsStaleWrites() = runTest {
+        val directory = Files.createTempDirectory("workout-backup").toFile()
+        val source = database(File(directory, "source.db"))
+        val destination = database(File(directory, "restored.db"))
+        try {
+            val workouts = RoomWorkoutRepository(source)
+            val exercise = ExerciseDefinition(newRecordMetadata(), "Bench press", "Chest", "Barbell")
+            workouts.saveExercise(exercise)
+            val routine = WorkoutRoutine(newRecordMetadata(), "Push", listOf(exercise.metadata.id), plannedSetCounts = listOf(1))
+            workouts.saveRoutine(routine)
+            val metadata = newRecordMetadata()
+            val entry = WorkoutExerciseEntry(newRecordMetadata(), metadata.id, exercise.metadata.id, 0)
+            val set = RecordedSet(newRecordMetadata(), entry.metadata.id, 1,
+                WorkoutWeight(105.5, WeightUnit.LB), 8, restSeconds = 45, completed = true)
+            val session = WorkoutSession(metadata, kotlinx.datetime.LocalDate(2026, 11, 9), metadata.createdAt,
+                null, null, entries = listOf(entry.copy(sets = listOf(set))))
+            workouts.saveSession(session, null)
+            val finished = session.copy(metadata = metadata.revised(metadata.updatedAt),
+                endedAt = metadata.createdAt, durationSeconds = 0, completed = true)
+            workouts.saveSession(finished, 1)
+            assertFailsWith<IllegalStateException> { workouts.saveSession(finished.copy(notes = "stale"), 1) }
+            assertFailsWith<IllegalArgumentException> {
+                workouts.saveRoutine(routine.copy(metadata = newRecordMetadata(), exerciseOrder = listOf(metadata.id)))
+            }
+            workouts.saveExercise(exercise.copy(metadata = exercise.metadata.revised(exercise.metadata.updatedAt), archived = true))
+            val snapshot = RoomSnapshotRepository(source).capture()
+            val archive = File(directory, "workouts.zip")
+            BackupArchive.write(archive, snapshot)
+            val restored = BackupArchive.read(archive)
+            assertEquals(7, restored.snapshot.dataSchemaVersion)
+            assertEquals(1, restored.counts["workoutSets"])
+            RoomSnapshotRepository(destination).replace(restored.snapshot)
+            val result = RoomSnapshotRepository(destination).capture()
+            assertEquals(snapshot, result)
+            assertEquals(finished, result.workoutLog.sessions.single())
+            assertTrue(result.workoutLog.exercises.single().archived)
+            assertEquals(routine, result.workoutLog.routines.single())
+        } finally {
+            source.close()
+            destination.close()
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun structuredJsonAndNativeVectorArchivesPreserveAllPortableRecordFields() {
         val snapshot=backupFixture()
         assertEquals(snapshot,SnapshotJson.decode(SnapshotJson.encode(snapshot)))

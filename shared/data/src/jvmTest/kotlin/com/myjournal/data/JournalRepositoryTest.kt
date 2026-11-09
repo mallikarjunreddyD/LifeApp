@@ -26,7 +26,7 @@ class JournalRepositoryTest {
     private fun memory() = Room.inMemoryDatabaseBuilder<FoundationDatabase>().setDriver(BundledSQLiteDriver())
         .setQueryCoroutineContext(Dispatchers.IO).build()
     private fun file(path: Path) = Room.databaseBuilder<FoundationDatabase>(path.toString()).setDriver(BundledSQLiteDriver())
-        .setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build()
+        .setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build()
 
     @Test fun missingDatesStayAbsentUntilAnEditAndStrokeRoundTrips() = runTest {
         val db = memory()

@@ -29,6 +29,7 @@ class JournalApplication : Application() {
         cacheDir.listFiles()?.filter { it.isFile && it.name.startsWith("lifeapp-") }?.forEach { it.delete() }
     }
     private val database by lazy { openJournalDatabase(this) }
+    val workouts by lazy { com.myjournal.data.RoomWorkoutRepository(database) }
     val todos by lazy { RoomTodoRepository(database) }
     internal val serverSync by lazy { AndroidServerSync(this, todos) }
     val todoActions = TodoActions(CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)) { serverSync.onLocalCommit() }

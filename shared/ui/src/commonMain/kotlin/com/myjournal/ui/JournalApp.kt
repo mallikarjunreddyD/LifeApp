@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 
 private val AppSection.title: String get() = when (this) {
     AppSection.JOURNAL -> "Daily Journal"; AppSection.PLANNER -> "Monthly Planner"
+    AppSection.WORKOUTS -> "Workouts"
     AppSection.HABITS -> "Habit Tracker"; AppSection.NOTEBOOK -> "Notebook"; AppSection.SETTINGS -> "Settings"; AppSection.TODO -> "To-do"
 }
 
@@ -32,13 +33,16 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
     monthlyPlanner: (@Composable () -> Unit)? = null, habitTracker: (@Composable () -> Unit)? = null,
     notebook: (@Composable () -> Unit)? = null, settings: (@Composable () -> Unit)? = null,
     selectedSection: AppSection? = null, onSectionSelected: ((AppSection) -> Unit)? = null,
-    globalStatus: (@Composable () -> Unit)? = null, todo: (@Composable () -> Unit)? = null) {
+    globalStatus: (@Composable () -> Unit)? = null, todo: (@Composable () -> Unit)? = null,
+    workouts: (@Composable () -> Unit)? = null) {
     MaterialTheme(colorScheme = PaperColors, typography = Typography(
         headlineLarge = MaterialTheme.typography.headlineLarge.copy(fontFamily = FontFamily.Serif),
     )) {
         var selectedName by rememberSaveable { mutableStateOf(AppSection.JOURNAL.name) }
         val selected = selectedSection ?: AppSection.valueOf(selectedName)
-        val destinations = AppSection.entries.filter { it != AppSection.TODO || todo != null }
+        val destinations = AppSection.entries.filter {
+            (it != AppSection.TODO || todo != null) && (it != AppSection.WORKOUTS || workouts != null)
+        }
         val holder = rememberSaveableStateHolder()
         fun select(section: AppSection) {
             if (onSectionSelected != null) onSectionSelected(section) else selectedName = section.name
@@ -71,6 +75,7 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
                             AppSection.NOTEBOOK -> notebook
                             AppSection.SETTINGS -> settings
                             AppSection.TODO -> todo
+                            AppSection.WORKOUTS -> workouts
                         }
                         if (screen != null) {
                             Box(Modifier.weight(1f).fillMaxHeight()) {

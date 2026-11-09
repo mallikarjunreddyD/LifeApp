@@ -266,3 +266,17 @@ Check Android first binding through the system file picker, then verify To-do
 sync with a real HTTPS server, including offline edits, network return,
 process restart, expiry, conflicts and a recovery epoch change. Check stylus
 accuracy, rotation and large text on the tablet. Other record types stay local.
+
+## Phase 6D local workout increment
+
+The browser suite passed four Chromium tests, including an offline workout
+started from a routine. The test recorded 105.5 LB, eight repetitions and 45
+seconds of rest, completed the workout, reloaded offline and read the same
+values. Browser TypeScript checking, lint and the existing IndexedDB tests
+passed. The shared codec uses the Phase 5 workout record fields on the server
+read path and in Android backup data.
+
+Pending acceptance includes Android workout UI on a tablet, browser backup
+and recovery, and cross-device workout mutations,
+outbox replay and conflict handling. The existing To-do sync does not carry
+workout records.

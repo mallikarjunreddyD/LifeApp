@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
             JournalApp(dailyJournal = { DailyJournalScreen(model) },
                 monthlyPlanner = { MonthlyPlannerScreen(model) }, habitTracker = { HabitTrackerScreen(model) },
                 notebook = { NotebookScreen(model) }, settings = { SettingsScreen(applicationState.operations, applicationState.serverSync) },
+                workouts = { com.myjournal.ui.WorkoutScreen(applicationState.workouts, today()) },
                 todo = { TodoScreen(applicationState.todos, applicationState.todoActions) },
                 selectedSection = routes.last().section, onSectionSelected = model::selectSection,
                 globalStatus = {
