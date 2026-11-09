@@ -1,4 +1,5 @@
 """Validate the OpenAPI document and cross-client JSON fixtures."""
+import argparse
 import json
 from pathlib import Path
 
@@ -45,3 +46,12 @@ for path, methods in contract["paths"].items():
                 response = contract["components"]["responses"][response["$ref"].split("/")[-1]]
                 assert response["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/Error"
 print("OpenAPI, four portable fixtures, authentication and error responses verified.")
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--responses", type=Path)
+args = parser.parse_args()
+if args.responses:
+    for model in ("Acknowledgment", "SyncPage", "Error", "Workout"):
+        sample = json.loads((args.responses / f"{model}.json").read_text())
+        schema(model).validate(sample)
+    print("Recorded Ktor/PostgreSQL responses match OpenAPI schemas.")

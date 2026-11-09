@@ -200,3 +200,20 @@ with its original vectors and archive state.
 Hosted emulator results and the signed 0.6.0 APK are tracked in the Phase 5 PR.
 Production server authentication, Google Drive smoke testing and physical Xiaomi
 checks remain separate from fake-transport and emulator coverage.
+
+## Phase 6A server foundation
+
+Based on the merged Phase 5 main commit b4128f9 with a passing
+[Android workflow](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42600534677).
+The isolated PostgreSQL 17.11 suite ran six Ktor HTTP integration tests with
+zero failures, errors or skips. Both Flyway migrations ran against a clean
+database. The suite covers concurrent commits, restart and retry, a fault after
+operation insertion, contiguous cursors, stale epochs, conflict resolution,
+delete versus edit, scoped workout reads, request limits, login throttling,
+session expiry/revocation, Origin and CSRF checks. Four recorded HTTP responses
+validated against OpenAPI alongside the four portable fixtures.
+
+The packaged Netty distribution passed localhost checks for health, readiness
+and unauthorized access. This is a disposable environment check. No production
+host, public TLS exposure, PWA, Android server transport, workout mutations or
+cloud restore drill was tested in this milestone.

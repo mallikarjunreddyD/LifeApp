@@ -1,5 +1,7 @@
 # Server synchronization protocol v1
 
+The Phase 6A Ktor API implements To-do push, pull and conflict review against PostgreSQL.
+
 The [OpenAPI specification](../contracts/openapi/lifeapp-v1.yaml) is the Phase 6
 HTTP contract. Kotlin already implements the To-do operation and response codecs,
 the coordinator, and the Room checkpoint transaction against a fake transport.
