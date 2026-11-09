@@ -32,3 +32,17 @@ remote_hash=$("${rclone[@]}" cat "$destination" | sha256sum | cut -d ' ' -f 1)
 printf '%s  %s\n' "$local_hash" "$name" >> "$LIFEAPP_BACKUP_DIRECTORY/verified.sha256"
 python3 backup/database-backup.py report --id "$job" --state verified
 printf 'Drive object verified: %s\n' "$name"
+
+# Retention is opt-in. Only exact objects in the verified ledger are eligible.
+if [[ ${LIFEAPP_BACKUP_PRUNE:-0} == 1 ]]; then
+  listing=$(mktemp "$LIFEAPP_BACKUP_DIRECTORY/.remote.XXXXXX")
+  prune=$(mktemp "$LIFEAPP_BACKUP_DIRECTORY/.prune.XXXXXX")
+  trap 'rm -f "$listing" "$prune"' EXIT
+  "${rclone[@]}" lsf --files-only "$LIFEAPP_BACKUP_DRIVE_REMOTE" > "$listing"
+  python3 backup/retention.py "$LIFEAPP_BACKUP_DIRECTORY/verified.sha256" "$listing" \
+    --daily "${LIFEAPP_BACKUP_DAILY:-7}" --weekly "${LIFEAPP_BACKUP_WEEKLY:-4}" \
+    --monthly "${LIFEAPP_BACKUP_MONTHLY:-3}" > "$prune"
+  while IFS= read -r expired; do
+    "${rclone[@]}" deletefile "${LIFEAPP_BACKUP_DRIVE_REMOTE%/}/$expired"
+  done < "$prune"
+fi

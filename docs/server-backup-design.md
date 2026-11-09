@@ -70,8 +70,14 @@ name, reads the encrypted bytes back and records their SHA-256 after
 verification. Keep older copies. The supplied systemd timer runs daily at
 03:00 UTC with jitter. Install the reviewed service and timer into
 `/etc/systemd/system`, reload systemd and enable only the timer after the
-manual check. Drive OAuth, automatic retention and a live restore drill
-require separate verification.
+manual check. Retention is opt-in via `LIFEAPP_BACKUP_PRUNE=1`. It keeps one
+verified object per bucket for the latest seven days, four ISO weeks and
+three months represented by backups, plus the two newest verified objects.
+Override the bucket counts with `LIFEAPP_BACKUP_DAILY`,
+`LIFEAPP_BACKUP_WEEKLY` and `LIFEAPP_BACKUP_MONTHLY`. The uploader only prunes
+exact names found in the verified ledger after a new backup verifies. Local
+archives and the ledger are retained. Drive OAuth, live retention and a
+live restore drill require separate verification.
 
 For restore, use a fresh isolated Compose project named
 `lifeapp-restore-DRILL_ID` on a disposable VM or a separate reviewed

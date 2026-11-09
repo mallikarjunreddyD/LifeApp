@@ -293,6 +293,6 @@ rotated the epoch, and verified readiness and the restored task. The API
 rejected a pull using the old epoch.
 
 The VM, Tailscale Serve and Funnel, GHCR publication, production rollout,
-real Drive OAuth upload, automated retention, and rollback to a previously
+real Drive OAuth upload, live retention, and rollback to a previously
 published image pair remain unverified. The VM's existing routes were left
 untouched. This milestone does not extend which records synchronize.
