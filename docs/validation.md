@@ -217,3 +217,22 @@ The packaged Netty distribution passed localhost checks for health, readiness
 and unauthorized access. This is a disposable environment check. No production
 host, public TLS exposure, PWA, Android server transport, workout mutations or
 cloud restore drill was tested in this milestone.
+
+## Phase 6B browser app
+
+Based on merged Phase 6A main commit 2a2ade0. Local type checking, lint and the
+Vite production build passed. Four Node tests covered the shared wire fixtures,
+outbox persistence, receipt checks, scope binding, transactional replay and
+delete/edit conflicts. The production npm dependency audit reported zero
+vulnerabilities at verification time.
+
+Three Playwright Chromium tests ran against the packaged Ktor server, disposable
+PostgreSQL and a localhost HTTPS proxy. They exercised an iPhone 12 viewport,
+offline startup and CRUD, explicit service worker update and reload with pending
+edits, two independent browser stores, conflict resolution, lost receipts and
+session loss. The Playwright test confirmed that private API responses were
+absent from Cache Storage. See the Phase 6B PR for hosted results.
+
+Physical iPhone Safari installation and production HTTPS remain unverified.
+Android server binding, journal viewing after migration, workout writes and
+deployment/recovery belong to later milestones.

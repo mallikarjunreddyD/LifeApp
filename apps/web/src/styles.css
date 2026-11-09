@@ -1,0 +1,98 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --paper: #f5f1e8;
+  --surface: #fffdf7;
+  --ink: #232820;
+  --muted: #50574c;
+  --line: #cbcbbd;
+  --accent: #315742;
+  --on-accent: #fffdf7;
+  --active: #dfe8dc;
+  --danger: #9c2f31;
+  --danger-bg: #f9e5e2;
+  color: var(--ink);
+  background: var(--paper);
+  font-synthesis: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1d231f;
+    --surface: #263029;
+    --ink: #f0eee3;
+    --muted: #c0c9be;
+    --line: #515e52;
+    --accent: #b9d9c2;
+    --on-accent: #1a3023;
+    --active: #34483b;
+    --danger: #ffb4a9;
+    --danger-bg: #482824;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 280px; }
+button, input { font: inherit; }
+button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: .55rem;
+  background: var(--surface);
+  color: var(--ink);
+  padding: .45rem .7rem;
+  cursor: pointer;
+}
+button:disabled { opacity: .55; cursor: default; }
+button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+input:not([type=checkbox]) {
+  display: block; width: 100%; min-width: 0; min-height: 44px;
+  padding: .55rem .65rem; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: .5rem; margin-top: .25rem;
+}
+.shell { max-width: 54rem; margin: auto; min-height: 100dvh; }
+.masthead {
+  display: flex; justify-content: space-between; align-items: center; gap: .5rem;
+  border-bottom: 1px solid var(--line);
+  padding: calc(.8rem + env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) .8rem max(1rem, env(safe-area-inset-left));
+}
+.brand { font: bold 1.6rem Georgia, serif; margin: 0; }
+.subtitle { font-size: .85rem; color: var(--muted); margin: .18rem 0 0; }
+.sync-status { display: flex; flex-direction: column; text-align: right; font-size: .85rem; }
+.sync-status span { color: var(--muted); }
+main { padding: 1rem max(1rem, env(safe-area-inset-right)) calc(5.5rem + env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); }
+h1 { font: bold clamp(1.7rem, 6vw, 2.3rem) Georgia, serif; margin: .25rem 0 .75rem; }
+h2 { font-size: 1rem; margin: 1rem 0 .55rem; }
+p { line-height: 1.55; }
+.section-heading, .actions, .variant { display: flex; align-items: center; justify-content: space-between; gap: .45rem; flex-wrap: wrap; }
+.actions { justify-content: flex-start; margin-top: .75rem; }
+.card, .tasks li, .record-list li {
+  border: 1px solid var(--line); border-radius: .75rem; background: var(--surface); padding: .8rem;
+}
+.card { margin-bottom: .75rem; }
+.card h2:first-child { margin-top: 0; }
+.card form, form.card { display: grid; gap: .7rem; }
+.card form button { justify-self: start; }
+.tasks, .record-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .45rem; }
+.tasks li { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto auto; gap: .4rem; align-items: center; padding: .4rem .5rem; }
+.check { display: grid; place-items: center; min-height: 44px; }
+.check input { width: 1.2rem; height: 1.2rem; accent-color: var(--accent); }
+.task-label, .record-list li { display: flex; flex-direction: column; gap: .2rem; overflow-wrap: anywhere; }
+.task-label time, .record-list span, .empty { font-size: .85rem; color: var(--muted); }
+.variant { border-top: 1px solid var(--line); padding: .55rem 0; overflow-wrap: anywhere; }
+.message, .banner { padding: .75rem 1rem; background: var(--active); overflow-wrap: anywhere; }
+.error { color: var(--danger); background: var(--danger-bg); }
+dd { margin: .2rem 0 .6rem; overflow-wrap: anywhere; color: var(--muted); }
+nav {
+  position: fixed; inset: auto 0 0; display: flex; justify-content: center; gap: .2rem;
+  padding: .4rem max(.3rem, env(safe-area-inset-right)) calc(.4rem + env(safe-area-inset-bottom)) max(.3rem, env(safe-area-inset-left));
+  background: var(--surface); border-top: 1px solid var(--line);
+}
+nav button { padding: .35rem .28rem; flex: 1; max-width: 8rem; font-size: clamp(.75rem, 3vw, .95rem); border-color: transparent; }
+nav button[aria-current=page] { background: var(--active); color: var(--ink); font-weight: 650; }
+@media (min-width: 700px) {
+  .shell { display: flex; flex-direction: column; }
+  .message, .banner { order: 2; }
+  nav { position: sticky; top: 0; bottom: auto; order: 1; border-top: 0; border-bottom: 1px solid var(--line); }
+  main { padding-bottom: 2rem; order: 3; }
+  nav button { font-size: .95rem; }
+}

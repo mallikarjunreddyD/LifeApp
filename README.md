@@ -150,6 +150,9 @@ Phase 6A provides the Ktor/PostgreSQL To-do API and local integration workflow.
 See [server development](docs/server-installation.md) for isolated tests and
 [authentication](docs/server-authentication.md) for session and access rules.
 
+Phase 6B adds the installable browser To-do app with IndexedDB and same-origin
+sync. [PWA setup and iPhone checklist](docs/pwa-installation.md)
+
 ## Persistent install/update APK
 
 Download **my-journal-installable** from a successful trusted main/bootstrap signing
