@@ -5,7 +5,8 @@ migrations, authentication and isolated integration tests. See [server developme
 Phase 6B adds the browser To-do PWA and browser integration tests.
 [Browser setup](pwa-installation.md)
 Phase 6C adds [Android To-do synchronization](android-server-sync.md) and verified first binding.
-Phase 6D has a [local workout logging increment](workout-data-model.md) for Android and the PWA. Workout synchronization and 6E remain open.
+Phase 6D has a [local workout logging increment](workout-data-model.md) for Android and the PWA. Workout synchronization remains open.
+Phase 6E adds an [isolated deployment bundle](../deploy/README.md) and local disaster recovery drill.
 
 1. Implement the versioned Kotlin Ktor HTTP API with health, readiness and contract tests.
 2. Create PostgreSQL migrations for accounts, devices, datasets, records, causal operations, conflicts and transactional counters.

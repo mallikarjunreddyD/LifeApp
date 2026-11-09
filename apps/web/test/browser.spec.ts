@@ -66,6 +66,7 @@ test('iPhone-sized offline shell reopens queued changes and survives worker upda
     await expect(page.getByText('5 pending')).toBeVisible();
     const cached = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
       (await (await caches.open(name)).keys()).map(request => new URL(request.url).pathname)))).flat());
+    expect(await page.evaluate(() => caches.keys())).toContain('lifeapp-shell-browser-update-test');
     expect(cached).toContain('/index.html');
     expect(cached.some(path => path.startsWith('/v1/'))).toBe(false);
   } finally {

@@ -1,0 +1,90 @@
+name: lifeapp
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+x-runtime: &runtime
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 256
+  logging: *logging
+  tmpfs: ['/tmp:size=64m,mode=1777']
+  stop_grace_period: 20s
+services:
+  db:
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lifeapp_admin
+      POSTGRES_DB: lifeapp
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
+    secrets: [db_admin_password, db_password]
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./images/init-role.sh:/docker-entrypoint-initdb.d/10-lifeapp-role.sh:ro
+    networks: [database]
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -U, lifeapp_admin, -d, lifeapp]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    mem_limit: 768m
+    cpus: 1.0
+    logging: *logging
+    stop_grace_period: 60s
+  api:
+    <<: *runtime
+    image: ${LIFEAPP_API_IMAGE:?Set LIFEAPP_API_IMAGE}
+    environment:
+      LIFEAPP_DB_URL: jdbc:postgresql://db:5432/lifeapp
+      LIFEAPP_DB_USER: lifeapp
+      LIFEAPP_DB_PASSWORD_FILE: /run/secrets/db_password
+      LIFEAPP_LISTEN_HOST: 0.0.0.0
+      LIFEAPP_HTTPS_ORIGIN: ${LIFEAPP_HTTPS_ORIGIN:?Set the canonical HTTPS origin}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65 -XX:ActiveProcessorCount=2
+    secrets: [db_password]
+    networks: [database, gateway]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/ready']
+      start_period: 25s
+      start_interval: 3s
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    cpus: 1.0
+  web:
+    <<: *runtime
+    image: ${LIFEAPP_WEB_IMAGE:?Set LIFEAPP_WEB_IMAGE}
+    ports:
+      - '127.0.0.1:${LIFEAPP_LOOPBACK_PORT:-4187}:8080'
+    networks: [gateway]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/ready']
+      start_period: 15s
+      start_interval: 3s
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
+    cpus: 0.5
+networks:
+  database:
+    internal: true
+  gateway: {}
+volumes:
+  db_data: {}
+secrets:
+  db_password:
+    file: ${LIFEAPP_DB_PASSWORD_PATH:?Set a protected password file path}
+  db_admin_password:
+    file: ${LIFEAPP_DB_ADMIN_PASSWORD_PATH:?Set a separate protected PostgreSQL administrator password file path}

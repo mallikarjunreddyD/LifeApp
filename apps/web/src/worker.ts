@@ -10,28 +10,52 @@ export function useWorkerUpdate(): (() => void) | null {
     let requested = false;
     let reloading = false;
     let activating: ServiceWorker | null = null;
+    let original: ServiceWorker | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     const reload = () => {
       if (requested && !reloading) {
         reloading = true;
+        clearTimeout(retry);
         window.location.reload();
       }
     };
     const controller = () => {
-      if (!activating || navigator.serviceWorker.controller === activating) reload();
+      if (navigator.serviceWorker.controller && navigator.serviceWorker.controller !== original) reload();
     };
-    const activated = () => { if (activating?.state === 'activated') reload(); };
+    const activated = () => {
+      if (activating?.state === 'activated') reload();
+    };
+    const requestActivation = (attempt = 0) => {
+      controller();
+      if (reloading || !mounted) return;
+      const waiting = registration?.waiting;
+      if (waiting && waiting !== activating) {
+        activating?.removeEventListener('statechange', activated);
+        activating = waiting;
+        activating.addEventListener('statechange', activated);
+      }
+      activated();
+      if (reloading) return;
+      if (waiting?.state === 'installed') {
+        try { waiting.postMessage('LIFEAPP_ACTIVATE'); }
+        catch { /* The worker can be replaced during update discovery. */ }
+      }
+      // Update discovery can replace a waiting worker between the click and activation.
+      // Re-read registration state instead of waiting indefinitely for that worker.
+      if (attempt < 12) retry = setTimeout(() => requestActivation(attempt + 1), 500);
+      else {
+        requested = false;
+        activating?.removeEventListener('statechange', activated);
+        activating = null;
+      }
+    };
     const showWaiting = () => {
       if (!mounted || !registration?.waiting || !navigator.serviceWorker.controller) return;
       setUpdate(() => () => {
+        if (requested) return;
+        original = navigator.serviceWorker.controller;
         requested = true;
-        activating?.removeEventListener('statechange', activated);
-        activating = registration?.waiting ?? null;
-        if (!activating) {
-          reload();
-          return;
-        }
-        activating.addEventListener('statechange', activated);
-        activating.postMessage('LIFEAPP_ACTIVATE');
+        requestActivation();
       });
     };
     const discover = () => {
@@ -52,6 +76,7 @@ export function useWorkerUpdate(): (() => void) | null {
     }).catch(() => { /* The online app remains usable when shell caching is unavailable. */ });
     return () => {
       mounted = false;
+      clearTimeout(retry);
       window.removeEventListener('online', check);
       navigator.serviceWorker.removeEventListener('controllerchange', controller);
       registration?.removeEventListener('updatefound', discover);

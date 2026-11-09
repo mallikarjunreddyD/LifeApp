@@ -1,0 +1,6 @@
+.env
+release.env
+previous.env
+secrets/
+.release.*
+backup.env

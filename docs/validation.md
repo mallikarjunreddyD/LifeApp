@@ -280,3 +280,19 @@ Pending acceptance includes Android workout UI on a tablet, browser backup
 and recovery, and cross-device workout mutations,
 outbox replay and conflict handling. The existing To-do sync does not carry
 workout records.
+
+## Phase 6E deployment and recovery
+
+Local Docker built the API and web images with pinned runtime bases. The
+isolated Compose stack exposed only the gateway on loopback. Native login
+and logout, browser Origin and CSRF enforcement, PWA manifest and worker
+assets, and PostgreSQL persistence across forced container recreation passed.
+The recovery drill encrypted a consistent PostgreSQL dump with age, restored
+it into a separate clean Compose project, checked the checkpoint manifest,
+rotated the epoch, and verified readiness and the restored task. The API
+rejected a pull using the old epoch.
+
+The VM, Tailscale Serve and Funnel, GHCR publication, production rollout,
+real Drive OAuth upload, live retention, and rollback to a previously
+published image pair remain unverified. The VM's existing routes were left
+untouched. This milestone does not extend which records synchronize.
