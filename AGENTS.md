@@ -104,3 +104,10 @@ with replay in one transaction. Clear pending changes only for explicit matching
 receipts. Reject snapshot replacement in a bound database. Keep backup schema
 independent of Room migrations. Check contracts with the local fixtures. Keep
 Ktor, PostgreSQL, PWA implementation and deployment in Phase 6.
+
+## Phase 6 milestones
+
+Use the Phase 5 sync contract and preserve the Android signing identity. Test the
+server against disposable PostgreSQL with apps/server/scripts/test-postgres.sh.
+Never connect that suite to production. Keep new record types local until their
+replay, conflict and migration rules pass. Deploy only after explicit approval.

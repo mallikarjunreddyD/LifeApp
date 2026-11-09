@@ -2,7 +2,7 @@ openapi: 3.1.1
 info:
   title: LifeApp server contract
   version: 1.0.0
-  description: Phase 6 design contract. No deployment is defined.
+  description: Phase 6A implements sessions, To-do synchronization and read-only workout endpoints.
 security:
 - browserSession: []
 - androidBearer: []

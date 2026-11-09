@@ -1,5 +1,9 @@
 # Phase 6 implementation plan
 
+Phase 6A has its own review branch. It implements the Ktor To-do routes, PostgreSQL
+migrations, authentication and isolated integration tests. See [server development](server-installation.md).
+Milestones 6B–6E remain open.
+
 1. Implement the versioned Kotlin Ktor HTTP API with health, readiness and contract tests.
 2. Create PostgreSQL migrations for accounts, devices, datasets, records, causal operations, conflicts and transactional counters.
 3. Implement owner authentication, browser cookie and CSRF policy, Android native token handling, revocation and login limits.

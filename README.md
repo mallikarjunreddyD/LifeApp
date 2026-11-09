@@ -144,6 +144,12 @@ See [server architecture](docs/server-architecture.md) and the
 See [architecture](docs/architecture.md), [handwriting format](docs/handwriting-format.md),
 [versions](docs/versions.md), [roadmap](docs/roadmap.md) and [development rules](AGENTS.md).
 
+## Self-hosted API development
+
+Phase 6A provides the Ktor/PostgreSQL To-do API and local integration workflow.
+See [server development](docs/server-installation.md) for isolated tests and
+[authentication](docs/server-authentication.md) for session and access rules.
+
 ## Persistent install/update APK
 
 Download **my-journal-installable** from a successful trusted main/bootstrap signing

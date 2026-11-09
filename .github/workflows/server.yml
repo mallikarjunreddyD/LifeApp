@@ -1,0 +1,36 @@
+name: Server verification
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  postgres-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test Ktor routes against disposable PostgreSQL
+        run: apps/server/scripts/test-postgres.sh
+      - name: Verify OpenAPI fixtures and recorded HTTP responses
+        run: |
+          python3 -m venv "$RUNNER_TEMP/lifeapp-contract"
+          "$RUNNER_TEMP/lifeapp-contract/bin/pip" install -r contracts/requirements.txt
+          "$RUNNER_TEMP/lifeapp-contract/bin/python" contracts/check.py --responses apps/server/build/contract-responses
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-test-reports
+          path: |
+            apps/server/build/reports/tests/
+            apps/server/build/test-results/
+            apps/server/build/contract-responses/

@@ -160,3 +160,13 @@ To-do pages and persists a bound scope and cursor transactionally in Room schema
 Separate receipts acknowledge outbox entries. Android backup/restore format stays
 at portable schema 6. The legacy native companion launchers are unsupported.
 See [server architecture](server-architecture.md) and [conflict policies](record-conflicts.md).
+
+## Phase 6A backend
+
+The JVM server module uses shared portable To-do codecs with Ktor, JDBC and
+Flyway. PostgreSQL holds sessions, account datasets, epochs, transactional
+commit counters, immutable To-do operations, conflict heads and projections. A second migration prepares normalized exercise,
+routine, workout, entry and set tables. Authenticated routes read stored workouts.
+Workout editing and synchronization belong to Phase 6D.
+The Android database and backup formats remain at their Phase 5 versions.
+[Server development](server-installation.md) · [Authentication](server-authentication.md)
