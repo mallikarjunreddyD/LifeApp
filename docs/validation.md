@@ -236,3 +236,33 @@ absent from Cache Storage. See the Phase 6B PR for hosted results.
 Physical iPhone Safari installation and production HTTPS remain unverified.
 Android server binding, journal viewing after migration, workout writes and
 deployment/recovery belong to later milestones.
+
+## Phase 6C Android To-do server integration
+
+Local validation used JDK 21, Android SDK platform 37, Build Tools 36.0.0 and
+the Gradle wrapper. The shared core, domain and data JVM tests passed, including the additional
+first-binding safety and Room reopen test. The shared UI module has no JVM test sources. Android debug and instrumentation
+APK assembly, Android lint and desktop compilation passed. Android built
+with the default settings and no Apple toolchain. The web typecheck, lint and
+four unit tests passed. Three existing Chromium tests passed against
+disposable Ktor and PostgreSQL.
+
+The hosted API 36 Pixel Tablet run passed 21 existing Android regression tests.
+The Android/PWA fixture was skipped in that standalone run and passed in the
+dedicated integration job, which reported one Android test and one Chromium
+test with no failures or skips. It exercised first binding from a verified
+archive, task changes in both directions, lost acknowledgment, retry and Room
+reopen, a deletion conflict, recovery epoch rejection and byte-for-byte
+preservation of saved ink. The harness supplies a disposable certificate for
+the Android test transport, which still verifies hostnames. See the
+[Android run](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42611876059),
+[server run](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42611876274)
+and [web run](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42611876096).
+
+Physical Xiaomi Pad 7 validation remains open. Use an independent local
+backup and verify an in-place signed update. Check that old journals, ink,
+notebooks, planner, habits, reminders, exports and Drive backup still work.
+Check Android first binding through the system file picker, then verify To-do
+sync with a real HTTPS server, including offline edits, network return,
+process restart, expiry, conflicts and a recovery epoch change. Check stylus
+accuracy, rotation and large text on the tablet. Other record types stay local.

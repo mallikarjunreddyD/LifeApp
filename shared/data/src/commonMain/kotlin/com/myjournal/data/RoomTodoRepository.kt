@@ -3,6 +3,7 @@ package com.myjournal.data
 import androidx.room.immediateTransaction
 import androidx.room.useWriterConnection
 import com.myjournal.core.RecordMetadata
+import com.myjournal.domain.ServerEndpoint
 import com.myjournal.domain.SyncCheckpoint
 import com.myjournal.domain.SyncScope
 import com.myjournal.domain.Todo
@@ -48,12 +49,43 @@ class RoomTodoRepository(
         check(!current.deleted) { "Task has been deleted" }
         val heads = heads(id)
         check(heads.size == 1) { "Resolve the conflicting task versions before editing" }
+        val head = requireNotNull(dao.operation(heads.single().id.toString()))
+        check(!head.pending || head.parentIds().size <= 1) { "Synchronize the conflict resolution before editing" }
         val revised = current.copy(metadata = current.metadata.revised(maxOf(clock.now(), current.metadata.updatedAt)))
         val changed = transform(revised)
         if (changed != revised) append(changed, heads.map { it.id }.toSet())
     }
 
     override suspend fun pending() = dao.pending().map(TodoOperationRow::model)
+
+    fun observePendingCount() = dao.observePendingCount()
+    suspend fun checkpoint(): SyncCheckpoint? = dao.checkpoint()?.model()
+    suspend fun boundOrigin(): String? = dao.checkpoint()?.origin
+    suspend fun localTasks(): List<Todo> = dao.all().map(TodoRow::model)
+
+    /** Atomically checks the saved backup's task state and binds scope plus origin. */
+    suspend fun bindEndpoint(scope: SyncScope, endpoint: ServerEndpoint, backedUp: List<Todo>, remoteHasHistory: Boolean) = write {
+        require(dao.checkpoint() == null) { "This database is already bound" }
+        val current = dao.all().map(TodoRow::model)
+        require(current == backedUp.sortedBy { it.metadata.id.toString() }) { "Tasks changed after the backup. Try again." }
+        require(current.isEmpty() || !remoteHasHistory) { "Both devices have task history. No data was imported." }
+        dao.saveCheckpoint(SyncCheckpoint(scope).row().copy(origin = endpoint.origin))
+    }
+
+    suspend fun allConflicts(): List<List<TodoOperation>> = dao.candidateConflicts().mapNotNull { id ->
+        heads(Uuid.parse(id)).takeIf { it.size > 1 }
+    }
+
+    /** Only call for a resolution the authenticated server explicitly rejected as stale. */
+    suspend fun retainRejectedResolution(operation: TodoOperation): Unit = write {
+        val saved = dao.operation(operation.id.toString()) ?: return@write
+        if (!saved.pending || saved.model() != operation || operation.parents.size < 2) return@write
+        val history = dao.history(saved.recordId)
+        require(history.none { !it.rejected && operation.id in it.parentIds() }) { "A queued edit depends on this resolution" }
+        dao.reject(saved.id)
+        val variants = heads(operation.record.metadata.id)
+        dao.save(variants.maxWith(compareBy({ it.record.deleted }, { it.id.toString() })).record.row())
+    }
 
     override suspend fun bind(scope: SyncScope): SyncCheckpoint = write {
         val saved = dao.checkpoint()?.model()
@@ -65,15 +97,16 @@ class RoomTodoRepository(
         require(dao.checkpoint()?.model()?.scope == acknowledgment.scope) { "Acknowledgment dataset mismatch" }
         val operation = acknowledgment.commit.operation
         val saved = requireNotNull(dao.operation(operation.id.toString()))
-        require(saved.model() == operation) { "Acknowledgment does not match operation" }
+        require(!saved.rejected && saved.model() == operation) { "Acknowledgment does not match operation" }
         dao.acknowledge(saved.id)
     }
 
     override suspend fun applyPage(from: SyncCheckpoint, page: TodoSyncPage): SyncCheckpoint = write {
-        require(dao.checkpoint()?.model() == from) { "Stale or unbound checkpoint" }
+        val saved = dao.checkpoint()
+        require(saved != null && saved.model() == from) { "Stale or unbound checkpoint" }
         val next = page.advance(from)
         receive(page.entries.map { it.operation })
-        if (next != from) dao.saveCheckpoint(next.row())
+        if (next != from) dao.saveCheckpoint(saved.copy(sequence = next.sequence))
         next
     }
 
@@ -87,7 +120,7 @@ class RoomTodoRepository(
             if (existing == null) {
                 remaining[op.id] = op
             } else {
-                require(existing.model() == op) { "Operation identity collision" }
+                require(!existing.rejected && existing.model() == op) { "Operation identity collision" }
                 known[op.id] = existing
             }
         }
@@ -111,7 +144,7 @@ class RoomTodoRepository(
         while (ready.isNotEmpty()) {
             val op = remaining.remove(ready.removeFirst()) ?: error("Invalid replay graph")
             val parents = op.parents.map(known::getValue)
-            require(parents.all { it.recordId == op.record.metadata.id.toString() }) { "Cross-record parent" }
+            require(parents.all { !it.rejected && it.recordId == op.record.metadata.id.toString() }) { "Cross-record parent" }
             require(op.record.deleted || parents.none { it.model().record.deleted }) { "Task resurrection" }
             require(parents.all { it.deviceId != op.deviceId.toString() || it.sequence < op.sequence }) {
                 "Invalid device sequence"
@@ -149,7 +182,13 @@ class RoomTodoRepository(
 
     /** Called only inside the confirmed local replacement transaction. */
     internal suspend fun replaceFromBackup(items: List<Todo>) {
-        check(dao.checkpoint() == null) { "Restore into a separate local database when this database is bound to a server" }
+        if (dao.checkpoint() != null) {
+            check(dao.all().map(TodoRow::model) == items.sortedBy { it.metadata.id.toString() }) {
+                "This backup would replace bound To-do records. Restore it into a separate local database."
+            }
+            // A backup with identical task records can restore the other local modules.
+            return
+        }
         // Portable backups do not carry replication identity or history.
         dao.clearRecords()
         dao.clearOperations()
@@ -167,7 +206,7 @@ class RoomTodoRepository(
     }
 
     private suspend fun heads(id: Uuid): List<TodoOperation> {
-        val history = dao.history(id.toString())
+        val history = dao.history(id.toString()).filterNot { it.rejected }
         val parents = history.flatMap { it.parentIds() }.toSet()
         return history.filter { Uuid.parse(it.id) !in parents }.map(TodoOperationRow::model)
     }

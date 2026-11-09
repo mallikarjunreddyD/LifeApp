@@ -20,6 +20,7 @@ android-junit = "1.3.0"
 android-compose = "1.12.1"
 serialization = "1.11.0"
 [libraries]
+work-runtime = { module = "androidx.work:work-runtime", version = "2.11.0" }
 ktor-netty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor" }
 server-logging = { module = "org.slf4j:slf4j-jdk14", version = "2.0.19" }
 ktor-status-pages = { module = "io.ktor:ktor-server-status-pages", version.ref = "ktor" }

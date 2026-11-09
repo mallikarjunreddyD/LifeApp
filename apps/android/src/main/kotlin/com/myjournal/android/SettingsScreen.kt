@@ -15,7 +15,7 @@ import kotlinx.datetime.LocalDate
 import kotlin.uuid.Uuid
 
 @Composable
-fun SettingsScreen(operations: DataOperations) {
+internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServerSync) {
     val state by operations.state.collectAsState()
     var format by rememberSaveable { mutableStateOf("backup") }
     var info by remember { mutableStateOf(false) }
@@ -65,6 +65,8 @@ fun SettingsScreen(operations: DataOperations) {
         DriveBackupSettings(operations)
         HorizontalDivider()
         TodoReminderSettings()
+        HorizontalDivider()
+        AndroidServerSettings(serverSync, operations)
     }
     if(info) AlertDialog(onDismissRequest={info=false},title={Text("File format information")},text={Column(Modifier.verticalScroll(rememberScrollState())) {
         Text("Full backup v1 is a ZIP with manifest.json, portable data.json and ink/UUID.ljpt files. It includes all modules and archived records. SHA-256 checksums, identities, ownership and point data are validated before restoration.")

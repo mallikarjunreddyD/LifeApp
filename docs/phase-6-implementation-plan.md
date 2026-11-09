@@ -4,7 +4,8 @@ Phase 6A has its own review branch. It implements the Ktor To-do routes, Postgre
 migrations, authentication and isolated integration tests. See [server development](server-installation.md).
 Phase 6B adds the browser To-do PWA and browser integration tests.
 [Browser setup](pwa-installation.md)
-Milestones 6C–6E remain open.
+Phase 6C adds [Android To-do synchronization](android-server-sync.md) and verified first binding.
+Milestones 6D–6E remain open.
 
 1. Implement the versioned Kotlin Ktor HTTP API with health, readiness and contract tests.
 2. Create PostgreSQL migrations for accounts, devices, datasets, records, causal operations, conflicts and transactional counters.

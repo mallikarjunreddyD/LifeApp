@@ -1,5 +1,6 @@
 package com.myjournal.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Index
@@ -40,6 +41,7 @@ data class TodoOperationRow(
     val parents: String,
     val payload: String,
     val pending: Boolean,
+    @ColumnInfo(defaultValue = "0") val rejected: Boolean = false,
 )
 
 @Entity(tableName = "todo_sync_device")
@@ -51,6 +53,7 @@ data class TodoCheckpointRow(
     val dataset: String,
     val epoch: String,
     val sequence: Long,
+    val origin: String? = null,
 ) {
     internal fun model() = SyncCheckpoint(SyncScope(Uuid.parse(dataset), Uuid.parse(epoch)), sequence)
 }
@@ -83,6 +86,15 @@ interface TodoDao {
 
     @Query("SELECT * FROM todo_operations WHERE pending = 1 ORDER BY sequence")
     suspend fun pending(): List<TodoOperationRow>
+
+    @Query("SELECT count(*) FROM todo_operations WHERE pending = 1")
+    fun observePendingCount(): Flow<Int>
+
+    @Query("SELECT recordId FROM todo_operations WHERE rejected = 0 GROUP BY recordId HAVING count(*) > 1")
+    suspend fun candidateConflicts(): List<String>
+
+    @Query("UPDATE todo_operations SET pending = 0, rejected = 1 WHERE id = :id")
+    suspend fun reject(id: String)
 
     @Query("UPDATE todo_operations SET pending = 0 WHERE id = :id")
     suspend fun acknowledge(id: String)

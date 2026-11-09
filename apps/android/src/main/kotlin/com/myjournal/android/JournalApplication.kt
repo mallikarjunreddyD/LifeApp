@@ -23,7 +23,6 @@ class EditorSession(database: FoundationDatabase) {
     val error get() = listOf(editor.state.value.error,planner.state.value.error,habits.state.value.error,notebooks.state.value.error).firstOrNull { it != null }
 }
 class JournalApplication : Application() {
-    val serverConnection: ServerConnection = ServerConnection.Unconfigured
     override fun onCreate() {
         super.onCreate()
         // A process restart has no in-flight operation; discard abandoned private staging files.
@@ -31,7 +30,8 @@ class JournalApplication : Application() {
     }
     private val database by lazy { openJournalDatabase(this) }
     val todos by lazy { RoomTodoRepository(database) }
-    val todoActions = TodoActions(CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+    internal val serverSync by lazy { AndroidServerSync(this, todos) }
+    val todoActions = TodoActions(CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)) { serverSync.onLocalCommit() }
     private var currentSession: EditorSession? = null
     val session get() = currentSession ?: EditorSession(database).also { currentSession=it }
     val editor get() = session.editor

@@ -101,7 +101,8 @@ Android is the supported app. Future browser support uses the PWA. Legacy deskto
 and Apple launchers are unsupported. Keep server endpoints unconfigured by default.
 To-do scope is the authenticated dataset and recovery epoch. Advance the cursor
 with replay in one transaction. Clear pending changes only for explicit matching
-receipts. Reject snapshot replacement in a bound database. Keep backup schema
+receipts. In a bound database, allow local snapshot restore only if To-do
+records match exactly and the sync history, outbox and checkpoint are preserved. Keep backup schema
 independent of Room migrations. Check contracts with the local fixtures. Keep
 Ktor, PostgreSQL, PWA implementation and deployment in Phase 6.
 
@@ -116,3 +117,7 @@ For browser changes, run npm run typecheck, npm run lint and npm test in apps/we
 then run apps/web/scripts/test-browser.sh against its disposable stack. Keep
 IndexedDB task and outbox changes atomic, retain local data across shell updates,
 and never cache private API responses in the service worker.
+
+For Android server sync changes, run the normal Android emulator suite and
+`LIFEAPP_ANDROID_BRIDGE=1 apps/web/scripts/test-browser.sh` with a disposable
+API 36 emulator. Keep test TLS credentials and server data temporary.

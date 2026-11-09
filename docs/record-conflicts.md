@@ -7,7 +7,7 @@ ordered by wall-clock time.
 
 | Record | Identity, ownership and reconciliation |
 | --- | --- |
-| To-do | Implemented in the fake-server path. Independent records converge. Same-record concurrent heads remain available for resolution. A deletion hides the projection while retaining the other variant. A deleted identity cannot be revived by a stale edit. |
+| To-do | Supported by Ktor, Android and the PWA. Independent records converge. Same-record concurrent heads remain available for resolution. A deletion hides the projection while retaining the other variant. A deleted identity cannot be revived by a stale edit. |
 | Journal entry | UUID plus unique local date. Concurrent creation for the same date needs an explicit canonical ID and child reparent mapping, preserving both source identities for retry. Hold unresolved until mapping is validated. |
 | Journal page | UUID owned by entry. Keep archive state and minimum one active page. Divergent changes to archive state or the same page metadata require review. |
 | Monthly planner page | UUID plus unique month. Preserve the versioned calendar geometry and cell ownership. Same-month creation and incompatible geometry need explicit reconciliation. |
@@ -24,6 +24,6 @@ integers as record identities. When concurrent additions claim the same position
 retain both and resolve their relative order before projecting to a unique index.
 Validate the complete parent/child projection before advancing the cursor.
 
-Phase 5 leaves non-To-do synchronization disconnected. The existing local Room
+Phase 6C leaves non-To-do synchronization disconnected. The existing local Room
 repositories, portable backup mappings and LJPT vectors remain their source of
-truth. Real server reconciliation and conflict UI belong to Phase 6.
+truth. Android and the PWA expose To-do versions and resolve against the current set of heads.

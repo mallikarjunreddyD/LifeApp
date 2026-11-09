@@ -178,3 +178,9 @@ counter and the bound dataset/epoch cursor in IndexedDB. Local writes and pull
 pages update them transactionally. Browser sessions use a same-origin HttpOnly
 cookie with a CSRF token held in memory. The service worker caches versioned
 static shell files only. [Browser setup](pwa-installation.md)
+
+## Phase 6C Android sync
+
+The Android app owns HTTPS, encrypted session storage and WorkManager scheduling.
+Room owns the checkpoint, binding, task history and outbox. Shared domain owns
+the To-do sync coordinator and protocol. Only the To-do module uses this path.

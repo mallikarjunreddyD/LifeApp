@@ -25,7 +25,7 @@ class TodoSyncTest {
     private fun open(file: File, driver: SQLiteDriver = BundledSQLiteDriver()) =
         Room.databaseBuilder<FoundationDatabase>(file.path)
             .setDriver(driver).setQueryCoroutineContext(Dispatchers.IO)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build()
 
     private class FakeServer : TodoSyncTransport {
         override val scope = SyncScope(
@@ -110,6 +110,40 @@ class TodoSyncTest {
         } finally {
             leftDb.close()
             rightDb.close()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun firstBindingChecksBackupAndRemoteHistoryBeforePersistingOrigin() = runTest {
+        val directory = Files.createTempDirectory("todo-binding").toFile()
+        val file = File(directory, "device.db")
+        val cloud = FakeServer()
+        val endpoint = ServerEndpoint.parse("https://journal.example")
+        var db = open(file)
+        try {
+            val repository = RoomTodoRepository(db, clock)
+            repository.add("First offline task", deadline)
+            val backup = repository.localTasks()
+            repository.add("Saved after backup", deadline)
+            assertFailsWith<IllegalArgumentException> {
+                repository.bindEndpoint(cloud.scope, endpoint, backup, remoteHasHistory = false)
+            }
+            assertFailsWith<IllegalArgumentException> {
+                repository.bindEndpoint(cloud.scope, endpoint, repository.localTasks(), remoteHasHistory = true)
+            }
+            assertNull(repository.checkpoint())
+            assertNull(repository.boundOrigin())
+
+            repository.bindEndpoint(cloud.scope, endpoint, repository.localTasks(), remoteHasHistory = false)
+            TodoSyncCoordinator(repository, cloud).synchronize()
+            db.close()
+            db = open(file)
+            val reopened = RoomTodoRepository(db, clock)
+            assertEquals(endpoint.origin, reopened.boundOrigin())
+            assertEquals(SyncCheckpoint(cloud.scope, 2), reopened.checkpoint())
+            assertTrue(reopened.pending().isEmpty())
+        } finally {
+            db.close()
             directory.deleteRecursively()
         }
     }
@@ -222,6 +256,7 @@ class TodoSyncTest {
             .getValue("identityHash") as kotlinx.serialization.json.JsonPrimitive).content
         BundledSQLiteDriver().open(file.path).use { connection ->
             connection.execSQL("DROP TABLE todo_sync_checkpoint")
+            connection.execSQL("ALTER TABLE todo_operations DROP COLUMN rejected")
             connection.prepare("UPDATE room_master_table SET identity_hash = ? WHERE id = 42").use {
                 it.bindText(1, identity)
                 it.step()

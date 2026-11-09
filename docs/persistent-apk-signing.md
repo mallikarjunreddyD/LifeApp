@@ -20,8 +20,8 @@ APK SHA-256 and package/version information. The artifact named
 channel. Installable APKs are currently development/debug builds, preserving the
 Phase3.1 input diagnostic; this is not a Google Play release pipeline.
 
-The signed job waits for the full JVM/build/lint and Android emulator jobs. It runs
-on pushes/manual runs for main and on the authorized phase-5-server-ready-refactor
+The signed job waits for the full JVM/build/lint, Android input and Android/PWA integration jobs. It runs
+on pushes/manual runs for main and on the authorized phase-6c-android-server-sync
 branch for pre-merge verification. It does not
 run for pull_request events or unrelated branches. Ordinary verification/emulator
 jobs receive no signing secrets. No pull_request_target workflow is used.
@@ -81,3 +81,6 @@ Version 0.5.0 uses version code 7 and the same package and pinned certificate as
 preserve local data. The diagnostic APK has its own signing identity.
 
 Phase 5 uses version 0.6.0 and version code 8 with the same package and signing pin.
+
+Phase 6C uses version 0.7.0, version code 9 and an additive Room 7 to 8 migration.
+The package and certificate pin are unchanged.
