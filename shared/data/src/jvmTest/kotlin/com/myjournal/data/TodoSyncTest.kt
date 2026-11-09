@@ -114,6 +114,40 @@ class TodoSyncTest {
         }
     }
 
+    @Test fun firstBindingChecksBackupAndRemoteHistoryBeforePersistingOrigin() = runTest {
+        val directory = Files.createTempDirectory("todo-binding").toFile()
+        val file = File(directory, "device.db")
+        val cloud = FakeServer()
+        val endpoint = ServerEndpoint.parse("https://journal.example")
+        var db = open(file)
+        try {
+            val repository = RoomTodoRepository(db, clock)
+            repository.add("First offline task", deadline)
+            val backup = repository.localTasks()
+            repository.add("Saved after backup", deadline)
+            assertFailsWith<IllegalArgumentException> {
+                repository.bindEndpoint(cloud.scope, endpoint, backup, remoteHasHistory = false)
+            }
+            assertFailsWith<IllegalArgumentException> {
+                repository.bindEndpoint(cloud.scope, endpoint, repository.localTasks(), remoteHasHistory = true)
+            }
+            assertNull(repository.checkpoint())
+            assertNull(repository.boundOrigin())
+
+            repository.bindEndpoint(cloud.scope, endpoint, repository.localTasks(), remoteHasHistory = false)
+            TodoSyncCoordinator(repository, cloud).synchronize()
+            db.close()
+            db = open(file)
+            val reopened = RoomTodoRepository(db, clock)
+            assertEquals(endpoint.origin, reopened.boundOrigin())
+            assertEquals(SyncCheckpoint(cloud.scope, 2), reopened.checkpoint())
+            assertTrue(reopened.pending().isEmpty())
+        } finally {
+            db.close()
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun outboxSurvivesReopenAndLostAcknowledgmentWithoutLogicalDuplicates() = runTest {
         val directory = Files.createTempDirectory("todo-retry").toFile()
         val file = File(directory, "device.db")
