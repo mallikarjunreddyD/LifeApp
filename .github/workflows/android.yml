@@ -80,11 +80,10 @@ jobs:
   signed-apk:
     name: Persistent-key installable APK
     needs: [verify, android-input]
-    # Never expose the installable signing key to pull-request code. The named
-    # bootstrap branch permits this owner-requested first setup before PR merge.
+    # Signing is limited to main and named branches authorized for pre-merge builds.
     if: >-
       github.event_name != 'pull_request' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/persistent-apk-signing')
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/phase-4-cloud-sync-todo')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

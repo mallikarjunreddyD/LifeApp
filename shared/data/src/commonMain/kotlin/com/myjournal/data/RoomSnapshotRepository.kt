@@ -33,12 +33,14 @@ class RoomSnapshotRepository(private val database: FoundationDatabase) : Snapsho
                     stroke
                 } + dao.bookInk().map { it.model() }
             JournalSnapshot(dao.metadata().map { notebookMeta(it.id,it.createdAt,it.updatedAt,it.revision,it.schemaVersion) },entries,planners,ledgers,
-                dao.books().map { it.model() },dao.bookPages().map { it.model() },ink.sortedBy { it.metadata.id.toString() }).also { it.validate() }
+                dao.books().map { it.model() },dao.bookPages().map { it.model() },ink.sortedBy { it.metadata.id.toString() },
+                database.todos().all().map(TodoRow::model)).also { it.validate() }
         } }
     }
     override suspend fun replace(snapshot: JournalSnapshot) = withContext(Dispatchers.Default) {
         snapshot.validate()
         database.useWriterConnection { connection -> connection.immediateTransaction {
+            RoomTodoRepository(database).replaceFromBackup(snapshot.todos)
             dao.clearNotebookStrokeRow()
             dao.clearNotebookPageRow()
             dao.clearNotebookRow()

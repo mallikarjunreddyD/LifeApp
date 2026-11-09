@@ -29,6 +29,8 @@ class JournalApplication : Application() {
         cacheDir.listFiles()?.filter { it.isFile && it.name.startsWith("lifeapp-") }?.forEach { it.delete() }
     }
     private val database by lazy { openJournalDatabase(this) }
+    val todos by lazy { RoomTodoRepository(database) }
+    val todoActions = TodoActions(CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
     private var currentSession: EditorSession? = null
     val session get() = currentSession ?: EditorSession(database).also { currentSession=it }
     val editor get() = session.editor

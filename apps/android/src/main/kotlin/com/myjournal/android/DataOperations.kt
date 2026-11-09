@@ -10,9 +10,9 @@ import java.io.*
 import java.security.MessageDigest
 import kotlin.time.Clock
 
-data class RestorePreview(val file: File, val backup: BackupArchive.Validated, val replacesData: Boolean, val sourceUri: Uri)
+data class RestorePreview(val file: File, val backup: BackupArchive.Validated, val replacesData: Boolean, val sourceUri: Uri?)
 data class OperationState(val busy: Boolean = false, val message: String? = null, val error: Boolean = false,
-    val preview: RestorePreview? = null, val pdfSnapshot: JournalSnapshot? = null)
+    val preview: RestorePreview? = null, val pdfSnapshot: JournalSnapshot? = null, val driveVersions: List<CloudBackupVersion>? = null)
 
 /** Application-owned operations survive Activity recreation. The UI is locked while busy. */
 class DataOperations(private val app: JournalApplication, private val repository: SnapshotRepository) {
@@ -30,7 +30,10 @@ class DataOperations(private val app: JournalApplication, private val repository
         }
     }
     private suspend fun snapshot(): JournalSnapshot {
-        awaitCommittedWrites { app.session.let { SaveStatus(it.pending,it.error) } }
+        awaitCommittedWrites {
+            val tasks = app.todoActions.state.value
+            SaveStatus(app.session.pending + if (tasks.saving) 1 else 0, app.session.error ?: tasks.error)
+        }
         return repository.capture()
     }
     private fun temp(suffix: String) = File.createTempFile("lifeapp-",suffix,app.cacheDir)
@@ -51,6 +54,71 @@ class DataOperations(private val app: JournalApplication, private val repository
             if(format=="backup") "Backup created and verified. All committed records included." else "Export created and verified."
         } finally { file.delete() }
     }
+    fun clearDriveVersions() {
+        if (!mutable.value.busy) mutable.value = mutable.value.copy(driveVersions = null)
+    }
+
+    fun listDriveBackups(storage: CloudBackupStorage) = start("Listing Drive backups…") {
+        val versions = storage.list()
+        mutable.value = mutable.value.copy(driveVersions = versions)
+        "${versions.size} Drive backup versions found."
+    }
+
+    fun backupToDrive(storage: CloudBackupStorage, passphrase: CharArray) {
+        if (mutable.value.busy) { passphrase.fill('\u0000'); return }
+        start("Preparing encrypted Drive backup…") {
+            try {
+                val committed = snapshot()
+                val file = temp(".zip")
+                val encrypted = try {
+                    withContext(Dispatchers.IO) {
+                        BackupArchive.write(file, committed)
+                        val archive = file.inputStream().use {
+                            BackupArchive.boundedRead(it, CloudBackupEnvelope.MAX_ARCHIVE_BYTES.toLong())
+                        }
+                        try { CloudBackupEnvelope.seal(archive, passphrase) }
+                        finally { archive.fill(0) }
+                    }
+                } finally { file.delete() }
+                storage.create(encrypted)
+                mutable.value = mutable.value.copy(driveVersions = null)
+                "Encrypted Drive backup created and verified."
+            } finally {
+                passphrase.fill('\u0000')
+            }
+        }
+    }
+
+    fun inspectDriveBackup(storage: CloudBackupStorage, version: CloudBackupVersion, passphrase: CharArray) {
+        if (mutable.value.busy) { passphrase.fill('\u0000'); return }
+        start("Downloading and validating encrypted backup…") {
+            try {
+                mutable.value.preview?.file?.delete()
+                mutable.value = mutable.value.copy(preview = null, pdfSnapshot = null)
+                snapshot()
+                val envelope = storage.download(version.id)
+                val file = temp(".zip")
+                try {
+                    val backup = withContext(Dispatchers.IO) {
+                        val archive = try { CloudBackupEnvelope.open(envelope, passphrase) }
+                        catch (_: javax.crypto.AEADBadTagException) { error("Wrong passphrase or damaged encrypted backup.") }
+                        try { file.writeBytes(archive) } finally { archive.fill(0) }
+                        BackupArchive.read(file)
+                    }
+                    mutable.value = mutable.value.copy(
+                        preview = RestorePreview(file, backup, repository.capture().populated, null),
+                    )
+                    "Drive backup validated. Review its contents before confirming restore."
+                } catch (failure: Throwable) {
+                    file.delete()
+                    throw failure
+                }
+            } finally {
+                passphrase.fill('\u0000')
+            }
+        }
+    }
+
     fun preparePdf() = start("Loading saved export selections…") {
         mutable.value=mutable.value.copy(pdfSnapshot=snapshot()); "Choose the saved pages to export."
     }
@@ -93,7 +161,7 @@ class DataOperations(private val app: JournalApplication, private val repository
         val incoming=withContext(Dispatchers.IO) { BackupArchive.read(preview.file).snapshot }
         if(existing.populated) {
             requireNotNull(recoveryUri) { "Choose a pre-restore recovery backup destination before replacement" }
-            require(recoveryUri.normalizeScheme() != preview.sourceUri.normalizeScheme()) { "Recovery destination must differ from the input backup" }
+            require(recoveryUri.normalizeScheme() != preview.sourceUri?.normalizeScheme()) { "Recovery destination must differ from the input backup" }
             val recovery=temp(".zip")
             try { withContext(Dispatchers.IO) { BackupArchive.write(recovery,existing);writeVerified(recovery,recoveryUri) } }
             finally { recovery.delete() }

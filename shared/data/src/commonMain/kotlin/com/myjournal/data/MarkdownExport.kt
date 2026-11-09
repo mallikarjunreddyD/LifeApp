@@ -26,6 +26,10 @@ object MarkdownExport {
                 appendLine("- ${it.order + 1}: ${text(it.title ?: "Untitled")} · ${it.paper} · ${it.metadata.id}${if (it.archived) " (archived)" else ""}")
             }
         }
+        appendLine("## To-do")
+        snapshot.todos.filterNot { it.deleted }.sortedBy { it.deadline }.forEach {
+            appendLine("- ${text(it.title)} · due ${it.deadline} · ${if (it.completedAt == null) "pending" else "completed"}")
+        }
         appendLine("## Record metadata")
         snapshot.records.forEach { appendLine("- ${it.id} · schema ${it.schemaVersion} · revision ${it.revision} · created ${it.createdAt} · updated ${it.updatedAt}") }
     }

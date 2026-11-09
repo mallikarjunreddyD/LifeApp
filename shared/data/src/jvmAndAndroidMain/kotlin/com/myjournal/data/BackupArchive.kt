@@ -19,7 +19,7 @@ object BackupArchive {
     private val json = Json { prettyPrint = true }
     data class Validated(val snapshot: JournalSnapshot, val createdAt: Instant, val appVersion: String,
         val kind: String, val counts: Map<String, Int>)
-    fun write(file: File, snapshot: JournalSnapshot, kind: String = "backup", appVersion: String = "0.4.2") {
+    fun write(file: File, snapshot: JournalSnapshot, kind: String = "backup", appVersion: String = "0.5.0") {
         require(kind in listOf("backup", "vectors")); snapshot.validate()
         val data = SnapshotJson.encode(snapshot, externalInk = true).encodeToByteArray()
         require(data.size <= MAX_JSON_BYTES) { "Record JSON exceeds 8 MiB" }
@@ -38,8 +38,8 @@ object BackupArchive {
                 snapshot.strokes.forEach { entry("ink/${it.metadata.id}.ljpt", StrokePointCodec.encode(it.points)) }
                 val manifest = buildJsonObject {
                     put("format", "LifeAppArchive"); put("backupFormatVersion", 1); put("kind", kind)
-                    put("appVersion", appVersion); put("createdAt", Clock.System.now().toString()); put("dataSchemaVersion", 5)
-                    put("sections", JsonArray(sections.map(::JsonPrimitive)))
+                    put("appVersion", appVersion); put("createdAt", Clock.System.now().toString()); put("dataSchemaVersion", 6)
+                    put("sections", JsonArray((sections + "todos").map(::JsonPrimitive)))
                     put("counts", buildJsonObject { snapshot.counts().forEach { (name, count) -> put(name, count) } })
                     put("files", JsonArray(items.map { item -> buildJsonObject {
                         put("path", item.path); put("size", item.size); put("sha256", item.hash)
@@ -85,9 +85,11 @@ object BackupArchive {
             checkJsonSizeAndDepth(manifestText)
             val manifest = json.parseToJsonElement(manifestText).jsonObject
             require(manifest.getValue("format").jsonPrimitive.content == "LifeAppArchive")
-            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..5) { "Unsupported backup version" }
+            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..6) { "Unsupported backup version" }
             val kind = manifest.getValue("kind").jsonPrimitive.content; require(kind == expectedKind) { "This file is not a full backup" }
-            require(manifest.getValue("sections").jsonArray.map { it.jsonPrimitive.content } == sections)
+            val schema = manifest.getValue("dataSchemaVersion").jsonPrimitive.int
+            val expectedSections = if (schema >= 6) sections + "todos" else sections
+            require(manifest.getValue("sections").jsonArray.map { it.jsonPrimitive.content } == expectedSections)
             val created = Instant.parse(manifest.getValue("createdAt").jsonPrimitive.content)
             val version = manifest.getValue("appVersion").jsonPrimitive.content; require(version.length in 1..80)
             val files = manifest.getValue("files").jsonArray
@@ -108,7 +110,7 @@ object BackupArchive {
             }
             require(used == declared.keys) { "Unreferenced archive data" }
             val counts = manifest.getValue("counts").jsonObject.mapValues { it.value.jsonPrimitive.int }
-            require(counts == snapshot.counts()) { "Record counts do not match manifest" }
+            require(counts == if (schema >= 6) snapshot.counts() else snapshot.counts() - "todos") { "Record counts do not match manifest" }
             return Validated(snapshot,created,version,kind,counts)
         }
     }

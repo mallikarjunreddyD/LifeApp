@@ -21,8 +21,8 @@ channel. Installable APKs are currently development/debug builds, preserving the
 Phase3.1 input diagnostic; this is not a Google Play release pipeline.
 
 The signed job waits for the full JVM/build/lint and Android emulator jobs. It runs
-on pushes/manual runs for main and on the owner-requested fix/persistent-apk-signing
-bootstrap branch so the first identity can be verified before PR merge. It does not
+on pushes/manual runs for main and on the authorized phase-4-cloud-sync-todo
+branch for pre-merge verification. It does not
 run for pull_request events or unrelated branches. Ordinary verification/emulator
 jobs receive no signing secrets. No pull_request_target workflow is used.
 
@@ -72,3 +72,10 @@ backup/restore migration is planned. This task does not uninstall/clear the tabl
 
 [GitHub binary secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)
 [Android app signing](https://developer.android.com/studio/publish/app-signing)
+
+## Phase 4 update
+
+Version 0.5.0 uses version code 7 and the same package and pinned certificate as
+0.4.2. It migrates Room from schema 5 to 6 on the next database open. Install
+`MyJournal.apk` from `my-journal-installable` over the persistent-key build to
+preserve local data. The diagnostic APK has its own signing identity.

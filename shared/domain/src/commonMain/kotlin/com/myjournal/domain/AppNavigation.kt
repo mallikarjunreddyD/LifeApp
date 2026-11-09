@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.datetime.LocalDate
 
-enum class AppSection { JOURNAL, PLANNER, HABITS, NOTEBOOK, SETTINGS }
+enum class AppSection { JOURNAL, PLANNER, HABITS, NOTEBOOK, TODO, SETTINGS }
 
 data class AppRoute(val section: AppSection, val date: LocalDate? = null, val month: JournalMonth? = null) {
     init {

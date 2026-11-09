@@ -80,3 +80,12 @@ Before upgrading the installed app, follow safe-android-upgrade.md: compare sign
 certificates, use the original private key and install with -r. CI debug signatures
 may differ; never uninstall or erase data to resolve a mismatch. Tablet certificate
 compatibility cannot be inferred from successful compilation or emulator tests.
+
+## Phase 4 To-do and Drive backup
+
+Schema 6 includes To-do records, including tombstones, in the verified archive.
+Restoring an older schema 4 or 5 backup preserves its existing content and results
+in an empty To-do list. Confirmed replacement reseeds the local task outbox from
+the restored task records. The Drive path decrypts the selected version before
+normal ZIP validation and uses the same confirmation and recovery-file requirement.
+[Google Drive setup and recovery](drive-backup.md)

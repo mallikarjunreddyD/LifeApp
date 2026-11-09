@@ -61,19 +61,23 @@ fun SettingsScreen(operations: DataOperations) {
         OutlinedButton(enabled=!state.busy,onClick={exportMarkdown.launch(exportName("LifeApp-Metadata","md"))}) { Text("Export Markdown metadata") }
         Text("Markdown contains text and metadata only. It does not recognize handwriting and is not a complete backup.",style=MaterialTheme.typography.bodySmall)
         TextButton(onClick={info=true}) { Text("Backup and export format information") }
+        HorizontalDivider()
+        DriveBackupSettings(operations)
+        HorizontalDivider()
+        TodoReminderSettings()
     }
     if(info) AlertDialog(onDismissRequest={info=false},title={Text("File format information")},text={Column(Modifier.verticalScroll(rememberScrollState())) {
         Text("Full backup v1 is a ZIP with manifest.json, portable data.json and ink/UUID.ljpt files. It includes all modules and archived records. SHA-256 checksums, identities, ownership and point data are validated before restoration.")
         Text("JSON records v1 includes LJPT1 vectors as Base64. Native vector ZIP v1 stores the same records with separate LJPT1 files. Only full backup archives are accepted for restore.")
         Text("PDF uses portable Canvas paths and includes paper/calendar backgrounds. Pressure is approximated; its brush edge smoothing may differ from live Jetpack Ink. Original vectors stay editable.")
         Text("Limits: 64 MiB archive and expanded total, 8 MiB record/manifest JSON each, 50,000 records and 2,000,000 points. PDFs allow up to 500 pages and 128 MiB. Split PDF selections if needed. Backups are not encrypted or authenticated; use trusted files.")
-        Text("Restore replaces all local records atomically. Existing data requires a verified recovery backup in a separately chosen file. No merging or cloud service is implemented.")
+        Text("Restore replaces all local records atomically. Existing data requires a verified recovery backup in a separately chosen file. Drive backups use the same validation and restore confirmation.")
     }},confirmButton={TextButton(onClick={info=false}){Text("Done")}})
     val preview=state.preview
     if(preview!=null && !state.busy && !confirm) AlertDialog(onDismissRequest=operations::dismissRestore,title={Text("Validated backup")},text={Column(Modifier.verticalScroll(rememberScrollState())) {
         Text("Created ${preview.backup.createdAt} · App ${preview.backup.appVersion}")
         preview.backup.counts.forEach { (name,count) -> Text("$name: $count") }
-        Text(if(preview.replacesData) "REPLACE EXISTING DATA: all current journal, planner, habits and notebooks will be replaced. First choose a different recovery backup file. It must be saved and verified before any replacement. No merge is performed." else "Restore these records into this clean database. Existing data is never merged.")
+        Text(if(preview.replacesData) "REPLACE EXISTING DATA: all current journal, planner, habits, notebooks and To-do records will be replaced. First choose a different recovery backup file. It must be saved and verified before any replacement. No merge is performed." else "Restore these records into this clean database. Existing data is never merged.")
     }},confirmButton={TextButton(onClick={ if(preview.replacesData) selectRecovery.launch(exportName("LifeApp-BeforeRestore","zip")) else {recovery=null;confirm=true} }){
         Text(if(preview.replacesData) "Choose recovery file" else "Review restore confirmation")
     }},dismissButton={TextButton(onClick=operations::dismissRestore){Text("Cancel restore")}})
