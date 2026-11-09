@@ -81,3 +81,12 @@ Room schema 7 adds only a synchronization checkpoint table. Portable JSON and ZI
 writers still use data schema 6 and encrypted backups still use LIFEBAK1. Readers
 retain schema 4, 5 and 6 support. Server scope, cursors and outbox history stay out
 of portable backups. Restore into a separate local database when server-bound.
+
+### Workout records
+
+Archives with workout records use data schema 7 and add a `workouts` section.
+The manifest counts exercise definitions, routines, sessions, entries and sets
+separately. Structured JSON nests entries and sets under their session and
+retains every UUID, parent reference and recorded weight unit. Archives with
+no workouts still use schema 6. The archive and encrypted envelope formats
+are unchanged. A schema 7 reader continues to accept schema 4 through 6.

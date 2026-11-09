@@ -1,3 +1,5 @@
+import { checkWorkoutRecords } from './workout.ts';
+import type { WorkoutRecord } from './workout.ts';
 import { advance, calendarDate, decodeOperation, instantKey, nextSequence, now, sameOperation, sameScope, title } from './protocol.ts';
 import type { Checkpoint, Operation, Page, Receipt, Scope, Todo } from './protocol.ts';
 
@@ -22,14 +24,17 @@ function complete(transaction: IDBTransaction): Promise<void> {
 }
 
 export async function openStore(name = 'lifeapp-browser'): Promise<LifeStore> {
-  const open = indexedDB.open(name, 1);
-  open.onupgradeneeded = () => {
+  const open = indexedDB.open(name, 2);
+  open.onupgradeneeded = event => {
     const db = open.result;
-    db.createObjectStore('settings');
-    const ops = db.createObjectStore('operations', { keyPath: 'operation.operationId' });
-    ops.createIndex('queue', 'queue');
-    ops.createIndex('record', 'operation.recordId');
-    db.createObjectStore('tasks', { keyPath: 'id' });
+    if (event.oldVersion === 0) {
+      db.createObjectStore('settings');
+      const ops = db.createObjectStore('operations', { keyPath: 'operation.operationId' });
+      ops.createIndex('queue', 'queue');
+      ops.createIndex('record', 'operation.recordId');
+      db.createObjectStore('tasks', { keyPath: 'id' });
+    }
+    db.createObjectStore('workouts', { keyPath: 'value.metadata.id' });
   };
   const db = await result(open);
   db.onversionchange = () => db.close();
@@ -40,11 +45,13 @@ class Transaction {
   readonly settings: IDBObjectStore;
   readonly operations: IDBObjectStore;
   readonly tasks: IDBObjectStore;
+  readonly workouts: IDBObjectStore;
 
   constructor(transaction: IDBTransaction) {
     this.settings = transaction.objectStore('settings');
     this.operations = transaction.objectStore('operations');
     this.tasks = transaction.objectStore('tasks');
+    this.workouts = transaction.objectStore('workouts');
   }
 
   async state(): Promise<Settings> {
@@ -96,7 +103,7 @@ export class LifeStore {
   close() { this.#database.close(); }
 
   private async use<T>(mode: IDBTransactionMode, work: (tx: Transaction) => Promise<T>): Promise<T> {
-    const transaction = this.#database.transaction(['settings', 'operations', 'tasks'], mode);
+    const transaction = this.#database.transaction(['settings', 'operations', 'tasks', 'workouts'], mode);
     const finished = complete(transaction);
     void finished.catch(() => {});
     try {
@@ -108,6 +115,29 @@ export class LifeStore {
       await finished.catch(() => {});
       throw error;
     }
+  }
+
+  async workoutRecords(): Promise<WorkoutRecord[]> {
+    return this.use('readonly', async tx => await result(tx.workouts.getAll()) as WorkoutRecord[]);
+  }
+
+  async saveWorkout(record: WorkoutRecord, expected: string | null): Promise<void> {
+    return this.use('readwrite', async tx => {
+      const records = await result(tx.workouts.getAll()) as WorkoutRecord[];
+      const id = record.value.metadata.id;
+      const prior = records.find(item => item.value.metadata.id === id);
+      if ((prior?.value.metadata.revision ?? null) !== expected || (prior && prior.kind !== record.kind)) {
+        throw new Error('This record changed. Reopen it before saving.');
+      }
+      const metadata = record.value.metadata;
+      if (metadata.revision !== (expected === null ? '1' : nextSequence(expected)) ||
+          (prior && (prior.value.metadata.createdAt !== metadata.createdAt ||
+            instantKey(prior.value.metadata.updatedAt) > instantKey(metadata.updatedAt)))) {
+        throw new Error('Invalid workout revision.');
+      }
+      checkWorkoutRecords([...records.filter(item => item.value.metadata.id !== id), record]);
+      await result(tx.workouts.put(record));
+    });
   }
 
   async view(): Promise<LocalView> {

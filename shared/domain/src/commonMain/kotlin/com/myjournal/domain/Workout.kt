@@ -97,6 +97,43 @@ data class WorkoutRoutine(
     val metadata: RecordMetadata,
     val name: String,
     val exerciseOrder: List<Uuid>,
+    val plannedSetCounts: List<Int?> = emptyList(),
 ) {
-    init { require(name.isNotBlank() && name.length <= 120 && exerciseOrder.isNotEmpty()) }
+    init {
+        require(name.isNotBlank() && name.length <= 120 && exerciseOrder.isNotEmpty())
+        require(plannedSetCounts.isEmpty() || plannedSetCounts.size == exerciseOrder.size)
+        require(plannedSetCounts.filterNotNull().all { it in 1..100 })
+    }
+}
+
+data class WorkoutLog(
+    val exercises: List<ExerciseDefinition> = emptyList(),
+    val routines: List<WorkoutRoutine> = emptyList(),
+    val sessions: List<WorkoutSession> = emptyList(),
+) {
+    val records get() = exercises.map { it.metadata } + routines.map { it.metadata } + sessions.flatMap { session ->
+        listOf(session.metadata) + session.entries.flatMap { entry ->
+            listOf(entry.metadata) + entry.sets.map { it.metadata }
+        }
+    }
+
+    fun validate() {
+        val ids = exercises.map { it.metadata.id }.toSet()
+        require(records.map { it.id }.toSet().size == records.size) { "Duplicate workout identity" }
+        sessions.forEach { it.validateExerciseReferences(ids) }
+        require(routines.all { routine -> routine.exerciseOrder.all { it in ids } }) { "Unknown routine exercise" }
+    }
+
+    fun canonical() = WorkoutLog(
+        exercises.sortedBy { it.metadata.id.toString() },
+        routines.sortedBy { it.metadata.id.toString() },
+        sessions.sortedBy { it.metadata.id.toString() },
+    )
+}
+
+interface WorkoutRepository {
+    fun observe(): kotlinx.coroutines.flow.Flow<WorkoutLog>
+    suspend fun saveExercise(exercise: ExerciseDefinition)
+    suspend fun saveRoutine(routine: WorkoutRoutine)
+    suspend fun saveSession(session: WorkoutSession, previousRevision: Long?)
 }

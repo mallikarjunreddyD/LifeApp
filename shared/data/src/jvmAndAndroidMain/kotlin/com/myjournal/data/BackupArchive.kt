@@ -38,8 +38,8 @@ object BackupArchive {
                 snapshot.strokes.forEach { entry("ink/${it.metadata.id}.ljpt", StrokePointCodec.encode(it.points)) }
                 val manifest = buildJsonObject {
                     put("format", "LifeAppArchive"); put("backupFormatVersion", 1); put("kind", kind)
-                    put("appVersion", appVersion); put("createdAt", Clock.System.now().toString()); put("dataSchemaVersion", 6)
-                    put("sections", JsonArray((sections + "todos").map(::JsonPrimitive)))
+                    put("appVersion", appVersion); put("createdAt", Clock.System.now().toString()); put("dataSchemaVersion", snapshot.dataSchemaVersion)
+                    put("sections", JsonArray(sectionsFor(snapshot.dataSchemaVersion).map(::JsonPrimitive)))
                     put("counts", buildJsonObject { snapshot.counts().forEach { (name, count) -> put(name, count) } })
                     put("files", JsonArray(items.map { item -> buildJsonObject {
                         put("path", item.path); put("size", item.size); put("sha256", item.hash)
@@ -57,6 +57,10 @@ object BackupArchive {
             require(SnapshotJson.encode(verified.snapshot) == SnapshotJson.encode(snapshot)) { "Backup verification mismatch" }
         } catch (failure: Throwable) { file.delete(); throw failure }
     }
+    private fun sectionsFor(schema: Int) = sections +
+        (if (schema >= 6) listOf("todos") else emptyList()) +
+        (if (schema >= 7) listOf("workouts") else emptyList())
+
     fun read(file: File, expectedKind: String = "backup"): Validated {
         require(file.length() in 1..MAX_ARCHIVE_BYTES) { "Archive is empty or exceeds 64 MiB" }
         ZipFile(file).use { zip ->
@@ -85,10 +89,10 @@ object BackupArchive {
             checkJsonSizeAndDepth(manifestText)
             val manifest = json.parseToJsonElement(manifestText).jsonObject
             require(manifest.getValue("format").jsonPrimitive.content == "LifeAppArchive")
-            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..6) { "Unsupported backup version" }
+            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..7) { "Unsupported backup version" }
             val kind = manifest.getValue("kind").jsonPrimitive.content; require(kind == expectedKind) { "This file is not a full backup" }
             val schema = manifest.getValue("dataSchemaVersion").jsonPrimitive.int
-            val expectedSections = if (schema >= 6) sections + "todos" else sections
+            val expectedSections = sectionsFor(schema)
             require(manifest.getValue("sections").jsonArray.map { it.jsonPrimitive.content } == expectedSections)
             val created = Instant.parse(manifest.getValue("createdAt").jsonPrimitive.content)
             val version = manifest.getValue("appVersion").jsonPrimitive.content; require(version.length in 1..80)

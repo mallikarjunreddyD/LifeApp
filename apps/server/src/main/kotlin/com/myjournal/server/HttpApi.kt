@@ -1,5 +1,6 @@
 package com.myjournal.server
 
+import com.myjournal.data.workoutJson
 import com.myjournal.data.TodoOperationJson
 import com.myjournal.data.checkJsonSizeAndDepth
 import com.myjournal.domain.CommittedTodo
@@ -145,21 +146,21 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                 val scope = call.authenticate(auth).second.scope
                 val (after, limit) = call.pagination()
                 val page = databaseCall { workouts.exercises(scope, after, limit) }
-                call.json(paged(page, limit, { it.metadata.id }) { it.json() })
+                call.json(paged(page, limit, { it.metadata.id }) { it.workoutJson() })
             }
             get("/workouts") {
                 val scope = call.authenticate(auth).second.scope
                 val (after, limit) = call.pagination()
                 val pageSize = minOf(limit, 10)
                 val page = databaseCall { workouts.workouts(scope, after, pageSize) }
-                call.json(paged(page, pageSize, { it.metadata.id }) { it.json() })
+                call.json(paged(page, pageSize, { it.metadata.id }) { it.workoutJson() })
             }
             get("/workouts/{recordId}") {
                 val scope = call.authenticate(auth).second.scope
                 val id = validated { Uuid.parse(requireNotNull(call.parameters["recordId"])) }
                 val record = databaseCall { workouts.workout(scope, id) }
                     ?: throw ApiFailure(404, "NOT_FOUND", "Workout not found.")
-                call.json(record.json())
+                call.json(record.workoutJson())
             }
         }
     }

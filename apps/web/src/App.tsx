@@ -5,6 +5,7 @@ import type { BrowserSession } from './api.ts';
 import { sameScope, today } from './protocol.ts';
 import type { Todo } from './protocol.ts';
 import type { LifeStore, LocalView, TaskView } from './store.ts';
+import { Workouts } from './Workouts.tsx';
 import { useWorkerUpdate } from './worker.ts';
 
 type Tab = 'To-do' | 'Workouts' | 'History' | 'Journal' | 'Settings';
@@ -166,8 +167,11 @@ export function App({ store }: { store: LifeStore }) {
       {tab === 'To-do' && (loaded ? <Todos view={view} change={change} store={store} /> : <p role="status">Loading local tasks…</p>)}
       {tab === 'Settings' && <Settings view={view} session={session} busy={busy} online={online}
         onLogin={login} onBind={bind} onLogout={logout} onSync={() => session && void sync(session)} />}
-      {(tab === 'Workouts' || tab === 'History') && <ReadRecords key={tab} kind={tab === 'Workouts' ? 'exercises' : 'workouts'}
-        session={matches ? session : null} online={online} />}
+      {(tab === 'Workouts' || tab === 'History') && <>
+        <Workouts key={tab} store={store} historyOnly={tab === 'History'} />
+        {matches && <details><summary>Read-only server records</summary><ReadRecords key={tab}
+          kind={tab === 'Workouts' ? 'exercises' : 'workouts'} session={session} online={online} /></details>}
+      </>}
       {tab === 'Journal' && <section><h1>Journal</h1><p>Journal, planner and notebook records are still on Android. Browser viewing will be available after safe server migration is implemented.</p></section>}
     </main>
     <nav aria-label="Main navigation">
@@ -313,7 +317,7 @@ function ReadRecords({ kind, session, online }: { kind: 'exercises' | 'workouts'
   }, [load]);
   return <section>
     <h1>{kind === 'exercises' ? 'Workouts' : 'History'}</h1>
-    <p>Read-only server records. Workout logging will be available in a later milestone.</p>
+    <p>Server records are separate from the workout log saved in this browser.</p>
     {!online || !session ? <p>Connect and sign in to the bound dataset to view these records.</p> : <>
       {loading && <p role="status">Loading records…</p>}
       {problem && <p role="alert">{problem}</p>}

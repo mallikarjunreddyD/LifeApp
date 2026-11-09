@@ -146,3 +146,36 @@ test('lost acknowledgment and expired browser session retain the operation', asy
   expect(feed.entries.filter((entry: { operation: { record: { title: string } } }) =>
     entry.operation.record.title === 'Retry after lost receipt')).toHaveLength(1);
 });
+
+test('workout and original weight unit survive offline reload', async ({ page, context }) => {
+  await page.goto('/');
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+  await page.reload();
+  await context.setOffline(true);
+  await page.getByRole('button', { name: 'Workouts', exact: true }).click();
+  await page.getByRole('button', { name: 'New exercise' }).click();
+  await page.getByLabel('Name', { exact: true }).fill('Bench Press');
+  await page.getByLabel('Category or body part').fill('Chest');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Bench Press' })).toBeVisible();
+  await page.getByRole('button', { name: 'New routine' }).click();
+  await page.getByLabel('Routine name').fill('Push');
+  await page.getByRole('button', { name: 'Add Bench Press' }).click();
+  await page.getByLabel('Planned sets').fill('1');
+  await page.getByRole('button', { name: 'Save routine' }).click();
+  await page.getByRole('button', { name: 'Start routine' }).click();
+  await page.getByRole('button', { name: 'Set 1 · Open' }).click();
+  await page.getByLabel('Weight', { exact: true }).fill('105.5');
+  await page.getByLabel('Weight unit').selectOption('LB');
+  await page.getByLabel('Repetitions').fill('8');
+  await page.getByLabel('Rest (seconds)').fill('45');
+  await page.getByLabel('Set completed').check();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('button', { name: /105.5 LB · 8 reps · 45s rest/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Complete workout' }).click();
+  await expect(page.getByRole('heading', { name: /Completed/ })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.getByRole('button', { name: /seconds · 1 exercises/ }).click();
+  await expect(page.getByRole('button', { name: /105.5 LB · 8 reps · 45s rest/ })).toBeVisible();
+});
