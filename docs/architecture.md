@@ -170,3 +170,11 @@ routine, workout, entry and set tables. Authenticated routes read stored workout
 Workout editing and synchronization belong to Phase 6D.
 The Android database and backup formats remain at their Phase 5 versions.
 [Server development](server-installation.md) · [Authentication](server-authentication.md)
+
+## Phase 6B browser client
+
+The React client stores task projections, immutable operations, the device
+counter and the bound dataset/epoch cursor in IndexedDB. Local writes and pull
+pages update them transactionally. Browser sessions use a same-origin HttpOnly
+cookie with a CSRF token held in memory. The service worker caches versioned
+static shell files only. [Browser setup](pwa-installation.md)

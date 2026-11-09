@@ -22,9 +22,9 @@ Physical Xiaomi checks remain explicitly deferred.
    open. See [protocol and limits](phase-4-sync.md).
 6. **Phase 5 — Server preparation:** versioned REST contract, fake-server To-do
    synchronization, Room checkpoints, shared workout models and recovery design.
-7. **Phase 6 — Self-hosted release:** 6A adds and tests the Ktor/PostgreSQL API.
-   The remaining milestones add a React/TypeScript PWA for
-   iPhone and desktop browsers, Android integration, workout editing and automated
+7. **Phase 6 — Self-hosted release:** 6A adds the Ktor/PostgreSQL API and 6B adds
+   the offline React/TypeScript To-do PWA for iPhone and desktop browsers.
+   Remaining milestones add Android integration, workout editing and automated
    recovery. See the [implementation plan](phase-6-implementation-plan.md).
 8. **Later — Read-only Google Calendar:** explicit consent and multiple accounts.
 

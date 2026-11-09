@@ -111,3 +111,8 @@ Use the Phase 5 sync contract and preserve the Android signing identity. Test th
 server against disposable PostgreSQL with apps/server/scripts/test-postgres.sh.
 Never connect that suite to production. Keep new record types local until their
 replay, conflict and migration rules pass. Deploy only after explicit approval.
+
+For browser changes, run npm run typecheck, npm run lint and npm test in apps/web,
+then run apps/web/scripts/test-browser.sh against its disposable stack. Keep
+IndexedDB task and outbox changes atomic, retain local data across shell updates,
+and never cache private API responses in the service worker.
