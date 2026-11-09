@@ -7,6 +7,8 @@ import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Upsert
+import com.myjournal.domain.SyncCheckpoint
+import com.myjournal.domain.SyncScope
 import com.myjournal.domain.Todo
 import com.myjournal.domain.TodoOperation
 import kotlinx.coroutines.flow.Flow
@@ -43,6 +45,18 @@ data class TodoOperationRow(
 @Entity(tableName = "todo_sync_device")
 data class TodoDeviceRow(@PrimaryKey val slot: Int, val id: String, val sequence: Long)
 
+@Entity(tableName = "todo_sync_checkpoint")
+data class TodoCheckpointRow(
+    @PrimaryKey val slot: Int,
+    val dataset: String,
+    val epoch: String,
+    val sequence: Long,
+) {
+    internal fun model() = SyncCheckpoint(SyncScope(Uuid.parse(dataset), Uuid.parse(epoch)), sequence)
+}
+
+internal fun SyncCheckpoint.row() = TodoCheckpointRow(0, scope.dataset.toString(), scope.epoch.toString(), sequence)
+
 @Dao
 interface TodoDao {
     @Query("SELECT * FROM todos WHERE deleted = 0 ORDER BY deadline, createdAt, id")
@@ -78,6 +92,11 @@ interface TodoDao {
     suspend fun device(): TodoDeviceRow?
 
     @Upsert suspend fun saveDevice(row: TodoDeviceRow)
+
+    @Query("SELECT * FROM todo_sync_checkpoint WHERE slot = 0")
+    suspend fun checkpoint(): TodoCheckpointRow?
+
+    @Upsert suspend fun saveCheckpoint(row: TodoCheckpointRow)
 }
 
 internal fun Todo.row() = with(metadata) {

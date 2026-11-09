@@ -20,10 +20,11 @@ Physical Xiaomi checks remain explicitly deferred.
    reminders, schema 6, encrypted manual Drive backup and a provider-independent
    To-do outbox/replay core. Live sync and authenticated Drive acceptance remain
    open. See [protocol and limits](phase-4-sync.md).
-6. **Phase 5 handoff:** native iOS To-do editing, notification authorization and
-   calendar scheduling, iOS synchronization and authenticated cross-device To-do
-   acceptance. Windows editing remains deferred. Phase 5 requires authorization.
-7. **Later — Gym and expense trackers.**
+6. **Phase 5 — Server preparation:** versioned REST contract, fake-server To-do
+   synchronization, Room checkpoints, shared workout models and recovery design.
+7. **Phase 6 — Self-hosted release:** Ktor, PostgreSQL, a React/TypeScript PWA for
+   iPhone and desktop browsers, Android integration, workout editing and automated
+   recovery. See the [implementation plan](phase-6-implementation-plan.md).
 8. **Later — Read-only Google Calendar:** explicit consent and multiple accounts.
 
 Future directions require explicit authorization and their own acceptance checks.
@@ -32,3 +33,5 @@ Phase3.1 corrective work addresses tablet ink/workspace matrix resolution and sa
 journal-page archival before Phase4. Physical accuracy retesting is pending; the
 architecture/format/validation documents distinguish software evidence from hardware
 measurement.
+
+Separate native iOS and Windows apps are outside the release plan.

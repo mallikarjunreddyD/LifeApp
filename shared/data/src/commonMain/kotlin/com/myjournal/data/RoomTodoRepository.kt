@@ -3,7 +3,11 @@ package com.myjournal.data
 import androidx.room.immediateTransaction
 import androidx.room.useWriterConnection
 import com.myjournal.core.RecordMetadata
+import com.myjournal.domain.SyncCheckpoint
+import com.myjournal.domain.SyncScope
 import com.myjournal.domain.Todo
+import com.myjournal.domain.TodoAcknowledgment
+import com.myjournal.domain.TodoSyncPage
 import com.myjournal.domain.TodoChangeJournal
 import com.myjournal.domain.TodoOperation
 import com.myjournal.domain.TodoRepository
@@ -51,13 +55,29 @@ class RoomTodoRepository(
 
     override suspend fun pending() = dao.pending().map(TodoOperationRow::model)
 
-    override suspend fun acknowledge(operation: TodoOperation): Unit = write {
+    override suspend fun bind(scope: SyncScope): SyncCheckpoint = write {
+        val saved = dao.checkpoint()?.model()
+        if (saved == null) SyncCheckpoint(scope).also { dao.saveCheckpoint(it.row()) }
+        else saved.also { require(it.scope == scope) { "This database belongs to another sync dataset or epoch" } }
+    }
+
+    override suspend fun acknowledge(acknowledgment: TodoAcknowledgment): Unit = write {
+        require(dao.checkpoint()?.model()?.scope == acknowledgment.scope) { "Acknowledgment dataset mismatch" }
+        val operation = acknowledgment.commit.operation
         val saved = requireNotNull(dao.operation(operation.id.toString()))
         require(saved.model() == operation) { "Acknowledgment does not match operation" }
         dao.acknowledge(saved.id)
     }
 
-    override suspend fun receive(operations: List<TodoOperation>): Unit = write {
+    override suspend fun applyPage(from: SyncCheckpoint, page: TodoSyncPage): SyncCheckpoint = write {
+        require(dao.checkpoint()?.model() == from) { "Stale or unbound checkpoint" }
+        val next = page.advance(from)
+        receive(page.entries.map { it.operation })
+        if (next != from) dao.saveCheckpoint(next.row())
+        next
+    }
+
+    private suspend fun receive(operations: List<TodoOperation>) {
         val remaining = linkedMapOf<Uuid, TodoOperation>()
         val known = mutableMapOf<Uuid, TodoOperationRow>()
         for (op in operations) {
@@ -68,7 +88,6 @@ class RoomTodoRepository(
                 remaining[op.id] = op
             } else {
                 require(existing.model() == op) { "Operation identity collision" }
-                dao.acknowledge(existing.id)
                 known[op.id] = existing
             }
         }
@@ -130,8 +149,8 @@ class RoomTodoRepository(
 
     /** Called only inside the confirmed local replacement transaction. */
     internal suspend fun replaceFromBackup(items: List<Todo>) {
-        // Backups contain local records, not replication identities or credentials.
-        // This core has no live cloud binding. Start a new journal for restored records.
+        check(dao.checkpoint() == null) { "Restore into a separate local database when this database is bound to a server" }
+        // Portable backups do not carry replication identity or history.
         dao.clearRecords()
         dao.clearOperations()
         for (item in items) append(item, emptySet())

@@ -1,0 +1,1017 @@
+openapi: 3.1.1
+info:
+  title: LifeApp server contract
+  version: 1.0.0
+  description: Phase 6 design contract. No deployment is defined.
+security:
+- browserSession: []
+- androidBearer: []
+paths:
+  /health:
+    get:
+      operationId: health
+      description: Process liveness without internal details.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          $ref: '#/components/responses/Http503'
+      security: []
+  /ready:
+    get:
+      operationId: ready
+      description: Database and migration readiness.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          $ref: '#/components/responses/Http503'
+      security: []
+  /v1/session:
+    post:
+      operationId: login
+      description: Rate limited login. Browser uses a secure HttpOnly cookie and receives
+        a CSRF token. Android receives a short-lived bearer token. Validate Origin
+        for browser requests.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Browser only. __Host-lifeapp_session with Secure, HttpOnly,
+                SameSite and Path=/.
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+    get:
+      operationId: session
+      description: Returns the authorized dataset and epoch. Browser may refresh its
+        CSRF token.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+    delete:
+      operationId: logout
+      description: Revokes the current session. Cookie clients require Origin and
+        CSRF validation.
+      responses:
+        '204':
+          description: Success
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+  /v1/bootstrap:
+    get:
+      operationId: bootstrap
+      description: Returns the session dataset and the sequence-zero checkpoint. Replay
+        the ordered history on a fresh client.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Checkpoint'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+  /v1/sync/push:
+    post:
+      operationId: push
+      description: One immutable operation, up to 16 KiB. Repeating an identical operation
+        returns its original commit. Cookie clients require CSRF.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Acknowledgment'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '413':
+          $ref: '#/components/responses/Http413'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Push'
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+  /v1/sync/pull:
+    get:
+      operationId: pull
+      description: Read strictly contiguous commits after the supplied exclusive cursor.
+        Maximum 100 per response.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncPage'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '410':
+          $ref: '#/components/responses/Http410'
+      parameters:
+      - name: after
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/Sequence'
+      - name: epoch
+        in: query
+        required: true
+        schema: &id001
+          type: string
+          format: uuid
+  /v1/conflicts:
+    get:
+      operationId: conflicts
+      description: Lists unresolved concurrent heads scoped to the current account.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictPage'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+      parameters:
+      - &id002
+        name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 512
+      - &id003
+        name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+  /v1/conflicts/{recordId}/resolve:
+    post:
+      operationId: resolve
+      description: Submit a successor naming all reviewed heads. Reject stale resolutions.
+        Cookie clients require CSRF.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Acknowledgment'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+        '404':
+          $ref: '#/components/responses/Http404'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '413':
+          $ref: '#/components/responses/Http413'
+      parameters:
+      - &id004
+        name: recordId
+        in: path
+        required: true
+        schema: *id001
+      - name: X-CSRF-Token
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Resolution'
+  /v1/todos:
+    get:
+      operationId: todos
+      description: Read server projections. Clients mutate through sync push.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoPage'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+      parameters:
+      - *id002
+      - *id003
+  /v1/todos/{recordId}:
+    get:
+      operationId: todo
+      description: Read one current task projection.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Todo'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+        '404':
+          $ref: '#/components/responses/Http404'
+      parameters:
+      - *id004
+  /v1/workouts:
+    get:
+      operationId: workouts
+      description: Proposed read endpoint for recorded sessions. Mutation protocol
+        is deferred.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkoutPage'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+      parameters:
+      - *id002
+      - *id003
+  /v1/workouts/{recordId}:
+    get:
+      operationId: workout
+      description: Read a recorded session with ordered entries and sets.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workout'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+        '404':
+          $ref: '#/components/responses/Http404'
+      parameters:
+      - *id004
+  /v1/exercises:
+    get:
+      operationId: exercises
+      description: List exercise definitions, including archived definitions used
+        by history.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExercisePage'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+      parameters:
+      - *id002
+      - *id003
+  /v1/backups/status:
+    get:
+      operationId: backupStatus
+      description: Owner-only summary. Does not return backup contents, credentials
+        or storage locations.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupStatus'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+components:
+  securitySchemes:
+    browserSession:
+      type: apiKey
+      name: __Host-lifeapp_session
+      in: cookie
+    androidBearer:
+      type: http
+      scheme: bearer
+  schemas:
+    Sequence:
+      type: string
+      pattern: ^(0|[1-9][0-9]{0,18})$
+      description: Unsigned decimal string in 0..9223372036854775807. Zero is the
+        initial cursor.
+    PositiveSequence:
+      type: string
+      pattern: ^[1-9][0-9]{0,18}$
+      description: Positive signed 64-bit integer encoded as a decimal string.
+    Scope:
+      type: object
+      additionalProperties: false
+      required:
+      - dataset
+      - epoch
+      properties:
+        dataset: *id001
+        epoch: *id001
+    Checkpoint:
+      type: object
+      additionalProperties: false
+      required:
+      - scope
+      - sequence
+      properties:
+        scope:
+          $ref: '#/components/schemas/Scope'
+        sequence:
+          $ref: '#/components/schemas/Sequence'
+    Metadata:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - schemaVersion
+      - revision
+      properties:
+        id: *id001
+        createdAt: &id005
+          type: string
+          format: date-time
+        updatedAt: *id005
+        schemaVersion:
+          const: 1
+        revision:
+          $ref: '#/components/schemas/PositiveSequence'
+    Todo:
+      type: object
+      additionalProperties: false
+      required:
+      - metadata
+      - title
+      - deadline
+      - completedAt
+      - deleted
+      properties:
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        deadline:
+          type: string
+          format: date
+        completedAt:
+          anyOf:
+          - *id005
+          - type: 'null'
+        deleted: &id006
+          type: boolean
+    TodoOperation:
+      type: object
+      additionalProperties: false
+      required:
+      - format
+      - protocolVersion
+      - operationId
+      - deviceId
+      - sequence
+      - payloadVersion
+      - recordType
+      - recordId
+      - type
+      - parents
+      - record
+      properties:
+        format:
+          const: LifeAppOperation
+        protocolVersion:
+          const: 1
+        operationId: *id001
+        deviceId: *id001
+        sequence:
+          $ref: '#/components/schemas/PositiveSequence'
+        payloadVersion:
+          const: 1
+        recordType:
+          const: todo
+        recordId: *id001
+        type:
+          enum:
+          - put
+          - delete
+        parents:
+          type: array
+          maxItems: 128
+          items: *id001
+          uniqueItems: true
+        record:
+          $ref: '#/components/schemas/Todo'
+    Commit:
+      type: object
+      additionalProperties: false
+      required:
+      - sequence
+      - operation
+      properties:
+        sequence:
+          $ref: '#/components/schemas/PositiveSequence'
+        operation:
+          $ref: '#/components/schemas/TodoOperation'
+    Push:
+      type: object
+      additionalProperties: false
+      required:
+      - scope
+      - operation
+      properties:
+        scope:
+          $ref: '#/components/schemas/Scope'
+        operation:
+          $ref: '#/components/schemas/TodoOperation'
+    Acknowledgment:
+      type: object
+      additionalProperties: false
+      required:
+      - scope
+      - commit
+      properties:
+        scope:
+          $ref: '#/components/schemas/Scope'
+        commit:
+          $ref: '#/components/schemas/Commit'
+    SyncPage:
+      type: object
+      additionalProperties: false
+      required:
+      - scope
+      - entries
+      - hasMore
+      properties:
+        scope:
+          $ref: '#/components/schemas/Scope'
+        entries:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Commit'
+        hasMore: *id006
+    Conflict:
+      type: object
+      additionalProperties: false
+      required:
+      - recordId
+      - heads
+      properties:
+        recordId: *id001
+        heads:
+          type: array
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/TodoOperation'
+          minItems: 2
+    ConflictPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Conflict'
+        next:
+          anyOf:
+          - type: string
+            maxLength: 512
+          - type: 'null'
+    Resolution:
+      type: object
+      additionalProperties: false
+      required:
+      - scope
+      - operation
+      properties:
+        scope:
+          $ref: '#/components/schemas/Scope'
+        operation:
+          $ref: '#/components/schemas/TodoOperation'
+    TodoPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Todo'
+        next:
+          anyOf:
+          - type: string
+            maxLength: 512
+          - type: 'null'
+    Weight:
+      type: object
+      additionalProperties: false
+      required:
+      - value
+      - unit
+      properties:
+        value:
+          type: number
+          minimum: 0
+        unit:
+          enum:
+          - KG
+          - LB
+    Set:
+      type: object
+      additionalProperties: false
+      required:
+      - metadata
+      - entryId
+      - number
+      - weight
+      - repetitions
+      - durationSeconds
+      - restSeconds
+      - completed
+      properties:
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        entryId: *id001
+        number:
+          type: integer
+          minimum: 1
+        weight:
+          anyOf:
+          - $ref: '#/components/schemas/Weight'
+          - type: 'null'
+        repetitions:
+          anyOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+        durationSeconds:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+        restSeconds:
+          anyOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+        completed: *id006
+    WorkoutEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - metadata
+      - sessionId
+      - exerciseId
+      - order
+      - round
+      - sets
+      properties:
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        sessionId: *id001
+        exerciseId: *id001
+        order:
+          type: integer
+          minimum: 0
+        round:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+        sets:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/Set'
+    Workout:
+      type: object
+      additionalProperties: false
+      required:
+      - metadata
+      - date
+      - startedAt
+      - endedAt
+      - durationSeconds
+      - caloriesKcal
+      - notes
+      - completed
+      - entries
+      properties:
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        date:
+          type: string
+          format: date
+        startedAt:
+          anyOf:
+          - *id005
+          - type: 'null'
+        endedAt:
+          anyOf:
+          - *id005
+          - type: 'null'
+        durationSeconds:
+          anyOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+        caloriesKcal:
+          anyOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+        notes:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+        completed: *id006
+        entries:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/WorkoutEntry'
+    Exercise:
+      type: object
+      additionalProperties: false
+      required:
+      - metadata
+      - name
+      - category
+      - equipment
+      - archived
+      properties:
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        category:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+        equipment:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+        archived: *id006
+    WorkoutPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Workout'
+        next:
+          anyOf:
+          - type: string
+            maxLength: 512
+          - type: 'null'
+    ExercisePage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Exercise'
+        next:
+          anyOf:
+          - type: string
+            maxLength: 512
+          - type: 'null'
+    Login:
+      type: object
+      additionalProperties: false
+      required:
+      - client
+      - username
+      - password
+      properties:
+        client:
+          enum:
+          - browser
+          - android
+        username:
+          type: string
+          minLength: 1
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+    Session:
+      type: object
+      additionalProperties: false
+      required:
+      - expiresAt
+      - scope
+      properties:
+        expiresAt: *id005
+        scope:
+          $ref: '#/components/schemas/Scope'
+        csrfToken:
+          type: string
+        accessToken:
+          type: string
+    Health:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      properties:
+        status:
+          enum:
+          - ok
+          - ready
+    BackupStatus:
+      type: object
+      additionalProperties: false
+      required:
+      - lastVerifiedAt
+      - state
+      properties:
+        lastVerifiedAt:
+          anyOf:
+          - *id005
+          - type: 'null'
+        state:
+          enum:
+          - never
+          - running
+          - verified
+          - failed
+    Error:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - requestId
+      properties:
+        code:
+          enum:
+          - INVALID_REQUEST
+          - UNAUTHENTICATED
+          - FORBIDDEN
+          - NOT_FOUND
+          - SCOPE_MISMATCH
+          - MISSING_DEPENDENCY
+          - IDEMPOTENCY_MISMATCH
+          - CONFLICT_CHANGED
+          - UNSUPPORTED_VERSION
+          - LIMIT_EXCEEDED
+          - CURSOR_EXPIRED
+          - RATE_LIMITED
+          - UNAVAILABLE
+        message:
+          type: string
+          maxLength: 512
+        requestId: *id001
+  responses:
+    Http503:
+      description: Unavailable. Retry with backoff and leave the outbox intact.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Http400:
+      description: Invalid request or unsupported protocol/payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Http401:
+      description: Session expired or absent
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Http403:
+      description: Forbidden, including failed CSRF check
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Http429:
+      description: Rate limited. Honor Retry-After.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+          description: Seconds before retry
+    Http409:
+      description: Scope, operation identity, dependency or conflict-head mismatch
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Http413:
+      description: Request exceeds a documented size limit
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Http410:
+      description: Cursor expired. Preserve local operations and restart bootstrap.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Http404:
+      description: Record not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

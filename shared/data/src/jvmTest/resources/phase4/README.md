@@ -1,0 +1,1 @@
+Synthetic schema-6 archive from the frozen schema-5 fixture plus one task tombstone. Independently wrapped using the Phase 4 LIFEBAK1 specification and the public test passphrase fixture passphrase only. Fixed salt and nonce are for this fixture only.

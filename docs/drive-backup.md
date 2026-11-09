@@ -1,5 +1,8 @@
 # Encrypted Google Drive backup
 
+Android manual backup remains available in Phase 5. The future server recovery
+pipeline is separate. [Server backup design](server-backup-design.md)
+
 ## Configure a dedicated test project
 
 1. In Google Cloud, create or select the LifeApp project and enable Google Drive API.

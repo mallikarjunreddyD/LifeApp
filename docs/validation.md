@@ -178,3 +178,25 @@ results are recorded in the Phase 4 PR. The authenticated Google account smoke
 test and physical Xiaomi alarm delivery, permission, time-zone/reboot and in-place
 upgrade checks remain pending. Live synchronization is disabled. See
 [Drive setup](drive-backup.md) and [protocol and scope](phase-4-sync.md).
+
+## Phase 5 server preparation
+
+The branch starts at 2c47988, the merged Phase 4 main commit with a passing
+[signed workflow](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42571316714).
+Local validation passed with JDK 21 and Android SDK 37. The complete suite ran
+85 JVM tests with zero failures, errors or skips. Android debug and instrumentation
+APKs and legacy desktop classes built. Lint had 14 warnings and zero errors.
+OpenAPI 3.1 validation and four portable JSON fixtures passed.
+
+Tests exercise immutable retries, lost receipts, restart before and after
+acknowledgment, two-client conflicts and tombstones, incremental pages, stale
+cursors, out-of-order commits, dependency errors, transaction rollback, scope
+changes and blocked restore on a bound database. The schema 6→7 test preserves
+an existing task and its pending operation. Every exported schema-6 table remains
+unchanged. Existing tests preserve old schema 4/5/6 backups and ink. The new
+independent Phase 4 encrypted fixture is decrypted, validated and restored to Room
+with its original vectors and archive state.
+
+Hosted emulator results and the signed 0.6.0 APK are tracked in the Phase 5 PR.
+Production server authentication, Google Drive smoke testing and physical Xiaomi
+checks remain separate from fake-transport and emulator coverage.

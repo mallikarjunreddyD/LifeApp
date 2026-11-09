@@ -20,7 +20,7 @@ frameworks and abstractions. Phase 2 implements Daily Journal, Monthly Planner a
 Phase 3 adds Notebook and local export/backup/restore Settings. Phase 4 adds offline
 To-do, reminders, a tested To-do operation journal and encrypted manual Drive
 backup. Keep live synchronization disabled until the protocol covers safe account
-partitioning, restore and existing records. Do not begin Phase 5 automatically.
+partitioning, restore and existing records. Phase 5 prepares the server contract. Do not begin Phase 6 automatically.
 Backup must drain every editor queue, validate a committed snapshot and verify output.
 Restore must validate before writes, require recovery backup for replacement, commit
 atomically and rebuild editor caches. Never merge archives or discard pending edits.
@@ -94,3 +94,13 @@ OAuth state in Android adapters and credentials outside Git. Drive backup is sep
 from operation synchronization and must use the existing validated restore/recovery
 flow. Keep reminder preferences per device. Distinguish JVM protocol coverage,
 emulator tests, authenticated cloud tests and Xiaomi hardware results in validation.
+
+## Phase 5 server boundary
+
+Android is the supported app. Future browser support uses the PWA. Legacy desktop
+and Apple launchers are unsupported. Keep server endpoints unconfigured by default.
+To-do scope is the authenticated dataset and recovery epoch. Advance the cursor
+with replay in one transaction. Clear pending changes only for explicit matching
+receipts. Reject snapshot replacement in a bound database. Keep backup schema
+independent of Room migrations. Check contracts with the local fixtures. Keep
+Ktor, PostgreSQL, PWA implementation and deployment in Phase 6.
