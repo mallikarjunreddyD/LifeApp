@@ -151,3 +151,12 @@ To-do surface, alarm and notification adapter, Google authorization and Drive
 REST. An encrypted cloud backup goes through the same validated ZIP and confirmed
 local restore operation as a file from the Android picker. Live synchronization is
 disabled pending the safety work documented in [the protocol](phase-4-sync.md).
+
+## Phase 5 boundaries
+
+Android remains offline-first with no server configured. Shared/domain defines the
+To-do transport, checkpoint, coordinator and workout validation. Shared/data applies
+To-do pages and persists a bound scope and cursor transactionally in Room schema 7.
+Separate receipts acknowledge outbox entries. Android backup/restore format stays
+at portable schema 6. The legacy native companion launchers are unsupported.
+See [server architecture](server-architecture.md) and [conflict policies](record-conflicts.md).

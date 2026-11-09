@@ -1,0 +1,52 @@
+{
+  "metadata": {
+    "id": "20000000-0000-4000-8000-000000000001",
+    "createdAt": "2026-11-09T10:00:00Z",
+    "updatedAt": "2026-11-09T10:30:00Z",
+    "schemaVersion": 1,
+    "revision": "1"
+  },
+  "date": "2026-11-09",
+  "startedAt": "2026-11-09T10:00:00Z",
+  "endedAt": "2026-11-09T10:30:00Z",
+  "durationSeconds": 1500,
+  "caloriesKcal": 110,
+  "notes": null,
+  "completed": true,
+  "entries": [
+    {
+      "metadata": {
+        "id": "20000000-0000-4000-8000-000000000002",
+        "createdAt": "2026-11-09T10:00:00Z",
+        "updatedAt": "2026-11-09T10:30:00Z",
+        "schemaVersion": 1,
+        "revision": "1"
+      },
+      "sessionId": "20000000-0000-4000-8000-000000000001",
+      "exerciseId": "20000000-0000-4000-8000-000000000003",
+      "order": 0,
+      "round": 1,
+      "sets": [
+        {
+          "metadata": {
+            "id": "20000000-0000-4000-8000-000000000004",
+            "createdAt": "2026-11-09T10:00:00Z",
+            "updatedAt": "2026-11-09T10:30:00Z",
+            "schemaVersion": 1,
+            "revision": "1"
+          },
+          "entryId": "20000000-0000-4000-8000-000000000002",
+          "number": 1,
+          "weight": {
+            "value": 20,
+            "unit": "KG"
+          },
+          "repetitions": 8,
+          "durationSeconds": null,
+          "restSeconds": 60,
+          "completed": true
+        }
+      ]
+    }
+  ]
+}

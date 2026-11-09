@@ -1,5 +1,8 @@
 # Phase 4 data exchange and Drive feasibility
 
+This document records the Phase 4 design. Phase 5 replaces its full-list transport
+with the [server protocol](sync-protocol-v1.md). Drive remains a backup destination.
+
 ## Verified scope
 
 The shared synchronization core covers To-do records. It runs between independent

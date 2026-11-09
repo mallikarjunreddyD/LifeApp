@@ -23,6 +23,7 @@ class EditorSession(database: FoundationDatabase) {
     val error get() = listOf(editor.state.value.error,planner.state.value.error,habits.state.value.error,notebooks.state.value.error).firstOrNull { it != null }
 }
 class JournalApplication : Application() {
+    val serverConnection: ServerConnection = ServerConnection.Unconfigured
     override fun onCreate() {
         super.onCreate()
         // A process restart has no in-flight operation; discard abandoned private staging files.

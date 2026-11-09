@@ -58,15 +58,3 @@ data class TodoOperation(
         require(sequence > 0 && id !in parents && parents.size <= 128)
     }
 }
-
-/** Append-only operation transport. A successful put acknowledges exactly this operation. */
-interface TodoCloud {
-    suspend fun put(operation: TodoOperation)
-    suspend fun read(): List<TodoOperation>
-}
-
-interface TodoChangeJournal {
-    suspend fun pending(): List<TodoOperation>
-    suspend fun acknowledge(operation: TodoOperation)
-    suspend fun receive(operations: List<TodoOperation>)
-}

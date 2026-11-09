@@ -21,6 +21,11 @@ jobs:
           packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
+      - name: Validate OpenAPI and client fixtures
+        run: |
+          python3 -m venv "$RUNNER_TEMP/lifeapp-contract"
+          "$RUNNER_TEMP/lifeapp-contract/bin/pip" install -r contracts/requirements.txt
+          "$RUNNER_TEMP/lifeapp-contract/bin/python" contracts/check.py
       - name: Verify Android and JVM foundation
         id: verification
         run: ./gradlew :shared:core:jvmTest :shared:domain:jvmTest :shared:data:jvmTest :shared:ui:jvmTest :apps:android:assembleDebug :apps:android:lintDebug :apps:desktop:classes :apps:android:assembleDebugAndroidTest --stacktrace
@@ -83,7 +88,7 @@ jobs:
     # Signing is limited to main and named branches authorized for pre-merge builds.
     if: >-
       github.event_name != 'pull_request' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/phase-4-cloud-sync-todo')
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/phase-5-server-ready-refactor')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

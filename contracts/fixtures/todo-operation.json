@@ -1,0 +1,25 @@
+{
+  "format": "LifeAppOperation",
+  "protocolVersion": 1,
+  "operationId": "10000000-0000-4000-8000-000000000002",
+  "deviceId": "10000000-0000-4000-8000-000000000003",
+  "sequence": "9007199254740993",
+  "payloadVersion": 1,
+  "recordType": "todo",
+  "recordId": "10000000-0000-4000-8000-000000000001",
+  "type": "put",
+  "parents": [],
+  "record": {
+    "metadata": {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "createdAt": "2026-11-09T10:00:00Z",
+      "updatedAt": "2026-11-09T10:00:00Z",
+      "schemaVersion": 1,
+      "revision": "9007199254740993"
+    },
+    "title": "Server contract fixture",
+    "deadline": "2026-11-12",
+    "completedAt": null,
+    "deleted": false
+  }
+}

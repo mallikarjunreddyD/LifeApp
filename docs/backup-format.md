@@ -12,7 +12,7 @@ ink/<stroke-UUID>.ljpt
 ## Manifest
 
 `format: LifeAppArchive`, `backupFormatVersion: 1`, `dataSchemaVersion: 6`, `kind`,
-`appVersion: 0.5.0`, `createdAt` (UTC Instant), sections (metadata, journal, planner,
+`appVersion: 0.6.0`, `createdAt` (UTC Instant), sections (metadata, journal, planner,
 habits, notebooks, ink, todos), counts and files. Counts keys: metadata, journalEntries,
 journalPages, planners, habitLedgers, habitDefinitions, habitCompletions, notebooks,
 notebookPages, strokes, todos. Every data.json/LJPT file has path, exact uncompressed byte
@@ -74,3 +74,10 @@ section with task records and a matching count. Schemas 4 and 5 decode to an emp
 task list. Schema 6 preserves task UUIDs, calendar deadlines, revisions, UTC
 timestamps and deletion flags. Local operation history, conflict variants, account
 state and reminder settings are outside the portable snapshot.
+
+## Phase 5 compatibility
+
+Room schema 7 adds only a synchronization checkpoint table. Portable JSON and ZIP
+writers still use data schema 6 and encrypted backups still use LIFEBAK1. Readers
+retain schema 4, 5 and 6 support. Server scope, cursors and outbox history stay out
+of portable backups. Restore into a separate local database when server-bound.

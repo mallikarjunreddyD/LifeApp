@@ -5,6 +5,7 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import androidx.sqlite.execSQL
 import com.myjournal.domain.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -24,26 +25,37 @@ class TodoSyncTest {
     private fun open(file: File, driver: SQLiteDriver = BundledSQLiteDriver()) =
         Room.databaseBuilder<FoundationDatabase>(file.path)
             .setDriver(driver).setQueryCoroutineContext(Dispatchers.IO)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build()
 
-    private class FakeCloud : TodoCloud {
-        val operations = linkedMapOf<kotlin.uuid.Uuid, String>()
+    private class FakeServer : TodoSyncTransport {
+        override val scope = SyncScope(
+            kotlin.uuid.Uuid.parse("50000000-0000-4000-8000-000000000001"),
+            kotlin.uuid.Uuid.parse("50000000-0000-4000-8000-000000000002"),
+        )
+        val operations = linkedMapOf<kotlin.uuid.Uuid, Pair<Long, String>>()
         var loseAcknowledgment = false
         var failRead = false
+        var pageSize = TodoSyncPage.MAX_ENTRIES
 
-        override suspend fun put(operation: TodoOperation) {
+        override suspend fun submit(operation: TodoOperation): TodoAcknowledgment {
             val payload = TodoOperationJson.encode(operation)
-            val previous = operations.put(operation.id, payload)
-            check(previous == null || previous == payload)
+            val previous = operations[operation.id]
+            check(previous == null || previous.second == payload)
+            check(operation.parents.all { it in operations })
+            val stored = previous ?: (operations.size.toLong() + 1 to payload).also { operations[operation.id] = it }
             if (loseAcknowledgment) {
                 loseAcknowledgment = false
                 error("Connection dropped after commit")
             }
+            return TodoAcknowledgment(scope, CommittedTodo(stored.first, TodoOperationJson.decode(stored.second)))
         }
 
-        override suspend fun read(): List<TodoOperation> {
+        override suspend fun pull(after: SyncCheckpoint): TodoSyncPage {
             check(!failRead) { "Download interrupted" }
-            return operations.values.reversed().map(TodoOperationJson::decode)
+            require(after.scope == scope && after.sequence <= operations.size)
+            val entries = operations.values.drop(after.sequence.toInt()).take(pageSize)
+                .map { CommittedTodo(it.first, TodoOperationJson.decode(it.second)) }
+            return TodoSyncPage(scope, entries, after.sequence + entries.size < operations.size)
         }
     }
 
@@ -54,7 +66,7 @@ class TodoSyncTest {
         try {
             val left = RoomTodoRepository(leftDb, clock)
             val right = RoomTodoRepository(rightDb, clock)
-            val cloud = FakeCloud()
+            val cloud = FakeServer()
             val pushLeft = TodoSyncCoordinator(left, cloud)
             val pushRight = TodoSyncCoordinator(right, cloud)
             val first = left.add("One", deadline)
@@ -119,7 +131,7 @@ class TodoSyncTest {
             assertEquals(initial, repository.pending())
             assertNull(repository.observe().first().single().completedAt)
             assertEquals(3L, repository.observe().first().single().metadata.revision)
-            val cloud = FakeCloud().apply { loseAcknowledgment = true }
+            val cloud = FakeServer().apply { loseAcknowledgment = true }
             val coordinator = TodoSyncCoordinator(repository, cloud)
             assertFailsWith<IllegalStateException> { coordinator.synchronize() }
             assertEquals(initial, repository.pending())
@@ -130,8 +142,100 @@ class TodoSyncTest {
             coordinator.synchronize()
             assertTrue(repository.pending().isEmpty())
             assertEquals(initial.map { it.id }.toSet(), cloud.operations.keys)
+            db.close()
+            db = open(file)
+            val acknowledged = RoomTodoRepository(db, clock)
+            assertTrue(acknowledged.pending().isEmpty())
+            assertEquals(3L, acknowledged.bind(cloud.scope).sequence)
+            TodoSyncCoordinator(acknowledged, cloud).synchronize()
+            assertEquals(3, cloud.operations.size)
         } finally {
             db.close()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun pageFailureRollsBackOperationsAndCheckpointAndRestoreIsBlockedAfterBinding() = runTest {
+        val directory = Files.createTempDirectory("todo-checkpoint").toFile()
+        val file = File(directory, "receiver.db")
+        val authorDb = open(File(directory, "author.db"))
+        var db = open(file)
+        try {
+            val author = RoomTodoRepository(authorDb, clock)
+            val id = author.add("First", deadline)
+            author.edit(id, "Revised", deadline)
+            val (root, edit) = author.pending()
+            val server = FakeServer()
+            val repo = RoomTodoRepository(db, clock)
+            val initial = repo.bind(server.scope)
+            val valid = CommittedTodo(1, root)
+            val missing = edit.copy(parents = setOf(kotlin.uuid.Uuid.random()))
+            val invalid = TodoSyncPage(server.scope, listOf(valid, CommittedTodo(2, missing)), false)
+            assertFailsWith<IllegalArgumentException> { repo.applyPage(initial, invalid) }
+            assertFailsWith<IllegalArgumentException> {
+                repo.applyPage(initial, TodoSyncPage(server.scope, listOf(CommittedTodo(2, edit), valid), false))
+            }
+            val wrongRecord = edit.copy(record = edit.record.copy(
+                metadata = edit.record.metadata.copy(id = kotlin.uuid.Uuid.random()),
+            ))
+            assertFailsWith<IllegalArgumentException> {
+                repo.applyPage(initial, TodoSyncPage(server.scope, listOf(valid, CommittedTodo(2, wrongRecord)), false))
+            }
+            assertEquals(initial, repo.bind(server.scope))
+            assertTrue(repo.observe().first().isEmpty())
+            author.pending().forEach { server.submit(it) }
+            server.pageSize = 1
+            val first = TodoSyncCoordinator(repo, server).synchronize()
+            assertTrue(first.moreAvailable)
+            assertEquals(1L, first.checkpoint.sequence)
+            assertFailsWith<IllegalArgumentException> { repo.applyPage(initial, server.pull(initial)) }
+            db.close()
+            db = open(file)
+            val reopened = RoomTodoRepository(db, clock)
+            assertEquals(first.checkpoint, reopened.bind(server.scope))
+            assertFailsWith<IllegalArgumentException> { reopened.bind(server.scope.copy(epoch = kotlin.uuid.Uuid.random())) }
+            TodoSyncCoordinator(reopened, server).synchronize()
+            assertEquals("Revised", reopened.observe().first().single().title)
+            assertEquals(2L, reopened.bind(server.scope).sequence)
+            assertFailsWith<IllegalStateException> { RoomSnapshotRepository(db).replace(JournalSnapshot()) }
+            assertEquals("Revised", reopened.observe().first().single().title)
+        } finally {
+            db.close()
+            authorDb.close()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun schemaSixMigrationPreservesTodoRecordsAndPendingOperationIdentity() = runTest {
+        val directory = Files.createTempDirectory("todo-schema-six").toFile()
+        val file = File(directory, "device.db")
+        val db = open(file)
+        val expected = try {
+            val repository = RoomTodoRepository(db, clock)
+            repository.add("Existing task", deadline)
+            repository.pending().single()
+        } finally { db.close() }
+        val oldSchema = kotlinx.serialization.json.Json.parseToJsonElement(
+            File("schemas/com.myjournal.data.FoundationDatabase/6.json").readText(),
+        ) as kotlinx.serialization.json.JsonObject
+        val identity = ((oldSchema.getValue("database") as kotlinx.serialization.json.JsonObject)
+            .getValue("identityHash") as kotlinx.serialization.json.JsonPrimitive).content
+        BundledSQLiteDriver().open(file.path).use { connection ->
+            connection.execSQL("DROP TABLE todo_sync_checkpoint")
+            connection.prepare("UPDATE room_master_table SET identity_hash = ? WHERE id = 42").use {
+                it.bindText(1, identity)
+                it.step()
+            }
+            connection.execSQL("PRAGMA user_version = 6")
+        }
+        val migrated = open(file)
+        try {
+            val repository = RoomTodoRepository(migrated, clock)
+            assertEquals(expected, repository.pending().single())
+            assertEquals(expected.record, repository.observe().first().single())
+            assertEquals(0L, repository.bind(FakeServer().scope).sequence)
+        } finally {
+            migrated.close()
             directory.deleteRecursively()
         }
     }

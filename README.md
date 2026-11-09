@@ -4,8 +4,7 @@ An offline-first personal journal, primarily for Xiaomi Pad 7 and a compatible s
 Phase 3.1 corrects tablet workspace/ink alignment and adds recoverable journal-page deletion.
 Phase 3 implements the Android Daily Journal, handwritten Monthly Planner and
 customizable Monthly Habit Tracker, Free Notebook and local export/backup/restore. No account or network connection is needed.
-Notebook, To-do and Settings are functional on Android. Desktop/iOS launchers
-are prepared; their editing destinations remain placeholders.
+Notebook, To-do and Settings are functional on Android. Future companion access is planned through a browser PWA.
 
 ## Journal, planner, habits and notebooks
 
@@ -105,19 +104,17 @@ slashes in that path and `gradlew.bat` instead of `./gradlew`.
 ```sh
 sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;36.0.0"
 ./gradlew :shared:core:jvmTest :shared:domain:jvmTest :shared:data:jvmTest :shared:ui:jvmTest \
-  :apps:android:assembleDebug :apps:android:lintDebug :apps:desktop:classes \
+  :apps:android:assembleDebug :apps:android:lintDebug \
   :apps:android:assembleDebugAndroidTest
 adb install -r apps/android/build/outputs/apk/debug/android-debug.apk
 # Boot a disposable test emulator/device before running:
 ./gradlew :apps:android:connectedDebugAndroidTest
-# Desktop shell:
-./gradlew :apps:desktop:run
 ```
 
 The debug APK is under apps/android/build/outputs/apk/debug/. GitHub Actions uploads
 it as my-journal-ci-debug-ephemeral plus test/lint reports, and runs Android input/UI tests on a
 hardware-accelerated API 36 emulator. Initial Gradle/SDK downloads need internet;
-the application itself uses no online services. Debug APKs use builder-specific
+core editing and local backups work offline. Drive backup is optional. Debug APKs use builder-specific
 signing keys; retain the same signing key for in-place updates. Local backup/export is available in Settings. See [validation](docs/validation.md)
 for the actual checks and [stylus testing](docs/stylus-testing.md) for remaining
 physical Xiaomi validation. Do not infer device behavior from compilation alone.
@@ -127,17 +124,22 @@ physical Xiaomi validation. Do not infer device behavior from compilation alone.
 | Module | Responsibility |
 | --- | --- |
 | apps/android | Android composition, three editor screens, native stylus/Ink adapter |
-| apps/desktop | JVM launcher for the shared shell |
-| apps/ios | Prepared SwiftUI/Xcode host |
+| apps/desktop | Unsupported legacy JVM shell retained for compatibility checks |
+| apps/ios | Unsupported legacy SwiftUI host |
 | shared/core | UUID/UTC metadata and revision invariants |
 | shared/domain | Portable records, calendar geometry, typed routes and editor state/history |
-| shared/data | Room schema 6, explicit migrations, codec and local repositories |
+| shared/data | Room schema 7, explicit migrations, codecs and local repositories |
 | shared/ui | Shared adaptive navigation, paper colors and typography |
 
-Apple targets are disabled by default on every host. On macOS with Xcode 26.4 use
-`./gradlew -PenableIos=true :shared:ui:linkDebugFrameworkIosSimulatorArm64` and open
-apps/ios/MyJournal.xcodeproj. iOS editing/viewing is outside Phase 3. Android SDK
-configuration is still required when configuring this full Gradle project.
+Android is the supported app. Phase 6 targets an installable PWA for iPhone and
+desktop browsers, with a self-hosted Ktor/PostgreSQL service. Legacy launcher
+sources remain available and Apple targets stay opt-in. Android CI requires no
+Apple toolchain.
+
+Phase 5 adds a server-oriented To-do protocol tested against a fake transport,
+durable checkpoints and shared workout models. Android starts unconfigured.
+See [server architecture](docs/server-architecture.md) and the
+[Phase 6 plan](docs/phase-6-implementation-plan.md).
 
 See [architecture](docs/architecture.md), [handwriting format](docs/handwriting-format.md),
 [versions](docs/versions.md), [roadmap](docs/roadmap.md) and [development rules](AGENTS.md).
