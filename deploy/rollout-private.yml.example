@@ -1,0 +1,42 @@
+name: Deploy LifeApp
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full commit recorded by Deployment images
+        required: true
+      api:
+        description: Immutable GHCR API image digest reference
+        required: true
+      web:
+        description: Immutable GHCR web image digest reference
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: lifeapp-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, lifeapp-deploy]
+    environment: lifeapp-production
+    timeout-minutes: 15
+    steps:
+      - name: Apply immutable release using the installed deployment bundle
+        env:
+          DEPLOY_DIR: ${{ vars.LIFEAPP_DEPLOY_DIR }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          API_IMAGE: ${{ inputs.api }}
+          WEB_IMAGE: ${{ inputs.web }}
+          GHCR_TOKEN: ${{ secrets.LIFEAPP_GHCR_READ_TOKEN }}
+          GHCR_USER: ${{ vars.LIFEAPP_GHCR_USER }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_DIR" = /* && -x "$DEPLOY_DIR/scripts/apply-release.sh" ]]
+          export DOCKER_CONFIG
+          DOCKER_CONFIG=$(mktemp -d)
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          unset GHCR_TOKEN
+          "$DEPLOY_DIR/scripts/apply-release.sh" "$RELEASE_COMMIT" "$API_IMAGE" "$WEB_IMAGE" >> "$GITHUB_STEP_SUMMARY"
