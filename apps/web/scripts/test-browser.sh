@@ -5,7 +5,15 @@ root=$PWD
 work=$(mktemp -d)
 container=
 server_pid=
+proxy_pid=
+browser_pid=
 cleanup() {
+  for pid in "$browser_pid" "$proxy_pid"; do
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
   if [ -n "$server_pid" ]; then
     kill "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
@@ -43,7 +51,9 @@ export LIFEAPP_WEB_TLS_KEY="$work/key.pem" LIFEAPP_WEB_TLS_CERT="$work/cert.pem"
 ./gradlew :apps:server:installDist --console=plain
 server="$root/apps/server/build/install/server/bin/server"
 # The disposable owner uses the same interactive command as a real instance.
-printf '%s\n' 'browser-test-owner' 'disposable browser test password' |
+owner=browser-test-owner
+if [ -n "${LIFEAPP_ANDROID_BRIDGE:-}" ]; then owner=android-bridge-owner; fi
+printf '%s\n' "$owner" 'disposable browser test password' |
   script -qefc "\"$server\" init-owner" /dev/null > "$work/owner.log"
 "$server" > "$work/server.log" 2>&1 &
 server_pid=$!
@@ -55,4 +65,36 @@ done
 test "$(cat "$work/ready.json")" = '{"status":"ready"}'
 cd "$root/apps/web"
 npm run build
-npm run test:browser -- "$@"
+if [ -z "${LIFEAPP_ANDROID_BRIDGE:-}" ]; then
+  npm run test:browser -- "$@"
+  exit
+fi
+
+cd "$root"
+./gradlew :apps:android:assembleDebugAndroidTest --console=plain
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=10.0.2.2' \
+  -addext 'subjectAltName=IP:10.0.2.2' -keyout "$work/android-key.pem" -out "$work/android-cert.pem" 2>/dev/null
+tls_port=$(python3 - <<'PYTLS'
+import socket
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PYTLS
+)
+python3 apps/android/scripts/test-tls-proxy.py "$work/android-cert.pem" "$work/android-key.pem" "$tls_port" "$api_port" &
+proxy_pid=$!
+for i in $(seq 1 10); do
+  if curl --silent --fail --cacert "$work/android-cert.pem" --resolve "10.0.2.2:$tls_port:127.0.0.1" --max-time 3 "https://10.0.2.2:$tls_port/ready" > "$work/tls-ready.json"; then break; fi
+  sleep 1
+done
+test "$(cat "$work/tls-ready.json")" = '{"status":"ready"}'
+
+(cd "$root/apps/web" && exec npm run test:browser -- "$@") &
+browser_pid=$!
+cert=$(base64 -w0 "$work/android-cert.pem")
+./gradlew :apps:android:connectedDebugAndroidTest --console=plain \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.myjournal.android.ServerSyncIntegrationTest \
+  "-Pandroid.testInstrumentationRunnerArguments.lifeappServerOrigin=https://10.0.2.2:$tls_port" \
+  "-Pandroid.testInstrumentationRunnerArguments.lifeappServerCertificate=$cert"
+wait "$browser_pid"
+browser_pid=

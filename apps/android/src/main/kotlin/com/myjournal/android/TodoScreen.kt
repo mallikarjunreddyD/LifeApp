@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.datetime.LocalDate
 import kotlin.uuid.Uuid
 
-class TodoActions(private val scope: CoroutineScope) {
+class TodoActions(private val scope: CoroutineScope, private val onCommitted: () -> Unit = {}) {
     data class State(val saving: Boolean = false, val error: String? = null)
     private val mutable = MutableStateFlow(State())
     val state = mutable.asStateFlow()
@@ -34,6 +34,7 @@ class TodoActions(private val scope: CoroutineScope) {
                 action()
                 failed = null
                 mutable.value = State()
+                runCatching(onCommitted)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

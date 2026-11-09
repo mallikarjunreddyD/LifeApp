@@ -14,7 +14,7 @@ class JournalArchiveRepositoryTest {
     @Test fun archivalIsTransactionalIdempotentAndRecoverableAfterReopenAndBackupRestore() = runTest {
         val directory=Files.createTempDirectory("lifeapp-page-trash").toFile();val path=File(directory,"app.db")
         fun open(file: File=path)=Room.databaseBuilder<FoundationDatabase>(file.path).setDriver(BundledSQLiteDriver())
-            .setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build()
+            .setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build()
         var db=open()
         val date=LocalDate(2026,11,5);val entry=newRecordMetadata()
         val a=JournalPage(newRecordMetadata(),entry.id,0);val b=JournalPage(newRecordMetadata(),entry.id,1)

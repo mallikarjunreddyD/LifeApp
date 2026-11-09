@@ -50,7 +50,9 @@ data class TodoSyncProgress(val checkpoint: SyncCheckpoint, val moreAvailable: B
 class TodoSyncCoordinator(
     private val journal: TodoChangeJournal,
     private val transport: TodoSyncTransport,
+    private val uploadLimit: Int = TodoSyncPage.MAX_ENTRIES,
 ) {
+    init { require(uploadLimit in 1..TodoSyncPage.MAX_ENTRIES) }
     private val mutex = Mutex()
 
     suspend fun synchronize(): TodoSyncProgress = mutex.withLock {
@@ -61,7 +63,7 @@ class TodoSyncCoordinator(
         // Drain known remote commits first. Work is bounded per call.
         if (firstPage.hasMore) return@withLock TodoSyncProgress(checkpoint, true)
         val pending = journal.pending()
-        for (operation in pending.take(TodoSyncPage.MAX_ENTRIES)) {
+        for (operation in pending.take(uploadLimit)) {
             val acknowledgment = transport.submit(operation)
             require(acknowledgment.scope == scope && acknowledgment.commit.operation == operation) {
                 "Acknowledgment does not match the submitted operation"
@@ -70,6 +72,6 @@ class TodoSyncCoordinator(
         }
         val finalPage = transport.pull(checkpoint)
         checkpoint = journal.applyPage(checkpoint, finalPage)
-        TodoSyncProgress(checkpoint, finalPage.hasMore || pending.size > TodoSyncPage.MAX_ENTRIES)
+        TodoSyncProgress(checkpoint, finalPage.hasMore || pending.size > uploadLimit)
     }
 }

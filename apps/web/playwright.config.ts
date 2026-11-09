@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: 'test',
-  testMatch: '**/*.spec.ts',
+  testMatch: process.env.LIFEAPP_ANDROID_BRIDGE ? '**/android-bridge.spec.ts' : '**/browser.spec.ts',
   fullyParallel: false,
   workers: 1,
   reporter: [['list'], ['junit', { outputFile: 'test-results/browser.xml' }]],

@@ -54,6 +54,22 @@ class DataOperations(private val app: JournalApplication, private val repository
             if(format=="backup") "Backup created and verified. All committed records included." else "Export created and verified."
         } finally { file.delete() }
     }
+    internal fun bindServer(uri: Uri, sync: AndroidServerSync, preview: BindingPreview) =
+        start("Creating a verified local backup before server binding…") {
+            val data = snapshot()
+            val file = temp(".zip")
+            try {
+                withContext(Dispatchers.IO) {
+                    BackupArchive.write(file, data)
+                    writeVerified(file, uri)
+                }
+                sync.bindFromVerifiedBackup(preview, data.todos)
+                "Backup verified. To-do is bound and first sync is queued."
+            } finally {
+                file.delete()
+            }
+        }
+
     fun clearDriveVersions() {
         if (!mutable.value.busy) mutable.value = mutable.value.copy(driveVersions = null)
     }

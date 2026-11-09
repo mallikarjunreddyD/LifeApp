@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
             }
             JournalApp(dailyJournal = { DailyJournalScreen(model) },
                 monthlyPlanner = { MonthlyPlannerScreen(model) }, habitTracker = { HabitTrackerScreen(model) },
-                notebook = { NotebookScreen(model) }, settings = { SettingsScreen(applicationState.operations) },
+                notebook = { NotebookScreen(model) }, settings = { SettingsScreen(applicationState.operations, applicationState.serverSync) },
                 todo = { TodoScreen(applicationState.todos, applicationState.todoActions) },
                 selectedSection = routes.last().section, onSectionSelected = model::selectSection,
                 globalStatus = {
@@ -68,6 +68,11 @@ class MainActivity : ComponentActivity() {
                 })
         }
     }
+    override fun onStart() {
+        super.onStart()
+        (application as JournalApplication).serverSync.onForeground()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

@@ -161,3 +161,7 @@ verified against the public pin. Do not use the ephemeral CI-debug artifact for
 updates. See [persistent signing](docs/persistent-apk-signing.md) for key recovery,
 artifact selection and the existing Phase3 signing mismatch. Keep the saved backup
 and installed app intact while planning the first transition to this new identity.
+
+Phase 6C adds optional Android To-do sync with the same server as the PWA.
+See the [Android setup](docs/android-server-sync.md) and
+[first-sync backup procedure](docs/initial-data-migration.md).
