@@ -1,6 +1,8 @@
 package com.myjournal.android
 
 import android.os.Bundle
+import android.content.Intent
+import com.myjournal.domain.AppSection
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
@@ -17,6 +19,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.myjournal.ui.JournalApp
 
 class MainActivity : ComponentActivity() {
+    private lateinit var model: JournalViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -25,7 +28,9 @@ class MainActivity : ComponentActivity() {
                 JournalViewModel(app.editor, createSavedStateHandle(), app.planner, app.habits, app.notebooks)
             } }
         }
-        val model = ViewModelProvider(this, factory)[JournalViewModel::class.java]
+        model = ViewModelProvider(this, factory)[JournalViewModel::class.java]
+        openReminder(intent, model)
+        if (savedInstanceState == null) TodoReminderScheduler(applicationContext).reschedule()
         setContent {
             val applicationState = application as JournalApplication
             val originalGeneration = remember { applicationState.generation.value }
@@ -48,6 +53,7 @@ class MainActivity : ComponentActivity() {
             JournalApp(dailyJournal = { DailyJournalScreen(model) },
                 monthlyPlanner = { MonthlyPlannerScreen(model) }, habitTracker = { HabitTrackerScreen(model) },
                 notebook = { NotebookScreen(model) }, settings = { SettingsScreen(applicationState.operations) },
+                todo = { TodoScreen(applicationState.todos, applicationState.todoActions) },
                 selectedSection = routes.last().section, onSectionSelected = model::selectSection,
                 globalStatus = {
                     listOf(Triple("Journal", journal.error, model.editor::retry),
@@ -60,6 +66,18 @@ class MainActivity : ComponentActivity() {
                     if (pending > 0) Text("Saving $pending local changes…", Modifier.padding(horizontal = 24.dp),
                         style = MaterialTheme.typography.labelSmall)
                 })
+        }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openReminder(intent, model)
+    }
+
+    private fun openReminder(intent: Intent, model: JournalViewModel) {
+        if (intent.action == OPEN_TODO) {
+            model.selectSection(AppSection.TODO)
+            intent.action = null
         }
     }
 }

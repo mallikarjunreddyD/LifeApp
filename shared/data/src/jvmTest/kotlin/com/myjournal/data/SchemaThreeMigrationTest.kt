@@ -16,7 +16,7 @@ class SchemaThreeMigrationTest {
         val directory=Files.createTempDirectory("lifeapp-schema3").toFile()
         val sourceFile=File(directory,"source.db");val legacyFile=File(directory,"legacy.db")
         fun open(file: File)=Room.databaseBuilder<FoundationDatabase>(file.path).setDriver(BundledSQLiteDriver())
-            .setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4, MIGRATION_4_5).build()
+            .setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
         val source=open(sourceFile)
         val fixture=backupFixture().let { snapshot -> snapshot.copy(notebooks=emptyList(),notebookPages=emptyList(),
             strokes=snapshot.strokes.filter { ink->snapshot.notebookPages.none{it.metadata.id==ink.pageId} }) }

@@ -18,7 +18,7 @@ class MonthRepositoryTest {
     private fun memory() = Room.inMemoryDatabaseBuilder<FoundationDatabase>().setDriver(BundledSQLiteDriver())
         .setQueryCoroutineContext(Dispatchers.IO).build()
     private fun file(path: Path) = Room.databaseBuilder<FoundationDatabase>(path.toString()).setDriver(BundledSQLiteDriver())
-        .setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+        .setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
     private fun plan(month: JournalMonth = this.month) = MonthlyPlanner(newRecordMetadata(), CalendarLayout(month))
     private fun ink(plan: MonthlyPlanner, day: Int = 12, order: Long = 0): InkStroke {
         val box = plan.layout.cell(day)

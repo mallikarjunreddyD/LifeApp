@@ -15,13 +15,14 @@ object SnapshotJson {
         val snapshot = source.canonical()
         snapshot.validate()
         return json.encodeToString(JsonObject.serializer(), buildJsonObject {
-            put("format", "LifeAppRecords"); put("formatVersion", 1); put("dataSchemaVersion", 5)
+            put("format", "LifeAppRecords"); put("formatVersion", 1); put("dataSchemaVersion", 6)
             put("metadata", JsonArray(snapshot.metadata.map { encodeMeta(it) }))
             put("journals", JsonArray(snapshot.journals.map { encodeEntry(it) }))
             put("planners", JsonArray(snapshot.planners.map { encodePlanner(it) }))
             put("habits", JsonArray(snapshot.habits.map { encodeLedger(it) }))
             put("notebooks", JsonArray(snapshot.notebooks.map { encodeBook(it) }))
             put("notebookPages", JsonArray(snapshot.notebookPages.map { encodeBookPage(it) }))
+            put("todos", JsonArray(snapshot.todos.map(::encodeTodo)))
             put("strokes", JsonArray(snapshot.strokes.map { stroke -> buildJsonObject {
                 put("metadata", encodeMeta(stroke.metadata)); put("surfaceId", stroke.pageId.toString())
                 put("order", stroke.order); put("brush", stroke.tool.name); put("colorArgb", stroke.colorArgb)
@@ -35,14 +36,15 @@ object SnapshotJson {
         checkJsonSizeAndDepth(text)
         val root = json.parseToJsonElement(text).jsonObject
         require(root.getValue("format").jsonPrimitive.content == "LifeAppRecords")
-        require(root.getValue("formatVersion").jsonPrimitive.int == 1 && root.getValue("dataSchemaVersion").jsonPrimitive.int in 4..5) { "Unsupported record format/schema" }
+        require(root.getValue("formatVersion").jsonPrimitive.int == 1 && root.getValue("dataSchemaVersion").jsonPrimitive.int in 4..6) { "Unsupported record format/schema" }
         val dataVersion = root.getValue("dataSchemaVersion").jsonPrimitive.int
         require(expectedDataSchemaVersion == null || expectedDataSchemaVersion == dataVersion) { "Manifest and record schema disagree" }
         root.getValue("journals").jsonArray.forEach { entry -> entry.jsonObject.getValue("pages").jsonArray.forEach { page ->
             val fields = page.jsonObject
-            if (dataVersion == 5) require("archived" in fields) { "Missing journal page visibility" }
+            if (dataVersion >= 5) require("archived" in fields) { "Missing journal page visibility" }
             else require(fields["archived"]?.jsonPrimitive?.boolean != true) { "Schema4 has no archived journal pages" }
         } }
+        require(dataVersion >= 6 || "todos" !in root) { "Unexpected To-do section" }
         return with(root) { JournalSnapshot(
             getValue("metadata").jsonArray.map { decodeMeta(it.jsonObject) },
             getValue("journals").jsonArray.map { decodeEntry(it.jsonObject) },
@@ -61,7 +63,8 @@ object SnapshotJson {
                 InkStroke(metadata, Uuid.parse(getValue("surfaceId").jsonPrimitive.content), getValue("order").jsonPrimitive.long,
                     BrushTool.valueOf(getValue("brush").jsonPrimitive.content), getValue("colorArgb").jsonPrimitive.long,
                     getValue("width").jsonPrimitive.float, StrokePointCodec.decode(bytes), getValue("pointFormatVersion").jsonPrimitive.int)
-            } }
+            } },
+            if (dataVersion >= 6) getValue("todos").jsonArray.map { decodeTodo(it.jsonObject) } else emptyList(),
         ).also { it.validate() } }
     }
 }
@@ -232,3 +235,23 @@ private fun decodeBookPage(value: JsonObject): NotebookPage = with(value) { Note
     getValue("height").jsonPrimitive.float,
     getValue("archived").jsonPrimitive.boolean
 ) }
+
+internal fun encodeTodo(todo: Todo) = buildJsonObject {
+    put("metadata", encodeMeta(todo.metadata))
+    put("title", todo.title)
+    put("deadline", todo.deadline.toString())
+    put("completedAt", todo.completedAt?.toString())
+    put("deleted", todo.deleted)
+}
+
+private fun decodeTodo(value: JsonObject): Todo = with(value) {
+    Todo(
+        decodeMeta(getValue("metadata").jsonObject),
+        getValue("title").jsonPrimitive.content,
+        LocalDate.parse(getValue("deadline").jsonPrimitive.content),
+        getValue("completedAt").jsonPrimitive.contentOrNull?.let(Instant::parse),
+        getValue("deleted").jsonPrimitive.boolean,
+    )
+}
+
+internal fun decodeTodoPayload(value: String): Todo = decodeTodo(Json.parseToJsonElement(value).jsonObject)

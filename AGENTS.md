@@ -4,7 +4,7 @@
 
 Work only on the requested phase. Android on Xiaomi Pad 7 is primary. Keep all
 features offline-first, with no mandatory registration. Do not introduce backend,
-cloud, synchronization or account dependencies during Phases 0–3. Never present
+cloud, synchronization or account dependencies outside authorized work. Never present
 placeholder editing, saving or settings as working functionality.
 
 Apps own launchers and platform adapters. shared/ui owns Compose and design tokens;
@@ -17,7 +17,10 @@ handwriting format is documented in docs/handwriting-format.md; preserve old rea
 and exact vectors on changes. Hardware behavior must be checked on Xiaomi Pad 7;
 never label synthetic/emulator input checks as hardware validation. Avoid speculative
 frameworks and abstractions. Phase 2 implements Daily Journal, Monthly Planner and Monthly Habit Tracker only.
-Phase 3 adds Notebook and local export/backup/restore Settings; do not begin Phase 4.
+Phase 3 adds Notebook and local export/backup/restore Settings. Phase 4 adds offline
+To-do, reminders, a tested To-do operation journal and encrypted manual Drive
+backup. Keep live synchronization disabled until the protocol covers safe account
+partitioning, restore and existing records. Do not begin Phase 5 automatically.
 Backup must drain every editor queue, validate a committed snapshot and verify output.
 Restore must validate before writes, require recovery backup for replacement, commit
 atomically and rebuild editor caches. Never merge archives or discard pending edits.
@@ -81,3 +84,13 @@ logs and artifacts; runner copies belong in protected temporary storage and must
 cleaned up. The installable artifact is my-journal-installable; diagnostic CI APKs
 are explicitly ephemeral. Do not rotate the established key/pin without an explicit
 user-approved migration plan. Losing signing identity can block in-place updates.
+
+## Phase 4 data safety
+
+To-do projections, immutable operations and device sequence updates commit together.
+Deadlines are LocalDate. Preserve task identities and all unresolved operation heads.
+Use explicit tombstones and authenticated transport for private cloud payloads. Keep
+OAuth state in Android adapters and credentials outside Git. Drive backup is separate
+from operation synchronization and must use the existing validated restore/recovery
+flow. Keep reminder preferences per device. Distinguish JVM protocol coverage,
+emulator tests, authenticated cloud tests and Xiaomi hardware results in validation.

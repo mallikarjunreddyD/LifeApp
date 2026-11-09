@@ -1,7 +1,7 @@
 # Roadmap
 
 Phase 3 adds Free Notebook, PDF/structured exports and validated local backup/restore.
-Do not begin Phase 4 automatically. Physical Xiaomi checks remain explicitly deferred.
+Physical Xiaomi checks remain explicitly deferred.
 
 1. **Phase 0/0.1 — Foundation:** modular KMP, Android/JVM launchers, opt-in Apple
    targets, metadata, tests and corrected supported Android SDK provisioning.
@@ -16,16 +16,19 @@ Do not begin Phase 4 automatically. Physical Xiaomi checks remain explicitly def
    pages with four templates, reused Ink, PDF/JSON/Markdown/native export, versioned
    checksum-validated local ZIP backup and atomic restore with verified recovery.
    Actual execution evidence and remaining limits are in validation.md.
-5. **Later — Companion clients and synchronization:** iOS and Windows initially
-   mostly viewing. Provider/conflict/backup decisions require separate design.
-6. **Later — Gym and expense trackers.**
-7. **Later — Read-only Google Calendar:** explicit consent and multiple accounts.
+5. **Phase 4 — To-do, reminders and Drive backup:** offline To-do editing, local
+   reminders, schema 6, encrypted manual Drive backup and a provider-independent
+   To-do outbox/replay core. Live sync and authenticated Drive acceptance remain
+   open. See [protocol and limits](phase-4-sync.md).
+6. **Phase 5 handoff:** native iOS To-do editing, notification authorization and
+   calendar scheduling, iOS synchronization and authenticated cross-device To-do
+   acceptance. Windows editing remains deferred. Phase 5 requires authorization.
+7. **Later — Gym and expense trackers.**
+8. **Later — Read-only Google Calendar:** explicit consent and multiple accounts.
 
-Future directions are unimplemented. No cloud provider, AI recognition, Daily
-Highlights, gamification, account system or online service was added. Each next
-phase needs explicit authorization and its own acceptance/tests/documentation.
+Future directions require explicit authorization and their own acceptance checks.
 
 Phase3.1 corrective work addresses tablet ink/workspace matrix resolution and safe
 journal-page archival before Phase4. Physical accuracy retesting is pending; the
 architecture/format/validation documents distinguish software evidence from hardware
-measurement. No Phase4 implementation is authorized by this correction.
+measurement.

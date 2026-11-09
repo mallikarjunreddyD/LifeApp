@@ -4,7 +4,7 @@ An offline-first personal journal, primarily for Xiaomi Pad 7 and a compatible s
 Phase 3.1 corrects tablet workspace/ink alignment and adds recoverable journal-page deletion.
 Phase 3 implements the Android Daily Journal, handwritten Monthly Planner and
 customizable Monthly Habit Tracker, Free Notebook and local export/backup/restore. No account or network connection is needed.
-Notebook and Settings are functional on Android. Desktop/iOS launchers
+Notebook, To-do and Settings are functional on Android. Desktop/iOS launchers
 are prepared; their editing destinations remain placeholders.
 
 ## Journal, planner, habits and notebooks
@@ -81,6 +81,20 @@ Ink brush edge smoothing/pressure; they do not convert handwriting to text. See
 [export formats](docs/export-formats.md), [backup format](docs/backup-format.md) and
 [backup/restore instructions](docs/backup-restore.md).
 
+## To-do, reminders and Drive backup
+
+Create and edit tasks offline in To-do. Tasks have a title and calendar deadline.
+Complete or reopen them with the checkbox. Deletion requires confirmation. Settings
+offers two optional local reminders, defaulting to 09:00 and 19:00 when enabled.
+[To-do and reminder behavior](docs/todo-reminders.md)
+
+Settings also supports manually creating, listing and restoring encrypted Google
+Drive backups after OAuth setup. A recovery passphrase is required for each cloud
+backup. Local backup and restore remain available without an account. The shared
+To-do synchronization protocol is exercised against independent databases and a
+fake provider. Live synchronization is disabled.
+[Drive setup and recovery](docs/drive-backup.md) · [Sync protocol and limits](docs/phase-4-sync.md)
+
 ## Setup and build
 
 Use JDK 21 and stable Android Studio supporting AGP 9.3. Install SDK platform 37.0,
@@ -117,7 +131,7 @@ physical Xiaomi validation. Do not infer device behavior from compilation alone.
 | apps/ios | Prepared SwiftUI/Xcode host |
 | shared/core | UUID/UTC metadata and revision invariants |
 | shared/domain | Portable records, calendar geometry, typed routes and editor state/history |
-| shared/data | Room schema 5, explicit migrations, codec and local repositories |
+| shared/data | Room schema 6, explicit migrations, codec and local repositories |
 | shared/ui | Shared adaptive navigation, paper colors and typography |
 
 Apple targets are disabled by default on every host. On macOS with Xcode 26.4 use

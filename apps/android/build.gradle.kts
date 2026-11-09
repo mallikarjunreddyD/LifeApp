@@ -9,8 +9,8 @@ android {
         applicationId = "com.myjournal.android"
         minSdk = 23
         targetSdk = 37
-        versionCode = 6
-        versionName = "0.4.2"
+        versionCode = 7
+        versionName = "0.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Optional stable identity for data-preserving updates. Values come only from
@@ -37,6 +37,8 @@ android {
     }
 }
 dependencies {
+    implementation(libs.play.services.auth)
+    implementation(libs.serialization.json)
     implementation(project(":shared:ui"))
     implementation(project(":shared:data"))
     implementation(project(":shared:domain"))

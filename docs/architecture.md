@@ -1,4 +1,4 @@
-# Architecture — Phase 3.1
+# Architecture
 
 Phase 3.1 branches from merged Phase 3 main2c82a17. Android on Xiaomi Pad 7 remains
 primary. Shared Android/JVM targets build without Xcode; iOS arm64 targets remain
@@ -140,3 +140,14 @@ maximum original order+1, never a reused archived position. Creation metadata an
 stroke metadata/UUIDs remain; page/entry modification revisions advance on visibility
 changes. Backups and labelled PDFs include archived pages. Wire schema5 explicitly
 stores visibility; readers still accept schema4 as all-active. See backup-format.md.
+
+## Phase 4 additions
+
+Room schema 6 adds To-do records, operation history and a local device sequence
+without changing existing tables. Shared/domain owns tasks, grouping, reminders
+and the provider/coordinator contracts. Shared/data owns the projection, durable
+outbox, causal replay, versioned JSON and backup encryption. Android owns the
+To-do surface, alarm and notification adapter, Google authorization and Drive
+REST. An encrypted cloud backup goes through the same validated ZIP and confirmed
+local restore operation as a file from the Android picker. Live synchronization is
+disabled pending the safety work documented in [the protocol](phase-4-sync.md).

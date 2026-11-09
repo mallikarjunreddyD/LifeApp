@@ -155,3 +155,26 @@ my-journal-ci-debug-ephemeral. The signed job does not run for PRs; it waits for
 normal verification jobs and accepts only main/the owner-requested bootstrap branch.
 See persistent-apk-signing.md for secret handling, recovery and the unchanged old-CI
 certificate constraint. No tablet data is uninstalled or modified by this task.
+
+## Phase 4 branch validation
+
+Based on main ee6f07e, whose [signed build](https://github.com/mallikarjunreddyD/LifeApp/actions/runs/42015276624)
+passed. The Phase 4 branch's full local JVM, Android debug APK, Android
+instrumentation APK, lint and desktop classes command passed with JDK 21 and the
+existing SDK. JUnit reports show 78 tests with zero failures, errors or skips.
+Lint reported 14 warnings and zero errors. The older Google authorization library
+is intentional because the newer one raises the minimum Android API.
+
+The JVM suite exercises two independent Room databases, canonical operation
+serialization, lost acknowledgments, restart before upload, retry, divergent
+edits, explicit conflict resolution and delete versus edit. It also checks
+atomic rollback when the task insert fails, schema 4 and 5 backup restoration,
+schema 6 task/tombstone round trips, authenticated backup tampering and local
+reminder scheduling/counts. Current migration tests start from older exported
+schemas and preserve existing editable vectors through migration 5→6.
+
+Local instrumentation was assembled. Hosted emulator execution and signed APK
+results are recorded in the Phase 4 PR. The authenticated Google account smoke
+test and physical Xiaomi alarm delivery, permission, time-zone/reboot and in-place
+upgrade checks remain pending. Live synchronization is disabled. See
+[Drive setup](drive-backup.md) and [protocol and scope](phase-4-sync.md).
