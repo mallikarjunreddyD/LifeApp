@@ -10,10 +10,12 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
@@ -181,9 +183,11 @@ private fun BackupPassphraseDialog(creating: Boolean, dismiss: () -> Unit, submi
                 Text(if (creating) "Keep this passphrase somewhere safe. It is needed to restore this backup."
                     else "Enter the passphrase used to encrypt this backup.")
                 OutlinedTextField(password, { if (it.length <= 1024) password = it }, label = { Text("Passphrase") },
-                    singleLine = true, visualTransformation = PasswordVisualTransformation())
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = PasswordVisualTransformation())
                 if (creating) OutlinedTextField(repeat, { if (it.length <= 1024) repeat = it },
-                    label = { Text("Repeat passphrase") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                    label = { Text("Repeat passphrase") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = PasswordVisualTransformation())
             }
         },
         confirmButton = {

@@ -48,10 +48,6 @@ fun SettingsScreen(operations: DataOperations) {
             Row { Switch(checked = diagnostic, onCheckedChange = { diagnostic = it; JournalCanvas.debugAlignmentEnabled = it })
                 Text("Input alignment diagnostic (debug only)", Modifier.padding(12.dp)) }
         }
-        DriveBackupSettings(operations)
-        HorizontalDivider()
-        TodoReminderSettings()
-        HorizontalDivider()
         Text("Backup & Restore",style=MaterialTheme.typography.headlineMedium)
         Text("Your files stay under your control. Choose a local destination in the system picker. Backups are not encrypted; store them privately.")
         state.message?.let { Text(it,color=if(state.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
@@ -65,6 +61,10 @@ fun SettingsScreen(operations: DataOperations) {
         OutlinedButton(enabled=!state.busy,onClick={exportMarkdown.launch(exportName("LifeApp-Metadata","md"))}) { Text("Export Markdown metadata") }
         Text("Markdown contains text and metadata only. It does not recognize handwriting and is not a complete backup.",style=MaterialTheme.typography.bodySmall)
         TextButton(onClick={info=true}) { Text("Backup and export format information") }
+        HorizontalDivider()
+        DriveBackupSettings(operations)
+        HorizontalDivider()
+        TodoReminderSettings()
     }
     if(info) AlertDialog(onDismissRequest={info=false},title={Text("File format information")},text={Column(Modifier.verticalScroll(rememberScrollState())) {
         Text("Full backup v1 is a ZIP with manifest.json, portable data.json and ink/UUID.ljpt files. It includes all modules and archived records. SHA-256 checksums, identities, ownership and point data are validated before restoration.")
