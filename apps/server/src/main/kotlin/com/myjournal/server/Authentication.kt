@@ -133,7 +133,10 @@ internal class Authentication(
                     ) != 1) unauthorized()
             }
             execute("DELETE FROM sessions WHERE expires_at <= ?", now.utc())
-            execute("INSERT INTO sessions VALUES (?, ?, ?, ?)", Credentials.tokenHash(token), account.id.sql(), expiry.utc(), csrf)
+            execute(
+                "INSERT INTO sessions (token_hash, owner_id, expires_at, csrf_token, factor_verified) VALUES (?, ?, ?, ?, ?)",
+                Credentials.tokenHash(token), account.id.sql(), expiry.utc(), csrf, previous >= 0,
+            )
         }
         return token to session(token, browser)
     }

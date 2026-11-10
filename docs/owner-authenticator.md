@@ -43,7 +43,8 @@ Enrollment preserves the owner ID, password, dataset, and recovery epoch. It
 revokes previous sessions and the previous username can no longer sign in.
 An unknown username receives a generic rejection. The existing temporary
 throttle stays in effect. Authenticator code replay and recovery code use
-are checked transactionally. Missing seed material fails closed for
+are checked transactionally. The database rejects new sessions from earlier
+server versions after enrollment. Missing seed material fails closed for
 authenticator codes, while unused recovery codes still work with the password.
 
 If a device is lost, restore the authenticator entry from the protected seed

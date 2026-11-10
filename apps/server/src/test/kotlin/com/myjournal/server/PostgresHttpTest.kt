@@ -81,6 +81,14 @@ class PostgresHttpTest {
             assertEquals(401, client.get("/v1/session") { bearerAuth(oldToken) }.status.value)
             assertEquals(401, client.login(user, secondFactor = recovery.first()).status.value)
             assertEquals(401, client.login(owner).status.value)
+            assertFailsWith<java.sql.SQLException> {
+                database.transaction {
+                    execute(
+                        "INSERT INTO sessions SELECT ?, id, now() + interval '1 hour', NULL FROM accounts WHERE username = ?",
+                        Credentials.tokenHash(Credentials.token()), owner,
+                    )
+                }
+            }
             assertEquals(401, client.login(owner, secondFactor = enrollmentCode).status.value)
 
             clock.now = clock.now.plusSeconds(60)
