@@ -8,7 +8,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 fun main(args: Array<String>) {
-    require(args.isEmpty() || args.contentEquals(arrayOf("init-owner"))) { "Usage: lifeapp-server [init-owner]" }
+    require(args.isEmpty() || (args.size == 1 && args[0] in setOf("init-owner", "enroll-owner-authenticator", "rotate-owner-authenticator"))) { "Usage: lifeapp-server [init-owner|enroll-owner-authenticator|rotate-owner-authenticator]" }
     val database = Database(PGSimpleDataSource().apply {
         setURL(requireNotNull(System.getenv("LIFEAPP_DB_URL")) { "Set LIFEAPP_DB_URL" })
         user = requireNotNull(System.getenv("LIFEAPP_DB_USER")) { "Set LIFEAPP_DB_USER" }
@@ -19,10 +19,23 @@ fun main(args: Array<String>) {
         socketTimeout = 15
     })
     database.migrate()
-    val authentication = Authentication(database)
+    val authentication = Authentication(database, totpPath = System.getenv("LIFEAPP_OWNER_TOTP_FILE")?.let(Path::of))
     if (args.isNotEmpty()) {
         val console = requireNotNull(System.console()) { "Owner initialization requires an interactive terminal." }
         val username = requireNotNull(console.readLine("Owner username: "))
+        if (args[0] != "init-owner") {
+            val rotate = args[0] == "rotate-owner-authenticator"
+            val newUsername = if (rotate) username else requireNotNull(console.readLine("New owner username: "))
+            val code = requireNotNull(console.readPassword("Authenticator code: "))
+            try {
+                val recovery = authentication.enrollOwner(username, newUsername, code.concatToString(), rotate)
+                console.printf("Owner renamed and authenticator enabled. Store these one-time recovery codes offline:%n")
+                recovery.forEach { console.printf("%s%n", it) }
+            } finally {
+                code.fill('\u0000')
+            }
+            return
+        }
         val secret = requireNotNull(console.readPassword("Owner password: "))
         try {
             authentication.initializeOwner(username, secret)

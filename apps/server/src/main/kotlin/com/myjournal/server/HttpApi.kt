@@ -65,7 +65,9 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
             post("/session") {
                 val body = call.body()
                 val (browser, username, password) = validated {
-                    require(body.keys == setOf("client", "username", "password"))
+                    val required = setOf("client", "username", "password")
+                    require(body.keys == required || body.keys == required + "secondFactor")
+                    body["secondFactor"]?.let { require(body.text("secondFactor").length in 1..43) }
                     val mode = body.text("client")
                     require(mode == "browser" || mode == "android")
                     val username = body.text("username")
@@ -76,7 +78,7 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                 val (token, session) = try {
                     if (browser) call.requireOrigin(origin)
                     else if (call.request.headers[HttpHeaders.Origin] != null) forbidden()
-                    databaseCall { auth.login(username, password, browser) }
+                    databaseCall { auth.login(username, password, browser, body["secondFactor"]?.let { body.text("secondFactor") }) }
                 } finally {
                     password.fill('\u0000')
                 }

@@ -886,6 +886,11 @@ components:
           type: string
           minLength: 1
           maxLength: 1024
+        secondFactor:
+          type: string
+          minLength: 1
+          maxLength: 43
+          description: Authenticator or one-time recovery code required for an enrolled owner.
     Session:
       type: object
       additionalProperties: false

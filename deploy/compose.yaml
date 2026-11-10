@@ -42,10 +42,11 @@ services:
       LIFEAPP_DB_URL: jdbc:postgresql://db:5432/lifeapp
       LIFEAPP_DB_USER: lifeapp
       LIFEAPP_DB_PASSWORD_FILE: /run/secrets/db_password
+      LIFEAPP_OWNER_TOTP_FILE: /run/secrets/owner_totp
       LIFEAPP_LISTEN_HOST: 0.0.0.0
       LIFEAPP_HTTPS_ORIGIN: ${LIFEAPP_HTTPS_ORIGIN:?Set the canonical HTTPS origin}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65 -XX:ActiveProcessorCount=2
-    secrets: [db_password]
+    secrets: [db_password, owner_totp]
     networks: [database, gateway]
     depends_on:
       db:
@@ -86,5 +87,7 @@ volumes:
 secrets:
   db_password:
     file: ${LIFEAPP_DB_PASSWORD_PATH:?Set a protected password file path}
+  owner_totp:
+    file: ${LIFEAPP_OWNER_TOTP_PATH:-./images/unenrolled-totp}
   db_admin_password:
     file: ${LIFEAPP_DB_ADMIN_PASSWORD_PATH:?Set a separate protected PostgreSQL administrator password file path}

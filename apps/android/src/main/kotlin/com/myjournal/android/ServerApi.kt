@@ -48,12 +48,13 @@ internal class ServerApi(
         require(status == "ready") { "This endpoint did not report LifeApp readiness" }
     }
 
-    suspend fun login(username: String, password: String): ServerCredential {
+    suspend fun login(username: String, password: String, secondFactor: String? = null): ServerCredential {
         require(username.length in 1..254 && password.length in 1..1024) { "Enter a username and password" }
         val body = buildJsonObject {
             put("client", "android")
             put("username", username)
             put("password", password)
+            secondFactor?.let { put("secondFactor", it) }
         }
         val response = request("/v1/session", "POST", body = body).objectValue()
         val token = response.getValue("accessToken").jsonPrimitive.content

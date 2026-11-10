@@ -82,10 +82,10 @@ function browserSession(value: unknown): BrowserSession {
 }
 
 export const api = {
-  async login(username: string, password: string) {
+  async login(username: string, password: string, secondFactor?: string) {
     return browserSession(await json('/v1/session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client: 'browser', username, password }),
+      body: JSON.stringify({ client: 'browser', username, password, secondFactor }),
     }));
   },
   async session() { return browserSession(await json('/v1/session')); },

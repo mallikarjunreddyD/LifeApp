@@ -1,6 +1,7 @@
 package com.myjournal.server
 
 import com.myjournal.domain.SyncScope
+import java.nio.file.Path
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Clock
@@ -54,7 +55,13 @@ internal data class Session(
     val csrfToken: String?,
 )
 
-internal class Authentication(private val database: Database, private val clock: Clock = Clock.systemUTC()) {
+internal class Authentication(
+    private val database: Database,
+    private val clock: Clock = Clock.systemUTC(),
+    private val totpPath: Path? = null,
+) {
+    private data class Account(val id: Uuid, val password: String)
+
     private val dummy = Credentials.passwordHash(Credentials.token().toCharArray())
     private val limiter = LoginLimiter(clock)
 
@@ -69,31 +76,72 @@ internal class Authentication(private val database: Database, private val clock:
             }
             val owner = Uuid.random()
             val scope = SyncScope(Uuid.random(), Uuid.random())
-            execute("INSERT INTO accounts VALUES (?, ?, ?)", owner.sql(), user, passwordHash)
+            execute("INSERT INTO accounts (id, username, password_hash) VALUES (?, ?, ?)", owner.sql(), user, passwordHash)
             execute("INSERT INTO datasets VALUES (?, ?)", scope.dataset.sql(), owner.sql())
             execute("INSERT INTO recovery_epochs(dataset_id, id) VALUES (?, ?)", scope.dataset.sql(), scope.epoch.sql())
             scope
         }
     }
 
-    fun login(username: String, password: CharArray, browser: Boolean): Pair<String, Session> {
+    fun enrollOwner(currentUsername: String, username: String, code: String, rotate: Boolean = false): List<String> {
+        val user = normalize(username)
+        require(usernamePattern.matches(user)) { "Invalid owner username." }
+        val step = OwnerTotp.matchingStep(totpKey(), code, clock.instant(), -1)
+            ?: error("The authenticator code did not match.")
+        val recovery = List(8) { Credentials.token() }
+        database.transaction {
+            val (owner, enrolled) = query(
+                "SELECT id, last_totp_step IS NOT NULL FROM accounts WHERE username = ? FOR UPDATE",
+                normalize(currentUsername),
+            ) { it.uuid(1) to it.getBoolean(2) }.single()
+            check(enrolled == rotate) { "Use the enrollment command for a new authenticator or rotation for an existing one." }
+            execute("UPDATE accounts SET username = ?, last_totp_step = ? WHERE id = ?", user, step, owner.sql())
+            execute("DELETE FROM sessions WHERE owner_id = ?", owner.sql())
+            execute("DELETE FROM owner_recovery_codes WHERE owner_id = ?", owner.sql())
+            recovery.forEach {
+                execute("INSERT INTO owner_recovery_codes VALUES (?, ?)", owner.sql(), Credentials.tokenHash(it))
+            }
+        }
+        return recovery
+    }
+
+    fun login(username: String, password: CharArray, browser: Boolean, secondFactor: String? = null): Pair<String, Session> {
         val user = normalize(username)
         limiter.attempt(user)
         val account = database.transaction {
             query("SELECT id, password_hash FROM accounts WHERE username = ?", user) {
-                it.uuid(1) to it.getString(2)
+                Account(it.uuid(1), it.getString(2))
             }.singleOrNull()
         }
-        if (!Credentials.matches(password, account?.second ?: dummy) || account == null) unauthorized()
+        if (!Credentials.matches(password, account?.password ?: dummy) || account == null) unauthorized()
         val token = Credentials.token()
         val csrf = if (browser) Credentials.token() else null
-        val expiry = clock.instant().plusSeconds(if (browser) 43_200 else 3_600)
+        val now = clock.instant()
+        val expiry = now.plusSeconds(if (browser) 43_200 else 3_600)
         database.transaction {
-            execute("DELETE FROM sessions WHERE expires_at <= ?", clock.instant().utc())
-            execute("INSERT INTO sessions VALUES (?, ?, ?, ?)", Credentials.tokenHash(token), account.first.sql(), expiry.utc(), csrf)
+            val previous = query("SELECT coalesce(last_totp_step, -1) FROM accounts WHERE id = ? AND username = ? FOR UPDATE",
+                account.id.sql(), user) { it.getLong(1) }
+                .singleOrNull() ?: unauthorized()
+            if (previous >= 0) {
+                val factor = secondFactor ?: unauthorized()
+                val step = if (factor.length == 6) OwnerTotp.matchingStep(totpKey(), factor, now, previous) else null
+                if (step != null) {
+                    execute("UPDATE accounts SET last_totp_step = ? WHERE id = ?", step, account.id.sql())
+                } else if (!tokenPattern.matches(factor) || execute(
+                        "DELETE FROM owner_recovery_codes WHERE owner_id = ? AND code_hash = ?",
+                        account.id.sql(), Credentials.tokenHash(factor),
+                    ) != 1) unauthorized()
+            }
+            execute("DELETE FROM sessions WHERE expires_at <= ?", now.utc())
+            execute(
+                "INSERT INTO sessions (token_hash, owner_id, expires_at, csrf_token, factor_verified) VALUES (?, ?, ?, ?, ?)",
+                Credentials.tokenHash(token), account.id.sql(), expiry.utc(), csrf, previous >= 0,
+            )
         }
         return token to session(token, browser)
     }
+
+    private fun totpKey() = OwnerTotp.load(requireNotNull(totpPath) { "Owner authenticator file is unconfigured." })
 
     fun session(token: String, browser: Boolean): Session {
         if (!tokenPattern.matches(token)) unauthorized()
