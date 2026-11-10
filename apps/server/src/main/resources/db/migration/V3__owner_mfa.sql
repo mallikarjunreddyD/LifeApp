@@ -7,11 +7,15 @@ CREATE TABLE owner_recovery_codes (
 
 ALTER TABLE sessions ADD COLUMN factor_verified boolean NOT NULL DEFAULT false;
 CREATE FUNCTION require_owner_session_factor() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    enrolled boolean;
 BEGIN
-    IF NOT NEW.factor_verified AND EXISTS (
-        SELECT 1 FROM accounts WHERE id = NEW.owner_id AND last_totp_step IS NOT NULL
-    ) THEN
-        RAISE EXCEPTION 'Owner session requires a verified second factor';
+    IF NOT NEW.factor_verified THEN
+        SELECT last_totp_step IS NOT NULL INTO enrolled
+        FROM accounts WHERE id = NEW.owner_id FOR SHARE;
+        IF enrolled THEN
+            RAISE EXCEPTION 'Owner session requires a verified second factor';
+        END IF;
     END IF;
     RETURN NEW;
 END;
