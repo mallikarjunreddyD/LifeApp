@@ -296,3 +296,16 @@ The VM, Tailscale Serve and Funnel, GHCR publication, production rollout,
 real Drive OAuth upload, live retention, and rollback to a previously
 published image pair remain unverified. The VM's existing routes were left
 untouched. This milestone does not extend which records synchronize.
+
+## Owner authenticator sign-in
+
+Local PostgreSQL HTTP tests covered the RFC TOTP vector, owner rename,
+preserved dataset and epoch, existing session revocation, password-only
+rejection after enrollment, authenticator replay rejection, one-time recovery
+codes and recovery-code rotation. The legacy session insert path was rejected
+by the database after enrollment. Android JVM checks, debug and instrumentation
+APK assembly, and lint passed. Browser typecheck, lint, unit tests and four
+Chromium regressions passed.
+
+Production enrollment, signed APK installation on the Xiaomi Pad 7, private
+HTTPS sign-in with the enrolled owner, and public access remain pending.
