@@ -66,6 +66,42 @@ class PostgresHttpTest {
         assertEquals(401, client.get("/v1/session") { bearerAuth(token) }.status.value)
     }
 
+    @Test fun ownerRenameEnforcesAuthenticatorAndConsumesRecoveryCode() = testApplication {
+        val seed = kotlin.io.path.createTempFile("lifeapp-test-totp")
+        try {
+            java.nio.file.Files.writeString(seed, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+            val key = OwnerTotp.load(seed)
+            assertEquals("287082", OwnerTotp.generate(key, 1))
+            val protectedAuth = Authentication(database, clock, seed)
+            application { lifeApp(database, protectedAuth, origin) }
+            val oldToken = client.login(user).token()
+            val owner = "$user-renamed"
+            val enrollmentCode = OwnerTotp.generate(key, clock.instant().epochSecond / 30)
+            val recovery = protectedAuth.enrollOwner(user, owner, enrollmentCode)
+            assertEquals(401, client.get("/v1/session") { bearerAuth(oldToken) }.status.value)
+            assertEquals(401, client.login(user, secondFactor = recovery.first()).status.value)
+            assertEquals(401, client.login(owner).status.value)
+            assertEquals(401, client.login(owner, secondFactor = enrollmentCode).status.value)
+
+            clock.now = clock.now.plusSeconds(60)
+            val code = OwnerTotp.generate(key, clock.instant().epochSecond / 30)
+            val login = client.login(owner, browser = true, suppliedOrigin = origin, secondFactor = code)
+            assertEquals(200, login.status.value)
+            assertEquals(scope.dataset.toString(), login.json()["scope"]!!.jsonObject["dataset"]!!.jsonPrimitive.content)
+            assertEquals(scope.epoch.toString(), login.json()["scope"]!!.jsonObject["epoch"]!!.jsonPrimitive.content)
+            assertEquals(401, client.login(owner, secondFactor = code).status.value)
+            assertEquals(200, client.login(owner, secondFactor = recovery.first()).status.value)
+            assertEquals(401, client.login(owner, secondFactor = recovery.first()).status.value)
+            clock.now = clock.now.plusSeconds(60)
+            val replacement = protectedAuth.enrollOwner(owner, owner,
+                OwnerTotp.generate(key, clock.instant().epochSecond / 30), rotate = true)
+            assertEquals(401, client.login(owner, secondFactor = recovery[1]).status.value)
+            assertEquals(200, client.login(owner, secondFactor = replacement.first()).status.value)
+        } finally {
+            java.nio.file.Files.deleteIfExists(seed)
+        }
+    }
+
     @Test fun concurrentCommitsPreserveBothHeadsAndIdempotencyAcrossApplicationRestart() {
         lateinit var token: String
         val left = fixture.copy(id = Uuid.random(), deviceId = Uuid.random())
@@ -221,11 +257,12 @@ class PostgresHttpTest {
     }
 
     private suspend fun HttpClient.login(name: String, browser: Boolean = false, suppliedOrigin: String? = null,
-        secret: String = password) = post("/v1/session") {
+        secret: String = password, secondFactor: String? = null) = post("/v1/session") {
         contentType(ContentType.Application.Json)
         suppliedOrigin?.let { header(HttpHeaders.Origin, it) }
         setBody(buildJsonObject {
             put("username", name); put("password", secret); put("client", if (browser) "browser" else "android")
+            secondFactor?.let { put("secondFactor", it) }
         }.toString())
     }
 

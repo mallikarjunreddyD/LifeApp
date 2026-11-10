@@ -21,6 +21,7 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
     val backupState = operations.state.collectAsState().value
     var origin by rememberSaveable { mutableStateOf(server.origin.orEmpty()) }
     var user by rememberSaveable { mutableStateOf("") }
+    var secondFactor by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirm by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(server.origin) {
@@ -53,8 +54,12 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
         OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Server password") },
             singleLine = true, enabled = enabled, visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+        OutlinedTextField(secondFactor, { secondFactor = it.take(43) }, Modifier.fillMaxWidth(),
+            label = { Text("Authenticator or recovery code (if enabled)") }, singleLine = true, enabled = enabled,
+            visualTransformation = PasswordVisualTransformation())
         Button(enabled = enabled && origin.isNotBlank() && user.isNotBlank() && password.isNotEmpty(), onClick = {
-            sync.signIn(origin, user, password)
+            sync.signIn(origin, user, password, secondFactor.trim().ifEmpty { null })
+            secondFactor = ""
             password = ""
         }) { Text("Sign in to LifeApp") }
     } else {

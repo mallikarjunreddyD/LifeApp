@@ -117,11 +117,11 @@ export function App({ store }: { store: LifeStore }) {
     }
   }
 
-  async function login(username: string, password: string) {
+  async function login(username: string, password: string, secondFactor?: string) {
     setBusy(true);
     setError('');
     try {
-      const current = await api.login(username, password);
+      const current = await api.login(username, password, secondFactor);
       setSession(current);
       setSynced(false);
       if (sameScope(scope, current.scope)) await sync(current);
@@ -253,7 +253,7 @@ function Conflict({ task, change, store }: { task: TaskView; change: (write: () 
 
 function Settings({ view, session, busy, online, onLogin, onBind, onLogout, onSync }: {
   view: LocalView; session: BrowserSession | null; busy: boolean; online: boolean;
-  onLogin: (username: string, password: string) => Promise<void>; onBind: () => Promise<void>;
+  onLogin: (username: string, password: string, secondFactor?: string) => Promise<void>; onBind: () => Promise<void>;
   onLogout: () => Promise<void>; onSync: () => void;
 }) {
   const match = session && sameScope(view.checkpoint?.scope ?? null, session.scope);
@@ -264,7 +264,9 @@ function Settings({ view, session, busy, online, onLogin, onBind, onLogout, onSy
     const password = String(fields.get('password') ?? '');
     const input = form.elements.namedItem('password');
     if (input instanceof HTMLInputElement) input.value = '';
-    await onLogin(String(fields.get('username') ?? ''), password);
+    const factor = form.elements.namedItem('secondFactor');
+    if (factor instanceof HTMLInputElement) factor.value = '';
+    await onLogin(String(fields.get('username') ?? ''), password, String(fields.get('secondFactor') ?? '').trim() || undefined);
   }
   return <section>
     <h1>Settings</h1>
@@ -274,6 +276,8 @@ function Settings({ view, session, busy, online, onLogin, onBind, onLogout, onSy
       {!session ? <form onSubmit={submit}>
         <label>Username<input required name="username" autoComplete="username" maxLength={254} /></label>
         <label>Password<input required name="password" type="password" autoComplete="current-password" maxLength={1024} /></label>
+        <label>Authenticator or recovery code (if enabled)<input name="secondFactor" type="password"
+          autoComplete="one-time-code" maxLength={43} /></label>
         <button className="primary" disabled={busy || !online}>Sign in</button>
       </form> : <>
         <p>Signed in to this server.</p>

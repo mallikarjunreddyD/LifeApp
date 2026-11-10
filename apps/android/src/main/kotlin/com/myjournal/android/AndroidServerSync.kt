@@ -72,11 +72,11 @@ internal class AndroidServerSync(private val context: Context, private val repos
         message("LifeApp server is ready. Sign in to verify the account.")
     }
 
-    fun signIn(origin: String, username: String, password: String) = action(invalidateOnExpired = false) {
+    fun signIn(origin: String, username: String, password: String, secondFactor: String?) = action(invalidateOnExpired = false) {
         val api = ServerApi(endpoint(origin))
         val pinned = repository.boundOrigin()
         if (pinned != null && pinned != api.endpoint.origin) throw UserSyncError("This database is bound to a different HTTPS origin.")
-        val credential = api.login(username.trim(), password)
+        val credential = api.login(username.trim(), password, secondFactor)
         val bound = repository.checkpoint()
         if (bound != null && (bound.scope != credential.session.scope || pinned != api.endpoint.origin)) {
             runCatching { api.logout(credential.token) }
