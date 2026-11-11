@@ -21,7 +21,12 @@ import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 @Composable
-fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
+fun WorkoutScreen(
+    repository: WorkoutRepository,
+    today: LocalDate,
+    reportStatus: String? = null,
+    exportReport: ((JournalMonth, Boolean) -> Unit)? = null,
+) {
     var log by remember { mutableStateOf<WorkoutLog?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -163,6 +168,7 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
         item {
             Text("Workouts", style = MaterialTheme.typography.headlineMedium)
             Text("Stored on this device")
+            reportStatus?.let { Text(it) }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
         if (session != null) {
@@ -230,6 +236,28 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
             item {
                 Text("${weekly.size} completed this week · ${weekly.sumOf { it.durationSeconds?.toLong() ?: 0L }} seconds")
                 Button(enabled = !busy, onClick = { start() }) { Text("Start workout") }
+                if (exportReport != null) OutlinedButton(enabled = !busy, onClick = {
+                    editor = {
+                        var month by rememberSaveable { mutableStateOf(JournalMonth.from(today).toString()) }
+                        var compact by rememberSaveable { mutableStateOf(false) }
+                        val selected = runCatching { JournalMonth.parse(month.trim()) }.getOrNull()
+                        AlertDialog(onDismissRequest = { editor = null }, title = { Text("Export monthly PDF") },
+                            text = {
+                                Column {
+                                    OutlinedTextField(month, { month = it }, label = { Text("Month (YYYY-MM)") }, singleLine = true)
+                                    Row { Checkbox(compact, { compact = it }); Text("Compact landscape", Modifier.padding(top = 12.dp)) }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(enabled = selected != null, onClick = {
+                                    editor = null
+                                    selected?.let { exportReport(it, compact) }
+                                }) { Text("Choose save location") }
+                            },
+                            dismissButton = { TextButton(onClick = { editor = null }) { Text("Cancel") } },
+                        )
+                    }
+                }) { Text("Export monthly PDF") }
                 Text("Workout history", style = MaterialTheme.typography.titleLarge)
             }
             items(data.sessions.sortedWith(compareByDescending<WorkoutSession> { it.date }.thenByDescending { it.startedAt }),

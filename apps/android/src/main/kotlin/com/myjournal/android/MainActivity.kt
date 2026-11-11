@@ -5,6 +5,10 @@ import android.content.Intent
 import com.myjournal.domain.AppSection
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.myjournal.domain.JournalMonth
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.*
@@ -50,10 +54,29 @@ class MainActivity : ComponentActivity() {
             if(operation.busy) androidx.compose.ui.window.Dialog(onDismissRequest = {}, properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress=false,dismissOnClickOutside=false)) {
                 Surface { Column(Modifier.padding(24.dp)) { CircularProgressIndicator();Text(operation.message ?: "Working…") } }
             }
+            var reportMonth by rememberSaveable { mutableStateOf<String?>(null) }
+            var compactReport by rememberSaveable { mutableStateOf(false) }
+            val exportWorkout = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+                val month = reportMonth
+                reportMonth = null
+                if (uri != null && month != null) {
+                    applicationState.operations.exportWorkoutPdf(uri, JournalMonth.parse(month), compactReport)
+                }
+            }
             JournalApp(dailyJournal = { DailyJournalScreen(model) },
                 monthlyPlanner = { MonthlyPlannerScreen(model) }, habitTracker = { HabitTrackerScreen(model) },
                 notebook = { NotebookScreen(model) }, settings = { SettingsScreen(applicationState.operations, applicationState.serverSync) },
-                workouts = { com.myjournal.ui.WorkoutScreen(applicationState.workouts, today()) },
+                workouts = {
+                    com.myjournal.ui.WorkoutScreen(
+                        applicationState.workouts,
+                        today(),
+                        reportStatus = operation.message?.takeIf { !operation.busy && "Workout PDF" in it },
+                    ) { month, compact ->
+                        reportMonth = month.toString()
+                        compactReport = compact
+                        exportWorkout.launch("LifeApp-Workouts-$month.pdf")
+                    }
+                },
                 todo = { TodoScreen(applicationState.todos, applicationState.todoActions) },
                 selectedSection = routes.last().section, onSectionSelected = model::selectSection,
                 globalStatus = {

@@ -74,4 +74,34 @@ class PdfExportTest {
             }
         } finally {file.delete()}
     }
+
+    @Test fun workoutPdfPaginatesLongUnicodeContentInLandscape() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<JournalApplication>()
+        val file = File.createTempFile("lifeapp-workout", ".pdf", app.cacheDir)
+        val exercise = ExerciseDefinition(newRecordMetadata(), "Élévation • " + "Very long exercise name ".repeat(3).trim())
+        val session = newRecordMetadata()
+        val entry = newRecordMetadata()
+        val sets = (1..160).map {
+            RecordedSet(newRecordMetadata(), entry.id, it, WorkoutWeight(7.5, WeightUnit.KG), 12, completed = true)
+        }
+        val month = JournalMonth(2026, 11)
+        val workout = WorkoutSession(
+            session, month.date(5), session.createdAt, session.createdAt, 4320,
+            completed = true, durationManuallyEntered = true,
+            notes = "Séance du matin.\n".repeat(125),
+            entries = listOf(WorkoutExerciseEntry(entry, session.id, exercise.metadata.id, 0, sets = sets)),
+        )
+        try {
+            WorkoutPdfExport.write(file, WorkoutLog(exercises = listOf(exercise), sessions = listOf(workout)), month, compact = true)
+            render(file) { renderer ->
+                assertTrue(renderer.pageCount > 1)
+                val last = image(renderer, renderer.pageCount - 1)
+                assertEquals(842, last.width)
+                assertEquals(595, last.height)
+                last.recycle()
+            }
+        } finally {
+            file.delete()
+        }
+    }
 }

@@ -148,6 +148,24 @@ class DataOperations(private val app: JournalApplication, private val repository
             "PDF exported and verified. Original editable handwriting is unchanged."
         } finally { file.delete() }
     }
+    fun exportWorkoutPdf(uri: Uri, month: JournalMonth, compact: Boolean) = start("Preparing workout PDF…") {
+        val file = temp(".pdf")
+        try {
+            WorkoutPdfExport.write(file, snapshot().workoutLog, month, compact)
+            withContext(Dispatchers.IO) {
+                require(file.length() <= 128L * 1024 * 1024)
+                writeVerified(file, uri)
+            }
+            "Workout PDF exported and verified."
+        } catch (failure: kotlinx.coroutines.CancellationException) {
+            throw failure
+        } catch (failure: Exception) {
+            error("Workout PDF export failed. ${failure.message ?: "File or storage operation failed"}")
+        } finally {
+            file.delete()
+        }
+    }
+
     fun inspectRestore(uri: Uri) = start("Validating backup before any database change…") {
         mutable.value.preview?.file?.delete()
         mutable.value=mutable.value.copy(preview=null,pdfSnapshot=null)

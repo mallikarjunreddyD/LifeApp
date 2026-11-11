@@ -185,4 +185,17 @@ test('workout and original weight unit survive offline reload', async ({ page, c
   await page.getByRole('button', { name: 'Edit workout details' }).click();
   await expect(page.getByLabel('Workout duration (minutes)')).toHaveValue('72');
   await expect(page.getByLabel('Average heart rate (BPM)')).toHaveValue('136');
+  const month = (await page.getByLabel('Date', { exact: true }).inputValue()).slice(0, 7);
+  await page.getByRole('button', { name: 'Back to workouts' }).click();
+  await page.getByRole('button', { name: 'Export monthly PDF' }).click();
+  await page.getByLabel('Month', { exact: true }).fill(month);
+  await expect(page.getByRole('heading', { name: 'LifeApp Workout Report' })).toBeVisible();
+  await expect(page.getByText('136 BPM · 1 measured sessions')).toBeVisible();
+  await expect(page.getByText(/105.5 LB · 8 reps/)).toBeVisible();
+  await page.getByLabel('Compact landscape').check();
+  await expect(page.getByRole('columnheader', { name: 'Recorded sets' })).toBeVisible();
+  const pdf = await page.pdf({ preferCSSPageSize: true });
+  expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+  await page.getByLabel('Month', { exact: true }).fill('2001-01');
+  await expect(page.getByText('No completed workouts this month.')).toBeVisible();
 });

@@ -96,3 +96,19 @@ nav button[aria-current=page] { background: var(--active); color: var(--ink); fo
   main { padding-bottom: 2rem; order: 3; }
   nav button { font-size: .95rem; }
 }
+
+.workout-report table { width: 100%; border-collapse: collapse; }
+.workout-report th, .workout-report td { text-align: left; padding: .45rem; border-bottom: 1px solid #ccc; }
+.workout-report-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media print {
+  body:has(.workout-report) { background: white; color: black; }
+  body:has(.workout-report) .shell { min-height: 0; max-width: none; }
+  body:has(.workout-report) .shell > :not(main),
+  body:has(.workout-report) main > :not(.workout-report),
+  .workout-report-controls { display: none; }
+  body:has(.workout-report) main { padding: 0; }
+  .workout-report h2, .workout-report h3 { break-after: avoid; }
+  .workout-report-exercise, .workout-report tr { break-inside: avoid; }
+  .workout-report thead { display: table-header-group; }
+  .workout-report article { box-shadow: none; }
+}
