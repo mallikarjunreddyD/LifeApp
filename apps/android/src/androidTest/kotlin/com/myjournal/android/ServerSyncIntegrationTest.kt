@@ -159,6 +159,32 @@ class ServerSyncIntegrationTest {
             assertEquals(original.notebookPages, restored.notebookPages)
             assertEquals(stroke.metadata.id, restored.strokes.single().metadata.id)
             assertArrayEquals(StrokePointCodec.encode(stroke.points), StrokePointCodec.encode(restored.strokes.single().points))
+            val baseline = approved.single()
+            val newBook = originalBook.copy(name = "Reviewed Android notebook",
+                metadata = originalBook.metadata.revised(originalBook.metadata.updatedAt))
+            val updated = baseline.copy(snapshot = baseline.snapshot.copy(notebooks = listOf(newBook)))
+            reopenedQueue.enqueue(target, listOf(updated), mapOf(updated.key to version))
+            val updateFile = EditableImportQueue(queueDirectory).load()!!.files.single()
+            val (updateId, parent) = updateFile.nameWithoutExtension.split('_').map(Uuid::parse)
+            assertEquals(version, parent)
+            api.uploadEditableImport(credential.session, credential.token, updateId, updateFile,
+                BackupArchive.sha256(updateFile.readBytes()), parent)
+            val currentVersion = api.editableVersions(credential.session, credential.token).single()
+            assertEquals(updateId, currentVersion.id)
+            api.downloadEditableVersion(credential.session, credential.token, currentVersion, fetched)
+            val received = BackupArchive.read(fetched).snapshot.editableImportRecords()
+            RoomSnapshotRepository(database).applyEditableRecords(received, mapOf(baseline.key to baseline.snapshot))
+            assertEquals(updated.snapshot.canonical(),
+                RoomSnapshotRepository(database).capture().editableImportRecords().single { it.key == updated.key }.snapshot.canonical())
+
+            val baselines = EditableSyncBaselines(directory.resolve("baselines"))
+            val recorded = EditableSyncBaselines.Baseline(updateId, EditableSyncBaselines.fingerprint(updated.snapshot))
+            baselines.record(target, mapOf(updated.key to recorded))
+            assertEquals(recorded, baselines.load(target)[updated.key])
+            assertTrue(baselines.load(target.copy(scope = target.scope.copy(epoch = Uuid.random()))).isEmpty())
+            reopenedQueue.invalidateBaselines()
+            assertFalse(EditableImportQueue(queueDirectory).load()!!.recordsBaselines)
+
             val wrong = transport.scope.copy(epoch = Uuid.random())
             try {
                 transport.pull(SyncCheckpoint(wrong))

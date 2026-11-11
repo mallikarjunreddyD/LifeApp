@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.*
 import java.security.MessageDigest
 import kotlin.time.Clock
+import kotlin.uuid.Uuid
 
 data class RestorePreview(val file: File, val backup: BackupArchive.Validated, val replacesData: Boolean, val sourceUri: Uri?)
 data class JournalInventoryPreview(val origin: String, val scope: SyncScope, val inventory: JournalImportInventory)
@@ -24,6 +25,8 @@ internal data class EditableImportReview(
     val serverCount: Int,
     val downloadable: List<EditableRemoteVersion>,
     val conflicted: List<EditableImportKey>,
+    val uploadParents: Map<EditableImportKey, Uuid>,
+    val replaceExpected: Map<EditableImportKey, JournalSnapshot>,
 )
 
 /** Application-owned operations survive Activity recreation. The UI is locked while busy. */
@@ -140,12 +143,19 @@ class DataOperations(private val app: JournalApplication, private val repository
             snapshot() // Drain editors again before applying any received records.
             app.session.cancel()
             try {
-                repository.addEditableRecords(records)
+                repository.applyEditableRecords(records, review.replaceExpected)
             } finally {
                 app.rebuildEditors()
             }
             importReviewMutable.value = null
-            "Added ${records.size} reviewed server records. Existing Android records were kept."
+            try {
+                sync.recordEditableDownloads(review, records)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                throw IllegalStateException("Records were applied, but their shared versions could not be saved. Review again before another transfer.", failure)
+            }
+            "Applied ${records.size} reviewed server records."
         }
 
     internal fun dismissEditableImport() {
@@ -285,7 +295,10 @@ class DataOperations(private val app: JournalApplication, private val repository
         // No UI editor can write while busy, and all old queues have drained. Cancel
         // old readers/caches only after validation and verified recovery are complete.
         app.session.cancel()
-        try { repository.replace(incoming) }
+        try {
+            app.serverSync.resetEditableBaselines()
+            repository.replace(incoming)
+        }
         finally { app.rebuildEditors() }
         preview.file.delete();mutable.value=mutable.value.copy(preview=null,pdfSnapshot=null)
         "Restore committed. All editor caches were reinitialized.${if(existing.populated) " Verified recovery backup saved to your chosen file." else ""}"

@@ -122,8 +122,8 @@ rotates the recovery epoch.
 
 ## First transfer between Android and the server
 
-In **Settings → LifeApp Server**, choose **Back up and review first record
-transfer**. After the separate backup is verified, LifeApp compares its
+In **Settings → LifeApp Server**, choose **Back up and review record
+changes**. After the separate backup is verified, LifeApp compares its
 journal dates, planner months, habit months and notebook UUIDs with the
 authenticated server inventory. The review lists overlaps and competing
 server versions. Existing records on either side are skipped.
@@ -137,15 +137,14 @@ archive after interruption or a lost receipt. **Clear queued upload copies**
 discards pending copies while retaining Android records, the independent
 backup and any completed server uploads.
 
-**Add reviewed server records** verifies the chosen versions and each
+**Apply reviewed server records** verifies the chosen versions and each
 archive checksum, then adds the batch in one Room transaction. The
 transaction rejects all records in the batch if a local date, month or
 record identity would collide. Existing records and To-do replay state
 are preserved. The editor caches are reloaded after application.
 
-The transfer is add-only. Android editor changes after transfer remain
-local. Continuous Android capture and replay, including Android habit
-completion edits, remain open. Complete cross-device acceptance before
+The first transfer adds records. After a shared version has been
+confirmed, the same review can also transfer updates. Complete cross-device acceptance before
 calling the four modules synchronized.
 
 
@@ -163,9 +162,9 @@ The resolution creates a new current version with the same archive
 bytes and the reviewed variants as its parents. All earlier archives
 remain accessible from the version history. If the browser loses the
 response, **Retry resolution** reuses the same resolution UUID while
-the review stays open. This updates server history. Android applies
-server-only records through the first transfer workflow. Existing
-Android copies still require the ongoing replay workflow.
+the review stays open. This updates server history. Android can
+apply the selected server version through the record review workflow
+when its local copy still matches a confirmed shared version.
 
 
 ## Move an earlier journal import into version history
@@ -203,6 +202,30 @@ the variants before making more checkbox edits. Completion identities
 are retained on updates. An archived habit or a changed ledger identity
 requires a fresh review.
 
-Checkbox editing is online. Android first transfer can add a new server
-ledger, while ongoing replay into an existing ledger and Android editor
-outbound operations remain pending.
+Checkbox editing is online. Android can apply the resulting ledger in
+record review. Android outbound uploads still use whole-record versions,
+including when a local change is one checkbox.
+
+
+## Reviewed Android updates
+
+Android records the last confirmed server version and exact portable
+record fingerprint after an upload or download. The fingerprints are
+private and scoped to the HTTPS origin, dataset and recovery epoch.
+For records transferred before version tracking was added, review can
+establish a shared version when the local and current server contents
+match exactly. Review skips overlaps that have no verified common version.
+
+If Android edited a tracked record, approval queues its archive with
+the confirmed parent version. The queue survives interruption. A newer
+competing server version remains available for conflict review. If
+only the server copy changed, approval applies that version after
+checking the reviewed server version and verifying the Android record
+again inside the Room transaction. A local change rejects the batch.
+Unrelated records, To-do synchronization state and workouts are untouched.
+Restoring a backup resets version tracking while preserving pending
+upload copies.
+
+This is a manual, backup-verified transfer. Automatic Android editor
+capture and replay, per-checkbox Android operations, and physical
+cross-device acceptance remain pending.

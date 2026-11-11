@@ -41,32 +41,58 @@ class RoomSnapshotRepository(private val database: FoundationDatabase) : Snapsho
             database.todos().all().map(TodoRow::model), RoomWorkoutRepository(database).capture()).also { it.validate() }
     }
 
-    /** First replay only adds new records. Existing local rows and sync state are untouched. */
-    suspend fun addEditableRecords(records: List<EditableImportRecord>) = withContext(Dispatchers.Default) {
-        val snapshots = records.map { it.snapshot }
-        require(snapshots.all { it.metadata.isEmpty() && it.todos.isEmpty() && it.workoutLog.records.isEmpty() })
-        val incoming = JournalSnapshot(
-            journals = snapshots.flatMap { it.journals },
-            planners = snapshots.flatMap { it.planners },
-            habits = snapshots.flatMap { it.habits },
-            notebooks = snapshots.flatMap { it.notebooks },
-            notebookPages = snapshots.flatMap { it.notebookPages },
-            strokes = snapshots.flatMap { it.strokes },
-        )
-        dao.metadata()
-        database.useWriterConnection { connection -> connection.immediateTransaction {
-            val existing = readSnapshot()
-            existing.copy(
-                journals = existing.journals + incoming.journals,
-                planners = existing.planners + incoming.planners,
-                habits = existing.habits + incoming.habits,
-                notebooks = existing.notebooks + incoming.notebooks,
-                notebookPages = existing.notebookPages + incoming.notebookPages,
-                strokes = existing.strokes + incoming.strokes,
-            ).validate()
-            insertRecords(incoming)
-        } }
-    }
+    suspend fun addEditableRecords(records: List<EditableImportRecord>) = applyEditableRecords(records, emptyMap())
+
+    /** Compare reviewed local copies and update only the affected aggregates in one writer transaction. */
+    suspend fun applyEditableRecords(records: List<EditableImportRecord>, expected: Map<EditableImportKey, JournalSnapshot>) =
+        withContext(Dispatchers.Default) {
+            require(records.map { it.key }.distinct().size == records.size)
+            require(expected.keys.all { key -> records.any { it.key == key } })
+            require(records.all { it.snapshot.editableImportRecords().single().let { copy ->
+                copy.key == it.key && copy.snapshot.canonical() == it.snapshot.canonical()
+            } })
+            val incoming = records.map { it.snapshot }
+            dao.metadata()
+            database.useWriterConnection { connection -> connection.immediateTransaction {
+                val existing = readSnapshot()
+                val byKey = existing.editableImportRecords().associateBy { it.key }
+                for (record in records) {
+                    require(byKey[record.key]?.snapshot?.canonical() == expected[record.key]?.canonical()) {
+                        "Android records changed since the review."
+                    }
+                }
+                val remaining = byKey.filterKeys { key -> key !in expected }.values.map { it.snapshot }
+                fun List<JournalSnapshot>.combine() = JournalSnapshot(
+                    journals = flatMap { it.journals }, planners = flatMap { it.planners }, habits = flatMap { it.habits },
+                    notebooks = flatMap { it.notebooks }, notebookPages = flatMap { it.notebookPages }, strokes = flatMap { it.strokes },
+                )
+                (remaining + incoming).combine().copy(metadata = existing.metadata, todos = existing.todos,
+                    workoutLog = existing.workoutLog).validate()
+
+                for (old in expected.values) {
+                    old.journals.forEach { entry ->
+                        entry.pages.forEach { dao.deleteJournalInk(it.metadata.id.toString()) }
+                        dao.deleteJournalPages(entry.metadata.id.toString())
+                        dao.deleteJournal(entry.metadata.id.toString())
+                    }
+                    old.planners.forEach {
+                        dao.deletePlannerInk(it.metadata.id.toString())
+                        dao.deletePlanner(it.metadata.id.toString())
+                    }
+                    old.habits.forEach { ledger ->
+                        ledger.habits.forEach { dao.deleteHabitCompletions(it.metadata.id.toString()) }
+                        dao.deleteHabits(ledger.metadata.id.toString())
+                        dao.deleteHabitLedger(ledger.metadata.id.toString())
+                    }
+                    old.notebookPages.forEach { dao.deleteNotebookInk(it.metadata.id.toString()) }
+                    old.notebooks.forEach {
+                        dao.deleteNotebookPages(it.metadata.id.toString())
+                        dao.deleteNotebook(it.metadata.id.toString())
+                    }
+                }
+                insertRecords(incoming.combine())
+            } }
+        }
 
     override suspend fun replace(snapshot: JournalSnapshot) = withContext(Dispatchers.Default) {
         snapshot.validate()

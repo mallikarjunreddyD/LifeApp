@@ -69,7 +69,7 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
     }
     val enabled = !server.working && !backupState.busy
     Text("LifeApp Server", style = MaterialTheme.typography.titleLarge)
-    Text("To-do sync runs after binding. First record transfer adds new journal, planner, habit and notebook records to the chosen destination.")
+    Text("To-do sync runs after binding. Review record changes to transfer journals, planners, habits and notebooks.")
     server.message?.let { Text(it, color = if (server.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
     OutlinedTextField(
         value = origin,
@@ -121,7 +121,7 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
             OutlinedButton(enabled = enabled && currentTarget != null, onClick = {
                 importTarget = currentTarget
                 selectImportBackup.launch(exportName("LifeApp-BeforeRecordImport", "zip"))
-            }) { Text("Back up and review first record transfer") }
+            }) { Text("Back up and review record changes") }
         }
         TextButton(enabled = enabled, onClick = {
             operations.dismissJournalInventory()
@@ -177,16 +177,23 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
     importReview?.takeIf { !backupState.busy && it.target.scope == server.accountScope && it.target.origin == server.origin }?.let { review ->
         AlertDialog(
             onDismissRequest = operations::dismissEditableImport,
-            title = { Text("Review first record transfer") },
+            title = { Text("Review record changes") },
             text = {
                 LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Text("Server ${review.target.origin}") }
-                    item { Text("${review.eligible.size} Android records can be uploaded. ${review.downloadable.size} server records can be added to Android.") }
-                    item { Text("The server has ${review.serverCount} record keys. Existing records are skipped.") }
+                    item { Text("${review.eligible.size} Android records can be uploaded. ${review.downloadable.size} server records can be applied to Android.") }
+                    item { Text("The server has ${review.serverCount} record keys.") }
+                    if (review.uploadParents.isNotEmpty()) {
+                        item { Text("${review.uploadParents.size} uploads update previously transferred records. If the server also changed, both versions are kept for review.") }
+                    }
+                    if (review.replaceExpected.isNotEmpty()) {
+                        item { Text("${review.replaceExpected.size} downloads update Android records that still match a confirmed server version.") }
+                        items(review.replaceExpected.keys.toList()) { Text("${it.kind} · ${it.key}") }
+                    }
                     val counts = review.eligible.groupingBy { it.key.kind }.eachCount()
                     item { Text("Journal ${counts["journal"] ?: 0} · Planner ${counts["planner"] ?: 0} · Habits ${counts["habits"] ?: 0} · Notebook ${counts["notebook"] ?: 0}") }
                     if (review.overlaps.isNotEmpty()) {
-                        item { Text("Present on both sides", style = MaterialTheme.typography.titleSmall) }
+                        item { Text("Skipped because a shared version could not be verified", style = MaterialTheme.typography.titleSmall) }
                         items(review.overlaps) { Text("${it.kind.replaceFirstChar(Char::uppercaseChar)} · ${it.key}") }
                     }
                     if (review.conflicted.isNotEmpty()) {
@@ -204,7 +211,7 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
                     }
                     if (review.downloadable.isNotEmpty()) {
                         TextButton(enabled = enabled, onClick = { operations.applyEditableDownload(sync, review) }) {
-                            Text("Add reviewed server records")
+                            Text("Apply reviewed server records")
                         }
                     }
                 }

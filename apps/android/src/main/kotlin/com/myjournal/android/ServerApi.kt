@@ -149,12 +149,14 @@ internal class ServerApi(
             download = destination, digest = version.digest)
     }
 
-    suspend fun uploadEditableImport(session: ServerSession, token: String, id: Uuid, file: File, sha256: String) {
+    suspend fun uploadEditableImport(
+        session: ServerSession, token: String, id: Uuid, file: File, sha256: String, parent: Uuid? = null,
+    ) {
         request("/v1/editable/staged/$id", "PUT", token, journalScope = session.scope, archive = file, digest = sha256)
         val body = buildJsonObject {
             put("sha256", sha256)
-            put("parents", JsonArray(emptyList()))
-            put("requireEmpty", true)
+            put("parents", JsonArray(listOfNotNull(parent?.let { JsonPrimitive(it.toString()) })))
+            put("requireEmpty", parent == null)
         }
         request("/v1/editable/versions/$id/commit", "POST", token, body, session.scope)
     }

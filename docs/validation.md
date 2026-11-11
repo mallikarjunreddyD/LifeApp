@@ -403,3 +403,13 @@ competing values on one day, preservation of unrelated days and completion
 IDs, and identical retries. The Chromium test edits a single date through
 the PWA and confirms another date stays unchanged. The Android editor
 outbox and cross-device replay remain pending.
+
+## Phase 7E reviewed Android updates
+
+The shared Room tests cover replacement of all four editable record kinds
+inside one transaction and rejection of a stale reviewed local copy.
+The Android/PWA bridge fixture now includes a notebook update queued with
+its parent version, checked after reopening the queue, uploaded, downloaded
+and applied over its exact local base. It checks recovery-epoch isolation
+of version tracking and retains queued bytes when tracking is reset.
+Physical devices and continuous Android edit capture remain open.
