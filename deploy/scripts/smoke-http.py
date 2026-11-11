@@ -40,7 +40,11 @@ if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):
     token = Path(held).read_text(encoding="utf-8")
     call("/v1/session", headers={"Authorization": f"Bearer {token}"}, expected=401)
     backup = json.loads(call("/v1/backups/status", headers=auth)[0])
-    assert backup["state"] == "verified" and backup["lastVerifiedAt"]
+    assert backup["state"] == "failed" and backup["lastVerifiedAt"] is None
+    workout = json.loads(call("/v1/workouts/70000000-0000-4000-8000-000000000002", headers=auth)[0])
+    restored_set = workout["entries"][0]["sets"][0]
+    assert restored_set["metadata"]["id"] == "70000000-0000-4000-8000-000000000004"
+    assert restored_set["weight"] == {"value": 22.5, "unit": "LB"} and restored_set["repetitions"] == 8
 if old_epoch := os.environ.get("LIFEAPP_OLD_EPOCH"):
     call(f"/v1/sync/pull?epoch={old_epoch}&after=0", headers=auth, expected=409)
 if sys.argv[1] == "seed":

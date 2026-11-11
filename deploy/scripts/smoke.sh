@@ -43,16 +43,36 @@ if [[ ${LIFEAPP_SMOKE_RESTORE:-0} == 1 ]]; then
   age-keygen -y "$work/identity" > "$work/recipients"
   epoch=$("${compose[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -Atc "SELECT id FROM recovery_epochs WHERE active")
   python3 deploy/scripts/smoke-http.py hold "$work/held-token"
-  job=$(python3 -c 'from uuid import uuid4; print(uuid4())')
-  python3 deploy/backup/database-backup.py --project "$project" report --id "$job" --state running
-  python3 deploy/backup/database-backup.py --project "$project" report --id "$job" --state verified
-  python3 deploy/backup/database-backup.py --project "$project" capture \
-    --commit "$(git rev-parse HEAD)" --recipients "$work/recipients" --output "$work/backup.age"
+  "${compose[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -v ON_ERROR_STOP=1 < deploy/scripts/smoke-workout.sql
+  mkdir -m 700 "$work/archives" "$work/remote" "$work/recovery"
+  printf 'LIFEAPP_RELEASE_COMMIT=%s\n' "$(git rev-parse HEAD)" > "$work/release.env"
+  touch "$work/rclone.conf"
+  export LIFEAPP_BACKUP_PROJECT="$project" LIFEAPP_BACKUP_RELEASE_FILE="$work/release.env"
+  export LIFEAPP_BACKUP_RCLONE_CONFIG="${LIFEAPP_DRILL_RCLONE_CONFIG:-$work/rclone.conf}"
+  export LIFEAPP_BACKUP_DRIVE_REMOTE="$work/remote"
+  if [[ -n ${LIFEAPP_DRILL_DRIVE_FOLDER:-} ]]; then
+    : "${LIFEAPP_DRILL_RCLONE_CONFIG:?Set the protected configuration for the disposable Drive drill}"
+    LIFEAPP_BACKUP_DRIVE_REMOTE="${LIFEAPP_DRILL_DRIVE_FOLDER%/}/$project"
+  fi
+  export LIFEAPP_BACKUP_RECIPIENTS="$work/recipients" LIFEAPP_BACKUP_DIRECTORY="$work/archives"
+  deploy/backup/upload-drive.sh
+  cp "$work/archives/verified.sha256" "$work/recovery/trusted.sha256"
+  read -r digest name < "$work/recovery/trusted.sha256"
+  download="$PWD/deploy/backup/download-verified.sh"
+  (cd "$work/recovery" && "$download" "${LIFEAPP_DRILL_DOWNLOAD_RCLONE_CONFIG:-$LIFEAPP_BACKUP_RCLONE_CONFIG}" \
+    "$LIFEAPP_BACKUP_DRIVE_REMOTE" trusted.sha256 "$name")
+  # A failed transfer must leave the earlier verified object and ledger entry usable.
+  if LIFEAPP_BACKUP_DRIVE_REMOTE=":lifeapp-invalid-backend:$work/remote" deploy/backup/upload-drive.sh; then
+    echo 'Expected the deliberately invalid upload to fail.' >&2
+    exit 1
+  fi
+  cmp "$work/recovery/trusted.sha256" "$work/archives/verified.sha256"
+  test "$("${compose[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -Atc "SELECT state FROM backup_jobs ORDER BY started_at DESC LIMIT 1")" = failed
+  echo 'Verified an independent download and preserved the trusted digest after an upload failure.'
   restore=(docker compose -p "$restore_project" -f deploy/compose.yaml)
   "${restore[@]}" up -d --wait --wait-timeout 90 db
   python3 deploy/backup/database-backup.py --project "$restore_project" restore \
-    --identity "$work/identity" --input "$work/backup.age" \
-    --sha256 "$(sha256sum "$work/backup.age" | cut -d ' ' -f 1)"
+    --identity "$work/identity" --input "$work/recovery/$name" --sha256 "$digest"
   test "$("${restore[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -Atc "SELECT count(*) FROM sessions")" = 0
   test "$("${restore[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -Atc "SELECT id FROM recovery_epochs WHERE active")" != "$epoch"
   LIFEAPP_LOOPBACK_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
