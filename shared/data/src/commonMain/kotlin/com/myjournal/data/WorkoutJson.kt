@@ -29,7 +29,7 @@ fun WorkoutSession.workoutJson() = buildJsonObject {
     put("entries", JsonArray(entries.map(WorkoutExerciseEntry::json)))
 }
 
-private fun WorkoutExerciseEntry.json() = buildJsonObject {
+internal fun WorkoutExerciseEntry.json() = buildJsonObject {
     put("metadata", metadata.json())
     put("sessionId", sessionId.toString())
     put("exerciseId", exerciseId.toString())
@@ -38,7 +38,7 @@ private fun WorkoutExerciseEntry.json() = buildJsonObject {
     put("sets", JsonArray(sets.map(RecordedSet::json)))
 }
 
-private fun RecordedSet.json() = buildJsonObject {
+internal fun RecordedSet.json() = buildJsonObject {
     put("metadata", metadata.json())
     put("entryId", entryId.toString())
     put("number", number)
