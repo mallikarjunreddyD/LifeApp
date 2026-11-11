@@ -12,6 +12,7 @@ repository. The session and its children keep their existing IDs. Android
 exports use portable schema 8 when the new fields are present and continue
 to read older archives.
 
-This increment covers workout summaries. Six-day templates, inline set
-editing, richer exercise measurements and device checks are still part of
-Phase 7A. Workout synchronization starts in Phase 7B.
+Set forms open inside their exercise card on both clients. Weight and
+repetitions use numeric input, and each explicit Save commits that set and
+its session locally. Six-day templates, richer exercise measurements and
+physical device checks are still part of Phase 7A. Workout synchronization starts in Phase 7B.

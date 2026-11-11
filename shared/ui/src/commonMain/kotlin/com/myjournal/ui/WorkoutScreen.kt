@@ -26,6 +26,7 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var activeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var setEditor by remember { mutableStateOf<WorkoutSetEditor?>(null) }
     var editor by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(repository) {
@@ -45,6 +46,7 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
             try {
                 block()
                 editor = null
+                setEditor = null
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -106,30 +108,13 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
             }
         }
     }
-    fun editSet(workout: WorkoutSession, entry: WorkoutExerciseEntry, set: RecordedSet?) {
-        error = null
-        editor = {
-            WorkoutFields(
-                if (set == null) "Add set" else "Edit set ${set.number}",
-                listOf("Weight" to set?.weight?.value?.toString().orEmpty(), "Unit (KG or LB)" to (set?.weight?.unit?.name ?: "KG"),
-                    "Repetitions" to set?.repetitions?.toString().orEmpty(), "Duration (seconds)" to set?.durationSeconds?.toString().orEmpty(),
-                    "Rest (seconds)" to set?.restSeconds?.toString().orEmpty()), busy, { editor = null },
-                completed = set?.completed ?: false, error = error,
-            ) { values ->
-                change(workout) { current ->
-                    val weight = values[0].trim().ifEmpty { null }?.let {
-                        WorkoutWeight(it.toDouble(), WeightUnit.valueOf(values[1].trim().uppercase()))
-                    }
-                    val recorded = RecordedSet(set?.metadata?.edit() ?: newRecordMetadata(), entry.metadata.id,
-                        set?.number ?: entry.sets.size + 1, weight, values[2].optionalInt(), values[3].optionalInt(),
-                        values[4].optionalInt(), values[5] == "true")
-                    val sets = if (set == null) entry.sets + recorded else entry.sets.map { if (it.metadata.id == set.metadata.id) recorded else it }
-                    current.copy(entries = current.entries.map {
-                        if (it.metadata.id == entry.metadata.id) entry.copy(sets = sets) else it
-                    })
-                }
-            }
-        }
+    fun saveSet(workout: WorkoutSession, entry: WorkoutExerciseEntry, set: RecordedSet) = change(workout) { current ->
+        val exists = entry.sets.any { it.metadata.id == set.metadata.id }
+        val sets = if (exists) entry.sets.map { if (it.metadata.id == set.metadata.id) set else it }
+        else entry.sets + set
+        current.copy(entries = current.entries.map {
+            if (it.metadata.id == entry.metadata.id) entry.copy(metadata = entry.metadata.edit(), sets = sets) else it
+        })
     }
     fun editSummary(workout: WorkoutSession, finish: Boolean) {
         error = null
@@ -171,7 +156,7 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
         }
     }
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().imePadding(),
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -182,7 +167,7 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
         }
         if (session != null) {
             item {
-                TextButton(onClick = { activeId = null }) { Text("Workout history") }
+                TextButton(onClick = { activeId = null; setEditor = null }) { Text("Workout history") }
                 Text("${session.date} · ${if (session.completed) "Completed" else "In progress"}")
                 Text(if (busy) "Saving…" else if (error != null) "Changes need attention" else "Saved on this device")
                 session.averageHeartRateBpm?.let { Text("Average heart rate $it BPM") }
@@ -211,12 +196,30 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
                 OutlinedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(exercises.getValue(entry.exerciseId).name, style = MaterialTheme.typography.titleMedium)
+                        val selection = setEditor?.takeIf { it.entryId == entry.metadata.id }
                         entry.sets.forEach { set ->
-                            TextButton(enabled = !busy, onClick = { editSet(session, entry, set) }) {
+                            if (selection?.setId == set.metadata.id) {
+                                key(set.metadata.id) {
+                                    InlineWorkoutSet(entry, set, busy, error, { setEditor = null }) {
+                                        saveSet(session, entry, it)
+                                    }
+                                }
+                            } else TextButton(enabled = !busy && setEditor == null, onClick = {
+                                error = null
+                                setEditor = WorkoutSetEditor(entry.metadata.id, set.metadata.id)
+                            }) {
                                 Text("Set ${set.number} · ${set.summary()}")
                             }
                         }
-                        TextButton(enabled = !busy, onClick = { editSet(session, entry, null) }) { Text("Add set") }
+                        if (selection != null && selection.setId == null) {
+                            InlineWorkoutSet(entry, null, busy, error, { setEditor = null }) {
+                                saveSet(session, entry, it)
+                            }
+                        } else TextButton(enabled = !busy && setEditor == null, onClick = {
+                            error = null
+                            setEditor = WorkoutSetEditor(entry.metadata.id, null)
+                        }) { Text("Add set") }
+
                     }
                 }
             }
@@ -281,20 +284,75 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
     editor?.invoke()
 }
 
+private data class WorkoutSetEditor(val entryId: Uuid, val setId: Uuid?)
+
+@Composable
+private fun InlineWorkoutSet(
+    entry: WorkoutExerciseEntry,
+    set: RecordedSet?,
+    busy: Boolean,
+    saveError: String?,
+    cancel: () -> Unit,
+    save: (RecordedSet) -> Unit,
+) {
+    var weight by rememberSaveable { mutableStateOf(set?.weight?.value?.toString().orEmpty()) }
+    var unit by rememberSaveable { mutableStateOf(set?.weight?.unit?.name ?: "KG") }
+    var reps by rememberSaveable { mutableStateOf(set?.repetitions?.toString().orEmpty()) }
+    var duration by rememberSaveable { mutableStateOf(set?.durationSeconds?.toString().orEmpty()) }
+    var rest by rememberSaveable { mutableStateOf(set?.restSeconds?.toString().orEmpty()) }
+    var done by rememberSaveable { mutableStateOf(set?.completed ?: false) }
+    var invalid by rememberSaveable { mutableStateOf(false) }
+    val integer = KeyboardOptions(keyboardType = KeyboardType.Number)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Set ${set?.number ?: entry.sets.size + 1}")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(weight, { weight = it }, Modifier.weight(1f), label = { Text("Weight") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            OutlinedTextField(reps, { reps = it }, Modifier.weight(1f), label = { Text("Repetitions") }, singleLine = true,
+                keyboardOptions = integer)
+        }
+        Row {
+            for (option in WeightUnit.entries) FilterChip(unit == option.name, { unit = option.name }, label = { Text(option.name) },
+                modifier = Modifier.padding(end = 6.dp))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(duration, { duration = it }, Modifier.weight(1f), label = { Text("Duration (seconds)") },
+                singleLine = true, keyboardOptions = integer)
+            OutlinedTextField(rest, { rest = it }, Modifier.weight(1f), label = { Text("Rest (seconds)") },
+                singleLine = true, keyboardOptions = integer)
+        }
+        Row { Checkbox(done, { done = it }); Text("Set completed", Modifier.padding(top = 12.dp)) }
+        if (invalid) Text("Check the set values. A completed set needs repetitions or duration.", color = MaterialTheme.colorScheme.error)
+        else saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Row {
+            Button(enabled = !busy, onClick = {
+                val updated = runCatching {
+                    RecordedSet(
+                        set?.metadata?.edit() ?: newRecordMetadata(), entry.metadata.id, set?.number ?: entry.sets.size + 1,
+                        weight.trim().ifEmpty { null }?.let { WorkoutWeight(it.toDouble(), WeightUnit.valueOf(unit)) },
+                        reps.optionalInt(), duration.optionalInt(), rest.optionalInt(), done,
+                    )
+                }.getOrNull()
+                invalid = updated == null
+                updated?.let(save)
+            }) { Text("Save set") }
+            TextButton(enabled = !busy, onClick = cancel) { Text("Cancel") }
+        }
+    }
+}
+
 @Composable
 private fun WorkoutFields(
     title: String,
     fields: List<Pair<String, String>>,
     busy: Boolean,
     close: () -> Unit,
-    completed: Boolean? = null,
     error: String? = null,
     numericFields: Set<Int> = emptySet(),
     summary: String? = null,
     submit: (List<String>) -> Unit,
 ) {
     val values = remember(title) { mutableStateListOf(*fields.map { it.second }.toTypedArray()) }
-    var checked by remember(title) { mutableStateOf(completed ?: false) }
     AlertDialog(onDismissRequest = { if (!busy) close() }, title = { Text(title) }, text = {
         LazyColumn(Modifier.heightIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
@@ -306,11 +364,9 @@ private fun WorkoutFields(
                     else KeyboardOptions.Default,
                 )
             }
-            if (completed != null) item {
-                Row { Checkbox(checked, { checked = it }); Text("Set completed", Modifier.padding(top = 12.dp)) }
-            }
+
         }
-    }, confirmButton = { TextButton(enabled = !busy, onClick = { submit(values.toList() + checked.toString()) }) { Text("Save") } },
+    }, confirmButton = { TextButton(enabled = !busy, onClick = { submit(values.toList()) }) { Text("Save") } },
         dismissButton = { TextButton(enabled = !busy, onClick = close) { Text("Cancel") } })
 }
 

@@ -77,6 +77,27 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
     </form>;
   }
 
+  function setForm(selection: Extract<Editor, { kind: 'set' }>) {
+    return form(selection.set ? 'Edit set' : 'Add set', <>
+      <label>Weight<input type="number" step="any" min="0" inputMode="decimal" name="weight" defaultValue={selection.set?.weight?.value ?? ''} /></label>
+      <label>Weight unit<select name="unit" defaultValue={selection.set?.weight?.unit ?? 'KG'}><option>KG</option><option>LB</option></select></label>
+      <label>Repetitions<input type="number" min="0" inputMode="numeric" name="reps" defaultValue={selection.set?.repetitions ?? ''} /></label>
+      <label>Duration (seconds)<input type="number" min="1" name="duration" defaultValue={selection.set?.durationSeconds ?? ''} /></label>
+      <label>Rest (seconds)<input type="number" min="0" name="rest" defaultValue={selection.set?.restSeconds ?? ''} /></label>
+      <label><input type="checkbox" name="completed" defaultChecked={selection.set?.completed ?? false} /> Set completed</label>
+    </>, values => change(value => {
+      const weight = number(values, 'weight');
+      const set: RecordedSet = { metadata: revise(selection.set?.metadata), entryId: selection.entry.metadata.id,
+        number: selection.set?.number ?? selection.entry.sets.length + 1,
+        weight: weight === null ? null : { value: weight, unit: text(values, 'unit') === 'LB' ? 'LB' : 'KG' },
+        repetitions: number(values, 'reps'), durationSeconds: number(values, 'duration'), restSeconds: number(values, 'rest'),
+        completed: values.has('completed') };
+      return { ...value, entries: value.entries.map(entry => entry.metadata.id !== selection.entry.metadata.id ? entry : {
+        ...entry, metadata: revise(entry.metadata), sets: selection.set ? entry.sets.map(previous => previous.metadata.id === set.metadata.id ? set : previous) : [...entry.sets, set],
+      }) };
+    }));
+  }
+
   return <section>
     <h1>{historyOnly ? 'Workout history' : 'Workouts'}</h1>
     <p>Saved in this browser. Workout changes stay on this device.</p>
@@ -99,9 +120,15 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
       </form>
       {session.entries.map(entry => <article key={entry.metadata.id}>
         <h3>{byId(entry.exerciseId)}</h3>
-        <ul>{entry.sets.map(set => <li key={set.metadata.id}><button disabled={busy}
-          onClick={() => setEditor({ kind: 'set', entry, set })}>Set {set.number} · {setSummary(set)}</button></li>)}</ul>
-        <button disabled={busy} onClick={() => setEditor({ kind: 'set', entry })}>Add set</button>
+        <ul>{entry.sets.map(set => <li key={set.metadata.id}>
+          {editor?.kind === 'set' && editor.entry.metadata.id === entry.metadata.id && editor.set?.metadata.id === set.metadata.id
+            ? setForm(editor)
+            : <button disabled={busy} onClick={() => setEditor({ kind: 'set', entry, set })}>Set {set.number} · {setSummary(set)}</button>}
+        </li>)}</ul>
+        {editor?.kind === 'set' && editor.entry.metadata.id === entry.metadata.id && !editor.set
+          ? setForm(editor)
+          : <button disabled={busy} onClick={() => setEditor({ kind: 'set', entry })}>Add set</button>}
+
       </article>)}
     </> : <>
       <p>{weekly.length} completed this week · {weekly.reduce((sum, value) => sum + (value.durationSeconds ?? 0), 0)} seconds</p>
@@ -173,24 +200,7 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
       else updated.averageHeartRateBpm = bpm;
       return updated;
     }))}
-    {editor?.kind === 'set' && session && form(editor.set ? 'Edit set' : 'Add set', <>
-      <label>Weight<input type="number" step="any" min="0" name="weight" defaultValue={editor.set?.weight?.value ?? ''} /></label>
-      <label>Weight unit<select name="unit" defaultValue={editor.set?.weight?.unit ?? 'KG'}><option>KG</option><option>LB</option></select></label>
-      <label>Repetitions<input type="number" min="0" name="reps" defaultValue={editor.set?.repetitions ?? ''} /></label>
-      <label>Duration (seconds)<input type="number" min="1" name="duration" defaultValue={editor.set?.durationSeconds ?? ''} /></label>
-      <label>Rest (seconds)<input type="number" min="0" name="rest" defaultValue={editor.set?.restSeconds ?? ''} /></label>
-      <label><input type="checkbox" name="completed" defaultChecked={editor.set?.completed ?? false} /> Set completed</label>
-    </>, values => change(value => {
-      const weight = number(values, 'weight');
-      const set: RecordedSet = { metadata: revise(editor.set?.metadata), entryId: editor.entry.metadata.id,
-        number: editor.set?.number ?? editor.entry.sets.length + 1,
-        weight: weight === null ? null : { value: weight, unit: text(values, 'unit') === 'LB' ? 'LB' : 'KG' },
-        repetitions: number(values, 'reps'), durationSeconds: number(values, 'duration'), restSeconds: number(values, 'rest'),
-        completed: values.has('completed') };
-      return { ...value, entries: value.entries.map(entry => entry.metadata.id !== editor.entry.metadata.id ? entry : {
-        ...entry, sets: editor.set ? entry.sets.map(previous => previous.metadata.id === set.metadata.id ? set : previous) : [...entry.sets, set],
-      }) };
-    }))}
+
   </section>;
 }
 
