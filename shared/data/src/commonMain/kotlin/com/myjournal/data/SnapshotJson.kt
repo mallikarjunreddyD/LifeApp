@@ -37,7 +37,7 @@ object SnapshotJson {
         checkJsonSizeAndDepth(text)
         val root = json.parseToJsonElement(text).jsonObject
         require(root.getValue("format").jsonPrimitive.content == "LifeAppRecords")
-        require(root.getValue("formatVersion").jsonPrimitive.int == 1 && root.getValue("dataSchemaVersion").jsonPrimitive.int in 4..7) { "Unsupported record format/schema" }
+        require(root.getValue("formatVersion").jsonPrimitive.int == 1 && root.getValue("dataSchemaVersion").jsonPrimitive.int in 4..8) { "Unsupported record format/schema" }
         val dataVersion = root.getValue("dataSchemaVersion").jsonPrimitive.int
         require(expectedDataSchemaVersion == null || expectedDataSchemaVersion == dataVersion) { "Manifest and record schema disagree" }
         root.getValue("journals").jsonArray.forEach { entry -> entry.jsonObject.getValue("pages").jsonArray.forEach { page ->

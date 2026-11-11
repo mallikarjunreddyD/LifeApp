@@ -90,3 +90,11 @@ separately. Structured JSON nests entries and sets under their session and
 retains every UUID, parent reference and recorded weight unit. Archives with
 no workouts still use schema 6. The archive and encrypted envelope formats
 are unchanged. A schema 7 reader continues to accept schema 4 through 6.
+
+### Workout summary measurements
+
+Portable data schema 8 preserves manually entered workout duration and
+optional average heart rate. The Android app writes schema 8 when a workout
+contains either field. Other archives keep their existing schema, and the
+new reader continues to accept schemas 4 through 7. Room and the encrypted
+archive envelope keep their existing versions.

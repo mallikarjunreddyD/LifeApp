@@ -6,7 +6,7 @@ import { entryFor, revise } from './workout.ts';
 import type { Entry, Exercise, RecordedSet, Routine, Session, WorkoutRecord } from './workout.ts';
 
 type Editor = { kind: 'exercise'; exercise?: Exercise } | { kind: 'routine'; routine?: Routine } |
-  { kind: 'set'; entry: Entry; set?: RecordedSet } | { kind: 'details' };
+  { kind: 'set'; entry: Entry; set?: RecordedSet } | { kind: 'details' } | { kind: 'finish' };
 
 export function Workouts({ store, historyOnly = false }: { store: LifeStore; historyOnly?: boolean }) {
   const [records, setRecords] = useState<WorkoutRecord[] | null>(null);
@@ -86,13 +86,8 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
       <button disabled={busy} onClick={() => { setActive(null); setEditor(null); }}>Back to workouts</button>
       <h2>{session.date} · {session.completed ? 'Completed' : 'In progress'}</h2>
       <button disabled={busy} onClick={() => setEditor({ kind: 'details' })}>Edit workout details</button>
-      {!session.completed && <button disabled={busy} onClick={() => change(value => {
-        const end = now();
-        const startedAt = value.startedAt ?? end;
-        const endedAt = Date.parse(end) < Date.parse(startedAt) ? startedAt : end;
-        return { ...value, startedAt, endedAt, durationSeconds: Math.floor((Date.parse(endedAt) - Date.parse(startedAt)) / 1000),
-          completed: true };
-      })}>Complete workout</button>}
+      <p role="status">{busy ? 'Saving…' : error ? 'Changes need attention' : 'Saved on this device'}</p>
+      {!session.completed && <button disabled={busy} onClick={() => setEditor({ kind: 'finish' })}>Finish workout</button>}
       <form onSubmit={event => {
         event.preventDefault();
         const id = text(new FormData(event.currentTarget), 'exercise');
@@ -150,12 +145,34 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
       exercises={exercises} busy={busy} close={() => setEditor(null)} save={(name, exerciseOrder, plannedSetCounts) => void save(() => ({
         kind: 'routine', value: { metadata: revise(editor.routine?.metadata), name, exerciseOrder, plannedSetCounts },
       }), editor.routine?.metadata.revision ?? null)} />}
-    {editor?.kind === 'details' && session && form('Workout details', <>
+    {(editor?.kind === 'details' || editor?.kind === 'finish') && session && form(
+      editor.kind === 'finish' ? 'Finish workout' : 'Workout details', <>
+      {editor.kind === 'finish' && <p>{session.entries.filter(entry => !entry.sets.length || entry.sets.some(set => !set.completed)).length}
+        {' '}incomplete exercises will remain in this session.</p>}
+      <label>Workout duration (minutes)<input type="number" name="minutes" min="0" max="35791394"
+        inputMode="numeric" defaultValue={session.durationSeconds === null ? '' : Math.floor(session.durationSeconds / 60)} /></label>
+      <label>Average heart rate (BPM)<input type="number" name="bpm" min="20" max="250"
+        inputMode="numeric" defaultValue={session.averageHeartRateBpm ?? ''} /></label>
       <label>Date<input type="date" name="date" required defaultValue={session.date} /></label>
       <label>Calories (kcal)<input type="number" name="calories" min="0" defaultValue={session.caloriesKcal ?? ''} /></label>
       <label>Notes<textarea name="notes" maxLength={4000} defaultValue={session.notes ?? ''} /></label>
-    </>, values => change(value => ({ ...value, date: text(values, 'date'), caloriesKcal: number(values, 'calories'),
-      notes: text(values, 'notes') || null })))}
+    </>, values => change(value => {
+      const minutes = number(values, 'minutes');
+      const bpm = number(values, 'bpm');
+      const durationChanged = minutes !== (value.durationSeconds === null ? null : Math.floor(value.durationSeconds / 60));
+      const finishing = editor.kind === 'finish';
+      const startedAt = finishing ? value.startedAt ?? now() : value.startedAt;
+      const endedAt = finishing && startedAt ? (Date.parse(now()) < Date.parse(startedAt) ? startedAt : now()) : value.endedAt;
+      const elapsed = endedAt && startedAt ? Math.floor((Date.parse(endedAt) - Date.parse(startedAt)) / 1000) : null;
+      const updated = { ...value, date: text(values, 'date'), caloriesKcal: number(values, 'calories'),
+        notes: text(values, 'notes') || null, startedAt, endedAt, completed: finishing || value.completed,
+        durationSeconds: durationChanged ? (minutes === null ? elapsed : minutes * 60) : value.durationSeconds ?? elapsed,
+        durationManuallyEntered: durationChanged ? minutes !== null : value.durationManuallyEntered ?? false,
+      };
+      if (bpm === null) delete updated.averageHeartRateBpm;
+      else updated.averageHeartRateBpm = bpm;
+      return updated;
+    }))}
     {editor?.kind === 'set' && session && form(editor.set ? 'Edit set' : 'Add set', <>
       <label>Weight<input type="number" step="any" min="0" name="weight" defaultValue={editor.set?.weight?.value ?? ''} /></label>
       <label>Weight unit<select name="unit" defaultValue={editor.set?.weight?.unit ?? 'KG'}><option>KG</option><option>LB</option></select></label>

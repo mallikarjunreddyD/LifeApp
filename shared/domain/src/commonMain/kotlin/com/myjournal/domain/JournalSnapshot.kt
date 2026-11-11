@@ -11,7 +11,11 @@ data class JournalSnapshot(val metadata: List<RecordMetadata> = emptyList(), val
     val records get() = metadata + journals.flatMap { listOf(it.metadata) + it.pages.map { p -> p.metadata } } +
         planners.map { it.metadata } + habits.flatMap { listOf(it.metadata) + it.habits.map { h -> h.metadata } + it.completions.map { c -> c.metadata } } +
         notebooks.map { it.metadata } + notebookPages.map { it.metadata } + strokes.map { it.metadata } + todos.map { it.metadata } + workoutLog.records
-    val dataSchemaVersion get() = if (workoutLog.records.isEmpty()) 6 else 7
+    val dataSchemaVersion get() = when {
+        workoutLog.sessions.any { it.averageHeartRateBpm != null || it.durationManuallyEntered } -> 8
+        workoutLog.records.isNotEmpty() -> 7
+        else -> 6
+    }
     fun counts() = linkedMapOf("metadata" to metadata.size, "journalEntries" to journals.size,
         "journalPages" to journals.sumOf { it.pages.size }, "planners" to planners.size, "habitLedgers" to habits.size,
         "habitDefinitions" to habits.sumOf { it.habits.size }, "habitCompletions" to habits.sumOf { it.completions.size },

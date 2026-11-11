@@ -789,6 +789,12 @@ components:
           - type: integer
             minimum: 0
           - type: 'null'
+        averageHeartRateBpm:
+          type: integer
+          minimum: 20
+          maximum: 250
+        durationManuallyEntered:
+          type: boolean
         caloriesKcal:
           anyOf:
           - type: integer

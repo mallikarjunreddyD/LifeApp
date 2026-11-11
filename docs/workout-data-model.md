@@ -32,8 +32,10 @@ archive. Browser workouts are stored only in that browser profile.
 Open **Workouts** to create an exercise, record a session or start from a
 routine. Optional planned set counts create empty sets to fill during a workout.
 Enter weight and its unit per set. Time and rest are in seconds.
-Completing a workout records elapsed duration. Calendar date, notes and
-optional calories can be edited separately. Exercise history shows recorded
+The finish summary accepts active minutes and optional average heart rate.
+It uses elapsed duration when the minutes field is blank. A manually entered
+duration can differ from elapsed time. Calendar date, notes and optional
+calories are also editable. Exercise history shows recorded
 completed sets in their original units.
 
 Cross-device workout sync remains open. The existing PostgreSQL tables and

@@ -69,15 +69,21 @@ data class WorkoutSession(
     val notes: String? = null,
     val completed: Boolean = false,
     val entries: List<WorkoutExerciseEntry> = emptyList(),
+    val averageHeartRateBpm: Int? = null,
+    val durationManuallyEntered: Boolean = false,
 ) {
     init {
         require(date.year in 1..9999)
         require(endedAt == null || (startedAt != null && endedAt >= startedAt))
         require(durationSeconds == null || durationSeconds >= 0)
         if (startedAt != null && endedAt != null) {
-            require(durationSeconds != null && durationSeconds.toLong() <= (endedAt - startedAt).inWholeSeconds)
+            require(durationSeconds != null && (durationManuallyEntered || durationSeconds.toLong() <= (endedAt - startedAt).inWholeSeconds))
         }
         require(!completed || endedAt != null)
+        require(!durationManuallyEntered || durationSeconds != null)
+        require(averageHeartRateBpm == null || averageHeartRateBpm in 20..250) {
+            "Enter an average heart rate between 20 and 250 BPM."
+        }
         require(caloriesKcal == null || caloriesKcal >= 0)
         require(notes == null || notes.length <= 4_000)
         require(entries.all { it.sessionId == metadata.id })

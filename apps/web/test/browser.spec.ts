@@ -173,10 +173,16 @@ test('workout and original weight unit survive offline reload', async ({ page, c
   await page.getByLabel('Set completed').check();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: /105.5 LB · 8 reps · 45s rest/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Complete workout' }).click();
+  await page.getByRole('button', { name: 'Finish workout' }).click();
+  await page.getByLabel('Workout duration (minutes)').fill('72');
+  await page.getByLabel('Average heart rate (BPM)').fill('136');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('heading', { name: /Completed/ })).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: 'History', exact: true }).click();
-  await page.getByRole('button', { name: /seconds · 1 exercises/ }).click();
+  await page.getByRole('button', { name: /4320 seconds · 1 exercises/ }).click();
   await expect(page.getByRole('button', { name: /105.5 LB · 8 reps · 45s rest/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit workout details' }).click();
+  await expect(page.getByLabel('Workout duration (minutes)')).toHaveValue('72');
+  await expect(page.getByLabel('Average heart rate (BPM)')).toHaveValue('136');
 });

@@ -29,6 +29,12 @@ class WorkoutTest {
         assertFailsWith<IllegalArgumentException> { entry.copy(sets = listOf(first.copy(entryId = metadata(9).id))) }
         assertFailsWith<IllegalArgumentException> { workout.copy(entries = listOf(entry.copy(sessionId = metadata(9).id))) }
         assertFailsWith<IllegalArgumentException> { workout.copy(durationSeconds = 1_801) }
+        val manual = workout.copy(durationSeconds = 72 * 60, durationManuallyEntered = true, averageHeartRateBpm = 136)
+        assertEquals(72 * 60, manual.durationSeconds)
+        assertEquals(136, manual.averageHeartRateBpm)
+        assertEquals(end, manual.endedAt)
+        assertFailsWith<IllegalArgumentException> { manual.copy(averageHeartRateBpm = 251) }
+        assertFailsWith<IllegalArgumentException> { manual.copy(durationSeconds = null) }
         assertFailsWith<IllegalArgumentException> { workout.copy(caloriesKcal = -1) }
         assertFailsWith<IllegalArgumentException> { workout.copy(endedAt = null) }
     }

@@ -3,6 +3,8 @@ package com.myjournal.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -129,6 +131,45 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
             }
         }
     }
+    fun editSummary(workout: WorkoutSession, finish: Boolean) {
+        error = null
+        editor = {
+            WorkoutFields(
+                if (finish) "Finish workout" else "Workout details",
+                listOf(
+                    "Workout duration (minutes)" to workout.durationSeconds?.div(60)?.toString().orEmpty(),
+                    "Average heart rate (BPM)" to workout.averageHeartRateBpm?.toString().orEmpty(),
+                    "Date (YYYY-MM-DD)" to workout.date.toString(),
+                    "Calories (kcal, optional)" to workout.caloriesKcal?.toString().orEmpty(),
+                    "Notes" to workout.notes.orEmpty(),
+                ),
+                busy, { editor = null }, error = error, numericFields = setOf(0, 1, 3),
+                summary = if (finish) {
+                    val incomplete = workout.entries.count { entry -> entry.sets.isEmpty() || entry.sets.any { !it.completed } }
+                    "$incomplete incomplete exercises will remain in this session."
+                } else null,
+            ) { values ->
+                change(workout) { current ->
+                    val minutes = values[0].optionalInt()
+                    require(minutes == null || minutes in 0..Int.MAX_VALUE / 60) { "Enter valid workout minutes." }
+                    val durationChanged = minutes != current.durationSeconds?.div(60)
+                    val started = if (finish) current.startedAt ?: Clock.System.now() else current.startedAt
+                    val ended = if (finish) maxOf(requireNotNull(started), Clock.System.now()) else current.endedAt
+                    val elapsed = if (started != null && ended != null) {
+                        (ended - started).inWholeSeconds.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    } else null
+                    current.copy(
+                        date = LocalDate.parse(values[2].trim()), startedAt = started, endedAt = ended,
+                        completed = current.completed || finish,
+                        durationSeconds = if (durationChanged) minutes?.times(60) ?: elapsed else current.durationSeconds ?: elapsed,
+                        durationManuallyEntered = if (durationChanged) minutes != null else current.durationManuallyEntered,
+                        averageHeartRateBpm = values[1].optionalInt(),
+                        caloriesKcal = values[3].optionalInt(), notes = values[4].trim().ifEmpty { null },
+                    )
+                }
+            }
+        }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -143,25 +184,14 @@ fun WorkoutScreen(repository: WorkoutRepository, today: LocalDate) {
             item {
                 TextButton(onClick = { activeId = null }) { Text("Workout history") }
                 Text("${session.date} · ${if (session.completed) "Completed" else "In progress"}")
-                OutlinedButton(enabled = !busy, onClick = {
-                    error = null
-                    editor = {
-                        WorkoutFields("Workout details", listOf("Date (YYYY-MM-DD)" to session.date.toString(),
-                            "Calories (kcal, optional)" to session.caloriesKcal?.toString().orEmpty(),
-                            "Notes" to session.notes.orEmpty()), busy, { editor = null }, error = error) { values ->
-                            change(session) { it.copy(date = LocalDate.parse(values[0].trim()),
-                                caloriesKcal = values[1].optionalInt(), notes = values[2].trim().ifEmpty { null }) }
-                        }
-                    }
-                }) { Text("Edit workout details") }
-                if (!session.completed) Button(enabled = !busy, onClick = {
-                    change(session) {
-                        val started = requireNotNull(it.startedAt)
-                        val end = maxOf(started, Clock.System.now())
-                        it.copy(endedAt = end, durationSeconds = (end - started).inWholeSeconds.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                            completed = true)
-                    }
-                }) { Text("Complete workout") }
+                Text(if (busy) "Saving…" else if (error != null) "Changes need attention" else "Saved on this device")
+                session.averageHeartRateBpm?.let { Text("Average heart rate $it BPM") }
+                OutlinedButton(enabled = !busy, onClick = { editSummary(session, finish = false) }) {
+                    Text("Edit workout details")
+                }
+                if (!session.completed) Button(enabled = !busy, onClick = { editSummary(session, finish = true) }) {
+                    Text("Finish workout")
+                }
                 OutlinedButton(enabled = !busy && available.isNotEmpty(), onClick = {
                     editor = {
                         AlertDialog(onDismissRequest = { editor = null }, title = { Text("Add exercise") },
@@ -259,6 +289,8 @@ private fun WorkoutFields(
     close: () -> Unit,
     completed: Boolean? = null,
     error: String? = null,
+    numericFields: Set<Int> = emptySet(),
+    summary: String? = null,
     submit: (List<String>) -> Unit,
 ) {
     val values = remember(title) { mutableStateListOf(*fields.map { it.second }.toTypedArray()) }
@@ -266,8 +298,13 @@ private fun WorkoutFields(
     AlertDialog(onDismissRequest = { if (!busy) close() }, title = { Text(title) }, text = {
         LazyColumn(Modifier.heightIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            summary?.let { item { Text(it) } }
             items(fields.size) { index ->
-                OutlinedTextField(values[index], { values[index] = it }, label = { Text(fields[index].first) }, singleLine = true)
+                OutlinedTextField(
+                    values[index], { values[index] = it }, label = { Text(fields[index].first) }, singleLine = true,
+                    keyboardOptions = if (index in numericFields) KeyboardOptions(keyboardType = KeyboardType.Number)
+                    else KeyboardOptions.Default,
+                )
             }
             if (completed != null) item {
                 Row { Checkbox(checked, { checked = it }); Text("Set completed", Modifier.padding(top = 12.dp)) }
