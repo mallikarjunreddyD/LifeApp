@@ -117,6 +117,18 @@ export function editablePreview(scope: Scope, version: string, signal: AbortSign
   return json('/v1/editable/versions/' + uuid(version) + '/preview', { headers: journalHeaders(scope), signal });
 }
 
+export function editableReview(scope: Scope, version: string, signal: AbortSignal) {
+  return json('/v1/editable/versions/' + uuid(version) + '/review', { headers: journalHeaders(scope), signal });
+}
+
+export async function resolveEditable(session: BrowserSession, selected: string, id: string, reviewed: string[]) {
+  await json('/v1/editable/versions/' + uuid(selected) + '/resolve', {
+    method: 'POST',
+    headers: { ...journalHeaders(session.scope), 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, reviewed }),
+  }, true);
+}
+
 export const api = {
   async login(username: string, password: string, secondFactor?: string) {
     return browserSession(await json('/v1/session', {

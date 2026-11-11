@@ -144,7 +144,26 @@ record identity would collide. Existing records and To-do replay state
 are preserved. The editor caches are reloaded after application.
 
 The transfer is add-only. Android editor changes after transfer remain
-local. Continuous capture and replay, conflict resolution, migration of
+local. Continuous capture and replay, migration of
 the original single-page journal imports, per-date habit operations, and
 PWA checkbox editing remain open. Complete cross-device acceptance before
 calling the four modules synchronized.
+
+
+## Resolve competing server versions
+
+In the online PWA, open **Journal → Server record versions**, select a
+record, and choose **Review current versions**. The review fetches the
+complete current version set for that record, including versions outside
+the visible page of history. Preview the variants, then choose **Keep
+selected version** and confirm. The server checks the full reviewed set
+under the dataset and recovery epoch lock. If another commit changed
+the set, refresh the review before choosing again.
+
+The resolution creates a new current version with the same archive
+bytes and the reviewed variants as its parents. All earlier archives
+remain accessible from the version history. If the browser loses the
+response, **Retry resolution** reuses the same resolution UUID while
+the review stays open. This updates server history. Android applies
+server-only records through the first transfer workflow. Existing
+Android copies still require the ongoing replay workflow.

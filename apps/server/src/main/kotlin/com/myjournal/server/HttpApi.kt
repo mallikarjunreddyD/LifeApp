@@ -291,6 +291,38 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                     recordTransfers.release()
                 }
             }
+            get("/editable/versions/{versionId}/review") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireRecordScope(scope)
+                val id = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
+                val review = databaseCall { editable.review(scope, id) }
+                call.json(buildJsonObject {
+                    put("scope", scope.json())
+                    put("kind", review.kind)
+                    put("key", review.key)
+                    put("variants", JsonArray(review.variants.map {
+                        buildJsonObject { put("id", it.id.toString()); put("sequence", it.sequence.toString()) }
+                    }))
+                })
+            }
+            post("/editable/versions/{versionId}/resolve") {
+                val session = call.authenticate(auth).second
+                call.requireMutation(session, origin)
+                call.requireRecordScope(session.scope)
+                val selected = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
+                val request = call.body()
+                val (id, reviewed) = validated {
+                    require(request.keys == setOf("id", "reviewed"))
+                    val id = Uuid.parse(request.text("id"))
+                    val reviewed = request.getValue("reviewed").jsonArray.map {
+                        Uuid.parse(it.jsonPrimitive.also { item -> require(item.isString) }.content)
+                    }
+                    require(reviewed.size == reviewed.toSet().size)
+                    id to reviewed.toSet()
+                }
+                databaseCall { validated { editable.resolve(session.scope, selected, id, reviewed) } }
+                call.respond(HttpStatusCode.NoContent)
+            }
             get("/editable/versions/{versionId}/preview") {
                 val scope = call.authenticate(auth).second.scope
                 call.requireRecordScope(scope)

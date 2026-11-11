@@ -11,8 +11,11 @@ if kind not in ("planner", "notebook"):
 timestamp = "2026-11-09T12:00:00Z"
 
 
+alternative = len(sys.argv) == 3 and sys.argv[2] == "alternative"
+
+
 def identity(number):
-    return f"73000000-0000-4000-8000-{number:012d}"
+    return f"73000000-0000-4000-8000-{number + (100 if alternative else 0):012d}"
 
 
 def metadata(number):
@@ -39,7 +42,8 @@ stroke = metadata(3 if kind == "planner" else 13)
 path = f"ink/{stroke['id']}.ljpt"
 data["strokes"].append(dict(metadata=stroke, surfaceId=surface, order=0, brush="PEN", colorArgb=0xff000000,
                             width=10, pointFormatVersion=1, pointsFile=path))
-points = struct.pack("<4sIIfffqfffq", b"LJPT", 1, 2, 100, 220, -1, 0, 150, 220, -1, 1)
+line_y = 250 if alternative else 220
+points = struct.pack("<4sIIfffqfffq", b"LJPT", 1, 2, 100, line_y, -1, 0, 150, line_y, -1, 1)
 files = {"data.json": json.dumps(data).encode(), path: points}
 manifest = dict(format="LifeAppArchive", backupFormatVersion=1, kind="backup", appVersion="test", createdAt=timestamp,
                 dataSchemaVersion=6, sections=["metadata", "journal", "planner", "habits", "notebooks", "ink", "todos"],

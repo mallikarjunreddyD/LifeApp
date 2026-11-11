@@ -349,10 +349,31 @@ class PostgresHttpTest {
         assertEquals(204, commit(right, rightBytes))
         assertEquals(setOf(left, right), list().heads("journal"))
 
+        val reviewPath = "/v1/editable/versions/$left/review"
+        fun JsonObject.variants() = getValue("variants").jsonArray.map {
+            Uuid.parse(it.jsonObject.getValue("id").jsonPrimitive.content)
+        }.toSet()
+        suspend fun resolve(id: Uuid, vararg reviewed: Uuid, selected: Uuid = left) =
+            client.post("/v1/editable/versions/$selected/resolve") {
+                scoped()
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject {
+                    put("id", id.toString())
+                    put("reviewed", JsonArray(reviewed.map { JsonPrimitive(it.toString()) }))
+                }.toString())
+            }.status.value
+        assertEquals(setOf(left, right), client.get(reviewPath) { scoped() }.json().variants())
         val resolved = Uuid.random()
-        assertEquals(204, stage(resolved, leftBytes))
-        assertEquals(204, commit(resolved, leftBytes, left, right))
+        assertEquals(409, resolve(resolved, left, Uuid.random()))
+        assertEquals(setOf(left, right), list().heads("journal"))
+        assertEquals(204, resolve(resolved, left, right))
+        assertEquals(204, resolve(resolved, right, left))
+        assertEquals(409, resolve(Uuid.random(), left, right))
+        assertEquals(409, resolve(resolved, left, right, selected = right))
+        assertEquals(setOf(resolved), client.get(reviewPath) { scoped() }.json().variants())
         assertEquals(setOf(resolved), list().heads("journal"))
+        assertContentEquals(leftBytes, client.get("/v1/editable/versions/$resolved") { scoped() }.body<ByteArray>())
+        assertContentEquals(rightBytes, client.get("/v1/editable/versions/$right") { scoped() }.body<ByteArray>())
         val recovered = client.get("/v1/editable/versions/$left") { scoped() }
         assertEquals(digest(leftBytes), recovered.headers["X-Content-SHA256"])
         assertContentEquals(leftBytes, recovered.body<ByteArray>())
@@ -394,6 +415,10 @@ class PostgresHttpTest {
         val otherToken = client.login(other).token()
         assertEquals(404, client.get("/v1/editable/versions/$left") { scoped(otherToken, otherScope) }.status.value)
         assertEquals(404, client.get("/v1/editable/versions/$left/preview") { scoped(otherToken, otherScope) }.status.value)
+        assertEquals(404, client.get(reviewPath) { scoped(otherToken, otherScope) }.status.value)
+        assertEquals(409, client.get(reviewPath) {
+            scoped(requested = scope.copy(epoch = Uuid.random()))
+        }.status.value)
 
         database.transaction {
             execute("UPDATE editable_record_staging SET expires_at = now() WHERE dataset_id = ?", scope.dataset.sql())

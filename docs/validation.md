@@ -370,3 +370,14 @@ The Android/PWA emulator bridge includes a queued notebook upload, retry
 after reopening the queue, exact archive download into a separate Room
 database, and browser vector rendering. Physical device acceptance and
 continuous editor synchronization remain open.
+
+## Phase 7E browser conflict review
+
+The disposable PostgreSQL suite covers review of current variants, rejection
+of stale version sets and recovery epochs, cross-account isolation,
+idempotent resolution, and byte-identical retention of both selected and
+superseded archives. The browser integration test reviews two planner
+versions against Ktor, verifies the selected drawing, checks CSRF
+enforcement, drops the first resolution response, and retries the same
+resolution ID. The browser test uses synthetic data. Applying a resolved
+version over an existing Android copy remains open.

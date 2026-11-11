@@ -220,8 +220,8 @@ test('journal, planner and notebook previews draw committed vectors and hide the
   const session = await (await context.request.get('/v1/session')).json();
   const headers = { Origin: new URL(page.url()).origin, 'X-CSRF-Token': session.csrfToken,
     'X-LifeApp-Dataset': session.scope.dataset, 'X-LifeApp-Epoch': session.scope.epoch };
-  for (const kind of ['planner', 'notebook']) {
-    const archive = execFileSync('python3', ['../../contracts/fixtures/editable-archive.py', kind]);
+  async function commitArchive(kind: 'planner' | 'notebook', alternative = false) {
+    const archive = execFileSync('python3', ['../../contracts/fixtures/editable-archive.py', kind, ...(alternative ? ['alternative'] : [])]);
     const version = randomUUID();
     const sha256 = createHash('sha256').update(archive).digest('hex');
     expect((await context.request.put('/v1/editable/staged/' + version, {
@@ -230,7 +230,11 @@ test('journal, planner and notebook previews draw committed vectors and hide the
     expect((await context.request.post('/v1/editable/versions/' + version + '/commit', {
       headers, data: { sha256, parents: [] },
     })).status()).toBe(204);
+    return version;
   }
+  const initialPlanner = await commitArchive('planner');
+  await commitArchive('notebook');
+
   await page.getByText('Server record versions', { exact: true }).click();
   await page.getByRole('button', { name: 'Planner · 2026-11' }).click();
   const planner = page.getByRole('img', { name: 'Handwriting for 2026-11', exact: true });
@@ -242,6 +246,46 @@ test('journal, planner and notebook previews draw committed vectors and hide the
   await expect(notebook).toBeVisible();
   expect(await notebook.evaluate(element => Array.from((element as HTMLCanvasElement).getContext('2d')!
     .getImageData(192, 338, 1, 1).data))).toEqual([0, 0, 0, 255]);
+  const alternativePlanner = await commitArchive('planner', true);
+  await page.getByRole('button', { name: 'Planner · 2026-11' }).click();
+  await page.getByRole('button', { name: 'Review current versions' }).click();
+  const { 'X-CSRF-Token': csrfToken, ...noCsrf } = headers;
+  expect(csrfToken).toBeTruthy();
+  expect((await context.request.post('/v1/editable/versions/' + alternativePlanner + '/resolve', {
+    headers: noCsrf, data: { id: randomUUID(), reviewed: [initialPlanner, alternativePlanner] },
+  })).status()).toBe(403);
+  const variants = page.getByRole('button', { name: /Preview version / });
+  await expect(variants).toHaveCount(2);
+  await variants.last().click();
+  await expect(planner).toBeVisible();
+  expect(await planner.evaluate(element => Array.from((element as HTMLCanvasElement).getContext('2d')!
+    .getImageData(137, 274, 1, 1).data))).toEqual([0, 0, 0, 255]);
+
+  let resolutionId: string | undefined;
+  await page.route('**/v1/editable/versions/*/resolve', async route => {
+    const { id } = route.request().postDataJSON() as { id: string };
+    if (resolutionId) {
+      expect(id).toBe(resolutionId);
+      await route.continue();
+    } else {
+      resolutionId = id;
+      expect((await route.fetch()).status()).toBe(204);
+      await route.abort();
+    }
+  });
+  page.once('dialog', dialog => void dialog.accept());
+  await page.getByRole('button', { name: 'Keep selected version' }).click();
+  await expect(page.getByRole('alert')).toContainText('Retry to check the same request');
+  page.once('dialog', dialog => void dialog.accept());
+  await page.getByRole('button', { name: 'Retry resolution' }).click();
+  await expect(page.getByText('The selected version is current.', { exact: false })).toBeVisible();
+  const feed = await (await context.request.get('/v1/editable/versions', { headers })).json();
+  const planners = feed.items.filter((row: { kind: string }) => row.kind === 'planner');
+  expect(planners.filter((row: { current: boolean }) => row.current)).toMatchObject([
+    { id: resolutionId, parents: [initialPlanner, alternativePlanner].sort() },
+  ]);
+  await page.getByRole('button', { name: /Notebook ·/ }).click();
+  await expect(notebook).toBeVisible();
   const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
     (await (await caches.open(name)).keys()).map(item => new URL(item.url).pathname)))).flat());
   expect(cachedPaths.some(path => path.startsWith('/v1/journal/') || path.startsWith('/v1/editable/'))).toBe(false);
