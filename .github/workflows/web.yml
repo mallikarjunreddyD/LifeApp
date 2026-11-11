@@ -28,7 +28,7 @@ jobs:
         working-directory: apps/web
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
       - name: Check TypeScript, lint and local persistence
         working-directory: apps/web
         run: |
