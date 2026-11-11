@@ -23,6 +23,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.io.readByteArray
 import kotlinx.serialization.json.*
+import kotlinx.datetime.LocalDate
 import java.security.MessageDigest
 import java.sql.SQLException
 import kotlin.uuid.Uuid
@@ -304,6 +305,33 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                     recordTransfers.release()
                 }
             }
+            post("/editable/versions/{versionId}/habit-check") {
+                val session = call.authenticate(auth).second
+                call.requireMutation(session, origin)
+                call.requireRecordScope(session.scope)
+                val base = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
+                val request = call.body()
+                val edit = validated {
+                    require(request.keys == setOf("id", "habitId", "date", "checked"))
+                    val checked = request.getValue("checked").jsonPrimitive
+                    require(!checked.isString)
+                    val raw = request.text("date")
+                    val date = LocalDate.parse(raw)
+                    require(date.year in 1..9999 && date.toString() == raw)
+                    EditableRecordStore.HabitCheck(Uuid.parse(request.text("id")), Uuid.parse(request.text("habitId")),
+                        date, requireNotNull(checked.booleanOrNull))
+                }
+                if (!recordTransfers.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the habit edit later.")
+                try {
+                    val receipt = databaseCall { validated { editable.editHabit(session.scope, base, edit) } }
+                    call.json(buildJsonObject {
+                        put("versionId", receipt.version.toString())
+                        put("conflicted", receipt.conflicted)
+                    })
+                } finally {
+                    recordTransfers.release()
+                }
+            }
             get("/editable/versions/{versionId}/review") {
                 val scope = call.authenticate(auth).second.scope
                 call.requireRecordScope(scope)
@@ -342,7 +370,8 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                 val id = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
                 if (!recordTransfers.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the preview later.")
                 try {
-                    val preview = databaseCall { EditableRecordArchive.preview(editable.download(scope, id).bytes) }
+                    val includeHabitIds = call.request.queryParameters["habitIds"] == "true"
+                    val preview = databaseCall { EditableRecordArchive.preview(editable.download(scope, id).bytes, includeHabitIds) }
                     val body = preview.toString()
                     if (body.encodeToByteArray().size > 8 * 1024 * 1024) {
                         throw ApiFailure(413, "LIMIT_EXCEEDED", "The record exceeds the browser preview limit.")

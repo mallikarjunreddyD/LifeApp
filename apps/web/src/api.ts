@@ -121,7 +121,7 @@ export function editableVersions(scope: Scope, after: string, signal: AbortSigna
 }
 
 export function editablePreview(scope: Scope, version: string, signal: AbortSignal) {
-  return json('/v1/editable/versions/' + uuid(version) + '/preview', { headers: journalHeaders(scope), signal });
+  return json('/v1/editable/versions/' + uuid(version) + '/preview?habitIds=true', { headers: journalHeaders(scope), signal });
 }
 
 export function editableReview(scope: Scope, version: string, signal: AbortSignal) {
@@ -134,6 +134,18 @@ export async function resolveEditable(session: BrowserSession, selected: string,
     headers: { ...journalHeaders(session.scope), 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, reviewed }),
   }, true);
+}
+
+export interface HabitCheck { id: string; habitId: string; date: string; checked: boolean }
+
+export async function saveHabitCheck(session: BrowserSession, base: string, edit: HabitCheck) {
+  const result = object(await json('/v1/editable/versions/' + uuid(base) + '/habit-check', {
+    method: 'POST',
+    headers: { ...journalHeaders(session.scope), 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify(edit),
+  }), ['versionId', 'conflicted']);
+  if (uuid(result.versionId) !== edit.id || typeof result.conflicted !== 'boolean') throw new Error('Invalid habit receipt.');
+  return { versionId: edit.id, conflicted: result.conflicted };
 }
 
 export const api = {

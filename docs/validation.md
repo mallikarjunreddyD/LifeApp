@@ -395,3 +395,11 @@ through the PWA and checks a rendered pixel in its versioned preview.
 The Compose recovery fixture checks that a restored database retains the
 migration mapping and original LJPT bytes. No production journals were
 migrated for validation.
+
+## Phase 7E per-day habit edits
+
+Disposable PostgreSQL tests exercise independent edits from the same base,
+competing values on one day, preservation of unrelated days and completion
+IDs, and identical retries. The Chromium test edits a single date through
+the PWA and confirms another date stays unchanged. The Android editor
+outbox and cross-device replay remain pending.

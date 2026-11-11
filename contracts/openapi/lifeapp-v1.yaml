@@ -649,6 +649,65 @@ paths:
           $ref: '#/components/responses/Http429'
         '503':
           $ref: '#/components/responses/Http503'
+  /v1/editable/versions/{versionId}/habit-check:
+    post:
+      operationId: editHabitCompletion
+      description: Set one habit completion on one date, rebasing independent edits onto the current ledger. Retain competing edits as separate versions.
+      parameters:
+      - $ref: '#/components/parameters/EditableVersion'
+      - $ref: '#/components/parameters/EditableDataset'
+      - $ref: '#/components/parameters/EditableEpoch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [id, habitId, date, checked]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                  description: Stable operation UUID, also used for the published version.
+                habitId:
+                  type: string
+                  format: uuid
+                date:
+                  type: string
+                  format: date
+                checked:
+                  type: boolean
+      responses:
+        '200':
+          description: Committed edit or original receipt for a repeated request.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [versionId, conflicted]
+                properties:
+                  versionId:
+                    type: string
+                    format: uuid
+                  conflicted:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '404':
+          $ref: '#/components/responses/Http404'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '413':
+          $ref: '#/components/responses/Http413'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
   /v1/editable/versions/{versionId}/review:
     get:
       operationId: reviewEditableRecordVersions
@@ -749,6 +808,12 @@ paths:
       - $ref: '#/components/parameters/EditableVersion'
       - $ref: '#/components/parameters/EditableDataset'
       - $ref: '#/components/parameters/EditableEpoch'
+      - name: habitIds
+        in: query
+        schema:
+          type: boolean
+          default: false
+        description: Include each habit ID for checkbox editing.
       responses:
         '200':
           description: Logical pages with LJPT points encoded as Base64, or a habit summary.
@@ -770,6 +835,10 @@ paths:
                     items:
                       type: object
                       required: [name, archived, completedDays]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
         '400':
           $ref: '#/components/responses/Http400'
         '401':

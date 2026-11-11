@@ -1,13 +1,17 @@
 package com.myjournal.server
 
+import com.myjournal.core.RecordMetadata
 import com.myjournal.data.BackupArchive
 import com.myjournal.data.JournalInkJson
 import com.myjournal.data.StrokePointCodec
+import com.myjournal.domain.HabitCompletion
+import com.myjournal.domain.JournalMonth
 import com.myjournal.domain.JournalSnapshot
 import com.myjournal.domain.SyncScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
-import java.nio.file.Files
+import kotlinx.datetime.LocalDate
+import kotlin.time.Clock
 import java.security.MessageDigest
 import java.sql.Connection
 import java.util.UUID
@@ -198,16 +202,7 @@ internal class EditableRecordStore(private val database: Database) {
             stroke
         }
         val snapshot = JournalSnapshot(journals = listOf(entry), strokes = strokes)
-        val file = Files.createTempFile("lifeapp-legacy-journal-", ".zip").toFile()
-        val bytes = try {
-            BackupArchive.write(file, snapshot)
-            if (file.length() > MAX_ARCHIVE_BYTES) {
-                throw ApiFailure(413, "LIMIT_EXCEEDED", "The journal archive exceeds 16 MiB.")
-            }
-            file.readBytes()
-        } finally {
-            file.delete()
-        }
+        val bytes = EditableRecordArchive.encode(snapshot)
         val archive = EditableRecordArchive.fromSnapshot(snapshot)
         registerIdentities(dataset, archive.kind, archive.key, archive.identities.toString())
         val version = Uuid.random()
@@ -220,6 +215,77 @@ internal class EditableRecordStore(private val database: Database) {
         execute("INSERT INTO legacy_journal_versions VALUES (?, ?, ?)", dataset, entryId.sql(), version.sql())
         version
     }
+
+    data class HabitCheck(val id: Uuid, val habit: Uuid, val date: LocalDate, val checked: Boolean)
+    data class HabitReceipt(val version: Uuid, val conflicted: Boolean)
+
+    fun editHabit(scope: SyncScope, base: Uuid, edit: HabitCheck): HabitReceipt = database.transaction {
+        require(edit.id != base)
+        lockEpoch(scope, write = true)
+        val dataset = scope.dataset.sql()
+        val prior = query(
+            """SELECT base_version_id, habit_id, local_date::text, checked, conflicted
+               FROM editable_habit_checks WHERE dataset_id = ? AND id = ?""",
+            dataset, edit.id.sql(),
+        ) {
+            val matches = it.uuid(1) == base && it.uuid(2) == edit.habit &&
+                it.getString(3) == edit.date.toString() && it.getBoolean(4) == edit.checked
+            matches to it.getBoolean(5)
+        }.singleOrNull()
+        if (prior != null) {
+            if (!prior.first) conflict("IDEMPOTENCY_MISMATCH", "The completion operation ID already has different content.")
+            return@transaction HabitReceipt(edit.id, prior.second)
+        }
+        if (query("SELECT 1 FROM editable_record_versions WHERE dataset_id = ? AND id = ?", dataset, edit.id.sql()) {
+                true
+            }.isNotEmpty()) conflict("IDEMPOTENCY_MISMATCH", "The operation ID is already in use.")
+        val source = source(dataset, base)
+        require(source.kind == "habits" && source.key == JournalMonth.from(edit.date).toString())
+        val head = heads(dataset, source.kind, source.key).singleOrNull()?.id
+            ?: conflict("CONFLICT_CHANGED", "Resolve the current habit versions before making another edit.")
+        val current = habitLedger(dataset, head)
+        val previous = if (base == head) current else habitLedger(dataset, base)
+        if (previous.metadata.id != current.metadata.id ||
+            previous.activeHabits.none { it.metadata.id == edit.habit } ||
+            current.activeHabits.none { it.metadata.id == edit.habit }) {
+            conflict("CONFLICT_CHANGED", "This habit is no longer active in the current ledger.")
+        }
+        val before = previous.completions.find { it.habitId == edit.habit && it.date == edit.date }
+        val latest = current.completions.find { it.habitId == edit.habit && it.date == edit.date }
+        val conflicted = before != latest && (latest?.checked ?: false) != edit.checked
+        val parent = if (conflicted) base else head
+        val updated = if (latest?.checked == edit.checked) current else {
+            val original = latest ?: before
+            val at = maxOf(Clock.System.now(), current.metadata.updatedAt, original?.metadata?.updatedAt ?: current.metadata.updatedAt)
+            val metadata = original?.metadata?.revised(at) ?: RecordMetadata(Uuid.random(), at, at)
+            val completion = HabitCompletion(metadata, edit.habit, edit.date, edit.checked)
+            current.copy(metadata = current.metadata.revised(at), completions = current.completions.filterNot { it.habitId == edit.habit && it.date == edit.date } + completion)
+        }
+        val snapshot = JournalSnapshot(habits = listOf(updated))
+        val archive = EditableRecordArchive.fromSnapshot(snapshot)
+        val bytes = EditableRecordArchive.encode(snapshot)
+        registerIdentities(dataset, archive.kind, archive.key, archive.identities.toString())
+        execute(
+            """INSERT INTO editable_record_versions (dataset_id, id, kind, logical_key, root_id, sha256, parents, archive)
+               VALUES (?, ?, 'habits', ?, ?, ?, ARRAY[CAST(? AS uuid)], ?)""",
+            dataset, edit.id.sql(), archive.key, archive.root.sql(), BackupArchive.sha256(bytes), parent.sql(), bytes,
+        )
+        if (!conflicted) execute(
+            "DELETE FROM editable_record_heads WHERE dataset_id = ? AND kind = 'habits' AND logical_key = ? AND version_id = ?",
+            dataset, archive.key, head.sql(),
+        )
+        execute("INSERT INTO editable_record_heads VALUES (?, 'habits', ?, ?)", dataset, archive.key, edit.id.sql())
+        execute(
+            "INSERT INTO editable_habit_checks VALUES (?, ?, ?, ?, CAST(? AS date), ?, ?)",
+            dataset, edit.id.sql(), base.sql(), edit.habit.sql(), edit.date.toString(), edit.checked, conflicted,
+        )
+        HabitReceipt(edit.id, conflicted)
+    }
+
+    private fun Connection.habitLedger(dataset: UUID, version: Uuid) = query(
+        "SELECT archive FROM editable_record_versions WHERE dataset_id = ? AND id = ? AND kind = 'habits'",
+        dataset, version.sql(),
+    ) { EditableRecordArchive.decode(it.getBytes(1)).habits.single() }.single()
 
     data class Variant(val id: Uuid, val sequence: Long)
     data class Review(val kind: String, val key: String, val variants: List<Variant>)

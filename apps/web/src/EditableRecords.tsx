@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, editablePreview, editableReview, editableVersions, resolveEditable } from './api.ts';
-import type { BrowserSession } from './api.ts';
+import { ApiError, editablePreview, editableReview, editableVersions, resolveEditable, saveHabitCheck } from './api.ts';
+import type { BrowserSession, HabitCheck } from './api.ts';
 import { drawStroke } from './journalInk.ts';
 import { object, sameScope, scopeOf, sequence, uuid } from './protocol.ts';
 import type { Scope } from './protocol.ts';
@@ -48,8 +48,10 @@ function previewOf(value: unknown) {
       return { title: text(page.title), width, height, archived: flag(page.archived), cells, strokes };
     }),
     habits: array(preview.habits).map(item => {
-      const habit = object(item, ['name', 'archived', 'completedDays']);
-      return { name: text(habit.name), archived: flag(habit.archived), days: array(habit.completedDays).map(number) };
+      const fields = ['name', 'archived', 'completedDays'];
+      const includesId = typeof item === 'object' && item !== null && 'id' in item;
+      const habit = object(item, includesId ? [...fields, 'id'] : fields);
+      return { id: includesId ? uuid(habit.id) : null, name: text(habit.name), archived: flag(habit.archived), days: array(habit.completedDays).map(number) };
     }),
   };
 }
@@ -118,7 +120,8 @@ export function EditableRecords({ session }: { session: BrowserSession }) {
       {after !== '0' && <button onClick={() => load('0')}>First versions</button>}
       {next && <button onClick={() => load(next)}>Next versions</button>}
       {(failure || listing) && <button onClick={() => load(after)}>{failure ? 'Retry' : 'Refresh versions'}</button>}
-      {selected && <SelectedRecord key={selected} session={session} id={selected} onResolved={() => {
+      {selected && <SelectedRecord key={selected} session={session} id={selected}
+        current={listing?.rows.some(row => row.id === selected && row.current) === true} onResolved={() => {
         load(after);
         setResolved(true);
       }} />}
@@ -126,13 +129,28 @@ export function EditableRecords({ session }: { session: BrowserSession }) {
   </details>;
 }
 
-function SelectedRecord({ session, id, onResolved }: { session: BrowserSession; id: string; onResolved: () => void }) {
+type HabitReceipt = Awaited<ReturnType<typeof saveHabitCheck>>;
+
+function SelectedRecord({ session, id, current, onResolved }: {
+  session: BrowserSession; id: string; current: boolean; onResolved: () => void;
+}) {
   const [reviewing, setReviewing] = useState(false);
+  const [receipt, setReceipt] = useState<HabitReceipt | null>(null);
+  const [day, setDay] = useState(1);
+  const version = receipt?.versionId ?? id;
   if (!reviewing) return <>
+    {receipt && <p role="status">{receipt.conflicted ? 'This date has competing versions. Review them before editing again.' : 'Habit completion saved.'}</p>}
     <button onClick={() => setReviewing(true)}>Review current versions</button>
-    <RecordPreview scope={session.scope} id={id} />
+    <RecordPreview key={version} scope={session.scope} id={version}
+      editor={current && !receipt?.conflicted ? { session, day, setDay, onSaved: value => {
+        setReceipt(value);
+        if (value.conflicted) setReviewing(true);
+      } } : undefined} />
   </>;
-  return <ConflictReview session={session} id={id} onClose={() => setReviewing(false)} onResolved={onResolved} />;
+  return <>
+    {receipt?.conflicted && <p role="status">This date has competing versions. Review them before editing again.</p>}
+    <ConflictReview session={session} id={version} onClose={() => setReviewing(false)} onResolved={onResolved} />
+  </>;
 }
 
 function ConflictReview({ session, id, onClose, onResolved }: {
@@ -216,8 +234,64 @@ function ConflictReview({ session, id, onClose, onResolved }: {
   </section>;
 }
 
-function RecordPreview({ scope: { dataset, epoch }, id, onReady }: {
-  scope: Scope; id: string; onReady?: (id: string) => void;
+interface HabitEditor {
+  session: BrowserSession;
+  day: number;
+  setDay: (day: number) => void;
+  onSaved: (receipt: HabitReceipt) => void;
+}
+
+function HabitCheckboxes({ preview, version, editor }: { preview: Preview; version: string; editor: HabitEditor }) {
+  const [pending, setPending] = useState<HabitCheck | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const sending = useRef(false);
+  const monthEnd = new Date(preview.title + '-01T00:00:00Z');
+  monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1, 0);
+  const days = monthEnd.getUTCDate();
+
+  async function submit(check: HabitCheck) {
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    setPending(check);
+    setError('');
+    try {
+      editor.onSaved(await saveHabitCheck(editor.session, version, check));
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.status === 409) {
+        setError('The server needs a fresh review before this edit can be saved. Open Review current versions.');
+        setPending(null);
+      } else setError('Could not confirm the checkbox edit. Retry to check the same request.');
+    } finally {
+      sending.current = false;
+      setBusy(false);
+    }
+  }
+
+  const editable = preview.habits.filter(habit => !habit.archived).flatMap(habit => habit.id === null ? [] : [{ ...habit, id: habit.id }]);
+  if (!Number.isInteger(days) || editable.length === 0) return null;
+  return <fieldset>
+    <legend>Daily habit completions</legend>
+    <label>Day <select value={editor.day} disabled={pending !== null}
+      onChange={event => editor.setDay(Number(event.target.value))}>
+      {Array.from({ length: days }, (_, index) => index + 1).map(day => <option key={day} value={day}>{day}</option>)}
+    </select></label>
+    {editable.map(habit => <div key={habit.id}>
+      <label><input type="checkbox" checked={habit.days.includes(editor.day)} disabled={pending !== null}
+        onChange={event => void submit({
+          id: crypto.randomUUID(), habitId: habit.id, date: preview.title + '-' + String(editor.day).padStart(2, '0'),
+          checked: event.target.checked,
+        })} /> {habit.name}</label>
+    </div>)}
+    {busy && <p role="status">Saving completion…</p>}
+    {error && <p role="alert">{error}</p>}
+    {pending && !busy && <button onClick={() => void submit(pending)}>Retry completion</button>}
+  </fieldset>;
+}
+
+function RecordPreview({ scope: { dataset, epoch }, id, onReady, editor }: {
+  scope: Scope; id: string; onReady?: (id: string) => void; editor?: HabitEditor;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [failed, setFailed] = useState(false);
@@ -241,7 +315,8 @@ function RecordPreview({ scope: { dataset, epoch }, id, onReady }: {
       {preview.pages.map((item, index) => <option key={index} value={index}>{item.title}{item.archived ? ' (archived)' : ''}</option>)}
     </select></label>}
     {page && <VectorPage key={pageIndex} page={page} />}
-    {preview.habits.length > 0 && <ul>{preview.habits.map((habit, index) => <li key={index}>
+    {editor && preview.habits.length > 0 && <HabitCheckboxes preview={preview} version={id} editor={editor} />}
+    {preview.habits.length > 0 && <ul>{preview.habits.map((habit, index) => <li key={habit.id ?? index}>
       {habit.name}{habit.archived ? ' (archived)' : ''} · {habit.days.length ? 'Completed days ' + habit.days.join(', ') : 'No completed days'}
     </li>)}</ul>}
     {!page && preview.habits.length === 0 && <p>This version has no pages or habit definitions.</p>}
