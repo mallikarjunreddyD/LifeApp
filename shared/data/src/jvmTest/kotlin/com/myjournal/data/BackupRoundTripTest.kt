@@ -56,8 +56,14 @@ class BackupRoundTripTest {
             val session = WorkoutSession(metadata, kotlinx.datetime.LocalDate(2026, 11, 9), metadata.createdAt,
                 null, null, entries = listOf(entry.copy(sets = listOf(set))))
             workouts.saveSession(session, null)
+            val oldArchive = File(directory, "previous-workouts.zip")
+            BackupArchive.write(oldArchive, RoomSnapshotRepository(source).capture())
+            val previous = BackupArchive.read(oldArchive).snapshot
+            assertEquals(7, previous.dataSchemaVersion)
+            assertEquals(session, previous.workoutLog.sessions.single())
             val finished = session.copy(metadata = metadata.revised(metadata.updatedAt),
-                endedAt = metadata.createdAt, durationSeconds = 0, completed = true)
+                endedAt = metadata.createdAt, durationSeconds = 72 * 60, completed = true,
+                averageHeartRateBpm = 136, durationManuallyEntered = true)
             workouts.saveSession(finished, 1)
             assertFailsWith<IllegalStateException> { workouts.saveSession(finished.copy(notes = "stale"), 1) }
             assertFailsWith<IllegalArgumentException> {
@@ -68,7 +74,7 @@ class BackupRoundTripTest {
             val archive = File(directory, "workouts.zip")
             BackupArchive.write(archive, snapshot)
             val restored = BackupArchive.read(archive)
-            assertEquals(7, restored.snapshot.dataSchemaVersion)
+            assertEquals(8, restored.snapshot.dataSchemaVersion)
             assertEquals(1, restored.counts["workoutSets"])
             RoomSnapshotRepository(destination).replace(restored.snapshot)
             val result = RoomSnapshotRepository(destination).capture()

@@ -21,6 +21,8 @@ fun WorkoutSession.workoutJson() = buildJsonObject {
     put("startedAt", startedAt?.toString())
     put("endedAt", endedAt?.toString())
     put("durationSeconds", durationSeconds)
+    averageHeartRateBpm?.let { put("averageHeartRateBpm", it) }
+    if (durationManuallyEntered) put("durationManuallyEntered", true)
     put("caloriesKcal", caloriesKcal)
     put("notes", notes)
     put("completed", completed)
@@ -82,6 +84,8 @@ object WorkoutJson {
             metadata(), LocalDate.parse(text("date")!!), text("startedAt")?.let(Instant::parse),
             text("endedAt")?.let(Instant::parse), number("durationSeconds"), number("caloriesKcal"),
             text("notes"), flag("completed"), getValue("entries").jsonArray.map { entry(it.jsonObject) },
+            averageHeartRateBpm = get("averageHeartRateBpm")?.jsonPrimitive?.int,
+            durationManuallyEntered = get("durationManuallyEntered")?.jsonPrimitive?.boolean ?: false,
         )
     }
 

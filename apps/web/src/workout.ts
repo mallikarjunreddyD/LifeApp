@@ -12,6 +12,7 @@ export interface RecordedSet {
 export interface Entry { metadata: Metadata; sessionId: string; exerciseId: string; order: number; round: number | null; sets: RecordedSet[] }
 export interface Session {
   metadata: Metadata; date: string; startedAt: string | null; endedAt: string | null;
+  averageHeartRateBpm?: number; durationManuallyEntered?: boolean;
   durationSeconds: number | null; caloriesKcal: number | null; notes: string | null; completed: boolean; entries: Entry[];
 }
 export type WorkoutRecord =
@@ -63,9 +64,14 @@ export function checkWorkoutRecords(records: WorkoutRecord[]) {
       if (session.completed && session.endedAt === null) throw new Error('Missing workout end time.');
       integer(session.caloriesKcal, 0);
       integer(session.durationSeconds, 0);
+      if (session.averageHeartRateBpm !== undefined) {
+        integer(session.averageHeartRateBpm, 20);
+        if (session.averageHeartRateBpm > 250) throw new Error('Average heart rate must be 20–250 BPM.');
+      }
+      if (session.durationManuallyEntered && session.durationSeconds === null) throw new Error('Enter the workout duration.');
       if (session.endedAt !== null && (session.startedAt === null || session.durationSeconds === null ||
           instantKey(session.endedAt) < instantKey(session.startedAt) ||
-          session.durationSeconds > Math.floor((Date.parse(session.endedAt) - Date.parse(session.startedAt)) / 1000))) {
+          (!session.durationManuallyEntered && session.durationSeconds > Math.floor((Date.parse(session.endedAt) - Date.parse(session.startedAt)) / 1000)))) {
         throw new Error('Invalid workout times.');
       }
       session.entries.forEach((entry, index) => {
