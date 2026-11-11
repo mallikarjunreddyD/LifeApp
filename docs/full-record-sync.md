@@ -65,3 +65,25 @@ first sync, migration inventory and conflict review, multi-page and archive
 operations, stroke removal, inactive staging cleanup, and Planner, Habits
 and Notebook synchronization remain open. Full cross-device acceptance
 requires those features and testing with the Android client.
+
+## Android first-sync journal inventory
+
+On Android, sign in under **Settings → LifeApp Server** and choose
+**Back up and review journal inventory**. Select a separate local ZIP
+destination. LifeApp drains queued editor writes, captures the committed
+snapshot, validates the full backup and reads the destination back to verify
+its bytes. It then reads the authenticated server's paged journal inventory
+for the selected HTTPS origin, dataset and recovery epoch.
+
+The review shows local journal entry, page and stroke totals, committed
+server entry totals, entries present on one side only, overlapping dates,
+and dates affected by a reused entry or page ID. The local totals include
+archived pages. An overlap calls for review even when entry IDs match,
+because this inventory does not compare stroke bytes. The review is
+preliminary because the server list can change during paging.
+
+This screen performs only authenticated reads. It does not bind journals
+to the dataset or apply changes. The next import step still needs to
+revalidate the inventory at commit, preserve conflicting variants, compare
+stroke IDs and digests, and apply approved entries atomically. Planner,
+Habit Tracker and Notebook inventory and synchronization are still pending.

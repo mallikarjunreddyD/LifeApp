@@ -1,3 +1,4 @@
+import { commitJournalFixture } from './journal-fixture.ts';
 import { expect, test } from '@playwright/test';
 
 test('browser exchanges task changes with the Android HTTPS client', async ({ page }) => {
@@ -22,6 +23,7 @@ test('browser exchanges task changes with the Android HTTPS client', async ({ pa
   }
 
   await syncUntil('Android offline import');
+  await commitJournalFixture(page.request, new URL(page.url()).origin, '2026-11-09');
   await page.getByRole('button', { name: 'Add task' }).click();
   await page.getByLabel('Task title').fill('Browser created task');
   await page.getByLabel('Deadline').fill('2030-11-12');
