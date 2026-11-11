@@ -154,8 +154,26 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                     inkUploads.release()
                 }
             }
+            get("/journal/entries") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireJournalScope(scope)
+                val (after, limit) = call.pagination()
+                val rows = databaseCall { journalInk.entries(scope, after, limit) }
+                call.json(paged(rows, limit, { it.first }) { it.second })
+            }
+            get("/journal/pages/{pageId}/strokes") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireJournalScope(scope)
+                val page = validated { Uuid.parse(requireNotNull(call.parameters["pageId"])) }
+                val (after, limit) = call.pagination()
+                val rows = databaseCall { journalInk.strokes(scope, page, after, limit) }
+                call.json(paged(rows, limit, { it.id }) { stroke ->
+                    buildJsonObject { put("stroke", stroke.header); put("sha256", stroke.sha256) }
+                })
+            }
             get("/journal/ink/{strokeId}") {
                 val scope = call.authenticate(auth).second.scope
+                call.requireJournalScope(scope, optional = true)
                 val id = validated { Uuid.parse(requireNotNull(call.parameters["strokeId"])) }
                 if (!inkUploads.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the stroke download later.")
                 try {
@@ -295,6 +313,14 @@ private suspend fun ApplicationCall.body(): JsonObject {
         checkJsonSizeAndDepth(text)
         Json.parseToJsonElement(text).jsonObject
     }
+}
+
+private fun ApplicationCall.requireJournalScope(scope: SyncScope, optional: Boolean = false) {
+    val dataset = request.headers["X-LifeApp-Dataset"]
+    val epoch = request.headers["X-LifeApp-Epoch"]
+    if (optional && dataset == null && epoch == null) return
+    val requested = validated { SyncScope(Uuid.parse(requireNotNull(dataset)), Uuid.parse(requireNotNull(epoch))) }
+    if (requested != scope) conflict("SCOPE_MISMATCH", "The requested dataset or epoch does not match the session.")
 }
 
 private fun ApplicationCall.pagination(): Pair<Uuid?, Int> = validated {

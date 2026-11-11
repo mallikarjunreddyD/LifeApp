@@ -276,14 +276,153 @@ paths:
           $ref: '#/components/responses/Http429'
         '503':
           $ref: '#/components/responses/Http503'
+  /v1/journal/entries:
+    get:
+      operationId: listJournalEntries
+      description: List committed portable journal entries in ascending entry UUID order.
+      parameters:
+      - name: X-LifeApp-Dataset
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-LifeApp-Epoch
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: cursor
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      responses:
+        '200':
+          description: Page of results. Pass next as cursor to continue, or stop when it is null.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    items:
+                      type: object
+                      description: Portable JournalEntry JSON containing one active page.
+                      required: [metadata, date, pages]
+                  next:
+                    type: [string, 'null']
+                    format: uuid
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '503':
+          $ref: '#/components/responses/Http503'
+  /v1/journal/pages/{pageId}/strokes:
+    get:
+      operationId: listJournalStrokes
+      description: List committed stroke headers and checksums in the original stroke order.
+      parameters:
+      - name: pageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-LifeApp-Dataset
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-LifeApp-Epoch
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: cursor
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      responses:
+        '200':
+          description: Page of results. Pass next as cursor to continue, or stop when it is null.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    items:
+                      type: object
+                      required: [stroke, sha256]
+                      properties:
+                        stroke:
+                          type: object
+                          description: Portable stroke header. Points are returned by the binary endpoint.
+                          required: [metadata, surfaceId, order, brush, colorArgb, width, pointFormatVersion]
+                        sha256:
+                          type: string
+                          pattern: '^[0-9a-f]{64}$'
+                  next:
+                    type: [string, 'null']
+                    format: uuid
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '404':
+          $ref: '#/components/responses/Http404'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '503':
+          $ref: '#/components/responses/Http503'
   /v1/journal/ink/{strokeId}:
     get:
       operationId: downloadJournalInk
-      description: Return committed LJPT bytes from the authenticated dataset.
+      description: Return committed LJPT bytes from the authenticated dataset. Supply both scope headers to require a matching session scope.
       parameters:
       - name: strokeId
         in: path
         required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-LifeApp-Dataset
+        in: header
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: X-LifeApp-Epoch
+        in: header
+        required: false
         schema:
           type: string
           format: uuid

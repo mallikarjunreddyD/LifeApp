@@ -2,6 +2,7 @@ package com.myjournal.server
 
 import com.myjournal.data.JournalInkJson
 import com.myjournal.domain.SyncScope
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -73,6 +74,37 @@ internal class JournalInkStore(private val database: Database) {
             )
             execute("DELETE FROM staged_ink WHERE dataset_id = ? AND epoch_id = ? AND id = ?", dataset, epoch, upload.sql())
         }
+    }
+
+    fun entries(scope: SyncScope, after: Uuid?, limit: Int) = database.transaction {
+        lockEpoch(scope)
+        query(
+            """SELECT id, payload FROM journal_ink_entries WHERE dataset_id = ?
+                AND (CAST(? AS uuid) IS NULL OR id > ?) ORDER BY id LIMIT ?""",
+            scope.dataset.sql(), after?.sql(), after?.sql(), limit + 1,
+        ) { it.uuid(1) to Json.parseToJsonElement(it.getString(2)).jsonObject }
+    }
+
+    data class StrokeSummary(val id: Uuid, val header: JsonObject, val sha256: String)
+
+    fun strokes(scope: SyncScope, page: Uuid, after: Uuid?, limit: Int) = database.transaction {
+        lockEpoch(scope)
+        val dataset = scope.dataset.sql()
+        if (query("SELECT 1 FROM journal_ink_entries WHERE dataset_id = ? AND page_id = ?", dataset, page.sql()) {
+                true
+            }.isEmpty()) throw ApiFailure(404, "NOT_FOUND", "Journal page not found.")
+        val order = after?.let {
+            query(
+                "SELECT stroke_order FROM journal_ink_strokes WHERE dataset_id = ? AND page_id = ? AND id = ?",
+                dataset, page.sql(), it.sql(),
+            ) { row -> row.getLong(1) }.singleOrNull()
+                ?: throw ApiFailure(400, "INVALID_REQUEST", "The cursor does not belong to this page.")
+        } ?: -1L
+        query(
+            """SELECT id, payload, sha256 FROM journal_ink_strokes WHERE dataset_id = ?
+                AND page_id = ? AND stroke_order > ? ORDER BY stroke_order LIMIT ?""",
+            dataset, page.sql(), order, limit + 1,
+        ) { StrokeSummary(it.uuid(1), Json.parseToJsonElement(it.getString(2)).jsonObject, it.getString(3)) }
     }
 
     fun download(scope: SyncScope, id: Uuid): Download = database.transaction {

@@ -13,10 +13,7 @@ removes expired and superseded-epoch staging rows for its dataset. A clean
 database recovery discards temporary uploads when it rotates the epoch.
 The staging endpoint provides no download or record visibility.
 
-Still pending are the atomic commit and authenticated download paths,
-scheduled cleanup for inactive datasets, durable client operations, initial
-migration review, conflict resolution and cross-device validation for each
-module. Journal, Planner, Habits and Notebook continue to save locally.
+The next increment added the atomic commit and authenticated download paths described below.
 
 ## Journal stroke commit and download
 
@@ -40,3 +37,31 @@ for a committed stroke in the authenticated dataset. The server stores the
 committed records independently of the recovery epoch. Encrypted PostgreSQL
 backups retain them, and clean recovery discards temporary uploads. Existing
 Journal, Planner, Habits and Notebook editors continue to save locally.
+
+## Read-only journal preview
+
+The PWA Journal tab lists committed entries from the authenticated dataset.
+Open a date to preview the imported page. The API pages through stroke
+headers in their stored order. Each request checks the dataset and recovery
+epoch. The browser verifies the SHA-256 of the downloaded LJPT v1 bytes,
+then draws the original logical coordinates on a clipped, proportional
+canvas. The canvas uses a constant-width path for each stroke and a plain
+paper background. The preview retains the original stroke color and
+opacity. Rendering does not convert or write back any stroke data.
+
+The preview requires a connection. Journal data remains in memory while
+the tab is open and is removed when the tab closes, the app goes offline
+or the active scope changes. The API marks responses `no-store` and the
+PWA service worker excludes API responses. A preview is limited to 64 MiB
+of source strokes and 10,000 strokes per page. An incomplete or invalid
+download shows an error and retry control.
+
+The read endpoints reuse the existing PostgreSQL tables. They require no
+Room or PostgreSQL migration and the existing recovery format already
+includes the committed data. The Journal tab displays only what has been
+committed through the server import endpoint. Android has no journal
+upload or replay UI yet. Durable editor operations, a backup-verified
+first sync, migration inventory and conflict review, multi-page and archive
+operations, stroke removal, inactive staging cleanup, and Planner, Habits
+and Notebook synchronization remain open. Full cross-device acceptance
+requires those features and testing with the Android client.
