@@ -6,6 +6,7 @@ import uuid
 import os
 from pathlib import Path
 import sys
+from subprocess import check_output
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -41,6 +42,9 @@ session = json.loads(call("/v1/session", method="POST", body={**credentials, "cl
 auth = {"Authorization": f"Bearer {session['accessToken']}"}
 points = struct.pack("<4sIIfffq", b"LJPT", 1, 1, 0.0, 2.0, -1.0, 0)
 stroke_id = "71000000-0000-4000-8000-000000000003"
+version_id = "72000000-0000-4000-8000-000000000001"
+record_path = f"/v1/editable/versions/{version_id}"
+scope_headers = {**auth, "X-LifeApp-Dataset": session["scope"]["dataset"], "X-LifeApp-Epoch": session["scope"]["epoch"]}
 if sys.argv[1] == "hold":
     scope = session["scope"]
     digest = hashlib.sha256(points).hexdigest()
@@ -68,6 +72,13 @@ if sys.argv[1] == "hold":
         "stroke": {"metadata": metadata(stroke_id), "surfaceId": page_id, "order": 0,
                    "brush": "PEN", "colorArgb": 4278190080, "width": 3.0, "pointFormatVersion": 1},
     })
+    planner = check_output([sys.executable, "contracts/fixtures/editable-archive.py", "planner"])
+    planner_digest = hashlib.sha256(planner).hexdigest()
+    record_headers = {**scope_headers, "X-Content-SHA256": planner_digest}
+    call(f"/v1/editable/staged/{version_id}", method="PUT", expected=204, body=planner, headers=record_headers)
+    call(f"{record_path}/commit", method="POST", expected=204, headers=scope_headers,
+         body={"sha256": planner_digest, "parents": []})
+    call(f"/v1/editable/staged/{uuid.uuid4()}", method="PUT", expected=204, body=planner, headers=record_headers)
     # This second upload remains staged. Recovery should keep only the committed bytes.
     call(f"/v1/ink/staged/{uuid.uuid4()}", method="PUT", expected=204, body=points, headers=headers)
     Path(sys.argv[2]).write_text(session["accessToken"], encoding="utf-8")
@@ -77,6 +88,10 @@ if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):
     call("/v1/session", headers={"Authorization": f"Bearer {token}"}, expected=401)
     restored_ink, ink_headers = call(f"/v1/journal/ink/{stroke_id}", headers=auth)
     assert restored_ink == points and ink_headers["X-Content-SHA256"] == hashlib.sha256(points).hexdigest()
+    planner, planner_headers = call(record_path, headers=scope_headers)
+    assert planner == check_output([sys.executable, "contracts/fixtures/editable-archive.py", "planner"])
+    assert planner_headers["X-Content-SHA256"] == hashlib.sha256(planner).hexdigest()
+    assert json.loads(call(f"{record_path}/preview", headers=scope_headers)[0])["title"] == "2026-11"
     backup = json.loads(call("/v1/backups/status", headers=auth)[0])
     assert backup["state"] == "failed" and backup["lastVerifiedAt"] is None
     workout = json.loads(call("/v1/workouts/70000000-0000-4000-8000-000000000002", headers=auth)[0])
@@ -85,6 +100,7 @@ if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):
     assert restored_set["weight"] == {"value": 22.5, "unit": "LB"} and restored_set["repetitions"] == 8
 if old_epoch := os.environ.get("LIFEAPP_OLD_EPOCH"):
     call(f"/v1/sync/pull?epoch={old_epoch}&after=0", headers=auth, expected=409)
+    call(record_path, headers={**scope_headers, "X-LifeApp-Epoch": old_epoch}, expected=409)
 if sys.argv[1] == "seed":
     call("/v1/sync/push", method="POST", body={"scope": session["scope"], "operation": operation}, headers=auth)
 assert any(item["metadata"]["id"] == operation["recordId"] for item in json.loads(call("/v1/todos", headers=auth)[0])["items"])

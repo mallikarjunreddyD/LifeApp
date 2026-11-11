@@ -87,3 +87,42 @@ to the dataset or apply changes. The next import step still needs to
 revalidate the inventory at commit, preserve conflicting variants, compare
 stroke IDs and digests, and apply approved entries atomically. Planner,
 Habit Tracker and Notebook inventory and synchronization are still pending.
+
+## Versioned records on the server
+
+The editable-record API stages a portable ZIP for one journal date, planner
+month, habit month or notebook. The archive carries that record and its
+children. The server validates its manifest, IDs, parent relationships,
+checksums and LJPT points before staging. A ZIP can be at most 16 MiB.
+The server saves the original bytes and checks the SHA-256 supplied by
+the client. A separate commit publishes the version and consumes staging
+in one PostgreSQL transaction. A retry with the same version ID, digest
+and parents succeeds after commit.
+
+A new version with a stale parent can coexist with another current
+version. A resolution naming multiple parents must name every current
+version. Earlier versions remain available in order through the scoped
+version feed. The server rejects reuse of a UUID under a different owner
+record, reuse of an immutable stroke with different bytes or metadata, and
+crossing between the old single-page journal import and the new version
+store. Existing single-page journal imports retain their original read path
+and require explicit migration before they can enter the version store.
+
+The browser can preview a committed version from **Journal → Server record
+versions**. It draws vector paths at their logical coordinates and clips
+planner strokes to their original cells. Previews are online and read-only.
+They use constant-width paths on a plain background, with a bounded
+response of 8 MiB and at most 4 MiB of raw LJPT data. Version archives
+remain downloadable even when a browser preview exceeds the limit.
+
+Migration V6 adds the version store and upload expiry indexes. The
+server purges expired staging in bounded batches. The clean database
+restore script clears staged uploads, retains committed versions and
+rotates the recovery epoch.
+
+The Android editors still save these four record types locally. Remaining
+work includes the Android transfer queue and transactional replay, the
+backup-verified import and conflict resolution workflow, migration of
+the original journal imports, and per-date habit operations and PWA
+checkbox editing. Cross-device acceptance must exercise those paths
+before enabling synchronization.

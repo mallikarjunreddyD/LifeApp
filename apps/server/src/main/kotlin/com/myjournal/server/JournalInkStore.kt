@@ -22,6 +22,13 @@ internal class JournalInkStore(private val database: Database) {
             lockEpoch(scope, write = true)
             val dataset = scope.dataset.sql()
             val epoch = scope.epoch.sql()
+            if (query(
+                    """SELECT 1 FROM editable_record_identities WHERE dataset_id = ?
+                         AND ((kind = 'journal' AND logical_key = ?) OR id IN (?, ?, ?)) LIMIT 1""",
+                    dataset, entry.date.toString(), entry.metadata.id.sql(), page.metadata.id.sql(), strokeId.sql(),
+                ) { true }.isNotEmpty()) {
+                conflict("CONFLICT_CHANGED", "This journal overlaps an editable record version.")
+            }
             val priorEntry = query(
                 """SELECT id, payload = CAST(? AS jsonb) FROM journal_ink_entries
                     WHERE dataset_id = ? AND (id = ? OR local_date = CAST(? AS date) OR page_id = ?)""",

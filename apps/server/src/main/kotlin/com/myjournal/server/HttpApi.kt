@@ -15,6 +15,9 @@ import io.ktor.server.routing.*
 import io.ktor.utils.io.readBuffer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Semaphore
@@ -34,7 +37,19 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
     val workouts = WorkoutReader(database)
     val stagedInk = StagedInkStore(database)
     val journalInk = JournalInkStore(database)
+    val editable = EditableRecordStore(database)
     val inkUploads = Semaphore(2)
+    val recordTransfers = Semaphore(1)
+    launch(Dispatchers.IO) {
+        while (isActive) {
+            try {
+                editable.purgeExpiredUploads()
+            } catch (_: SQLException) {
+                log.warn("Could not clean up expired record uploads.")
+            }
+            delay(15 * 60 * 1000L)
+        }
+    }
     intercept(ApplicationCallPipeline.Plugins) {
         call.response.headers.append(REQUEST_ID, Uuid.random().toString())
         call.response.headers.append(HttpHeaders.CacheControl, "no-store")
@@ -156,14 +171,14 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
             }
             get("/journal/entries") {
                 val scope = call.authenticate(auth).second.scope
-                call.requireJournalScope(scope)
+                call.requireRecordScope(scope)
                 val (after, limit) = call.pagination()
                 val rows = databaseCall { journalInk.entries(scope, after, limit) }
                 call.json(paged(rows, limit, { it.first }) { it.second })
             }
             get("/journal/pages/{pageId}/strokes") {
                 val scope = call.authenticate(auth).second.scope
-                call.requireJournalScope(scope)
+                call.requireRecordScope(scope)
                 val page = validated { Uuid.parse(requireNotNull(call.parameters["pageId"])) }
                 val (after, limit) = call.pagination()
                 val rows = databaseCall { journalInk.strokes(scope, page, after, limit) }
@@ -173,7 +188,7 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
             }
             get("/journal/ink/{strokeId}") {
                 val scope = call.authenticate(auth).second.scope
-                call.requireJournalScope(scope, optional = true)
+                call.requireRecordScope(scope, optional = true)
                 val id = validated { Uuid.parse(requireNotNull(call.parameters["strokeId"])) }
                 if (!inkUploads.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the stroke download later.")
                 try {
@@ -182,6 +197,109 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                     call.respondBytes(stroke.bytes, ContentType.Application.OctetStream)
                 } finally {
                     inkUploads.release()
+                }
+            }
+            put("/editable/staged/{versionId}") {
+                val session = call.authenticate(auth).second
+                call.requireMutation(session, origin)
+                call.requireRecordScope(session.scope)
+                val id = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
+                val digest = validated {
+                    require(call.request.contentType().match(ContentType.Application.OctetStream))
+                    requireNotNull(call.request.headers["X-Content-SHA256"]).also {
+                        require(it.matches(Regex("[0-9a-f]{64}")))
+                    }
+                }
+                val limit = EditableRecordStore.MAX_ARCHIVE_BYTES
+                if ((call.request.contentLength() ?: 0) > limit) recordTooLarge()
+                if (!recordTransfers.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the record upload later.")
+                try {
+                    val bytes = withTimeoutOrNull(30_000) {
+                        call.receiveChannel().readBuffer(limit + 1).readByteArray()
+                    } ?: throw ApiFailure(408, "INVALID_REQUEST", "The record upload timed out.")
+                    if (bytes.size > limit) recordTooLarge()
+                    databaseCall { validated { editable.stage(session.scope, id, digest, bytes) } }
+                    call.respond(HttpStatusCode.NoContent)
+                } finally {
+                    recordTransfers.release()
+                }
+            }
+            post("/editable/versions/{versionId}/commit") {
+                val session = call.authenticate(auth).second
+                call.requireMutation(session, origin)
+                call.requireRecordScope(session.scope)
+                val id = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
+                val request = call.body()
+                val (digest, parents) = validated {
+                    require(request.keys == setOf("sha256", "parents"))
+                    val digest = request.text("sha256")
+                    require(digest.matches(Regex("[0-9a-f]{64}")))
+                    val parents = request.getValue("parents").jsonArray.map {
+                        Uuid.parse(it.jsonPrimitive.also { value -> require(value.isString) }.content)
+                    }
+                    require(parents.size == parents.toSet().size)
+                    digest to parents.toSet()
+                }
+                databaseCall { validated { editable.commit(session.scope, id, digest, parents) } }
+                call.respond(HttpStatusCode.NoContent)
+            }
+            get("/editable/versions") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireRecordScope(scope)
+                val (after, limit) = validated {
+                    val raw = call.request.queryParameters["after"] ?: "0"
+                    val cursor = requireNotNull(raw.toLongOrNull())
+                    require(cursor >= 0 && raw == cursor.toString())
+                    val size = call.request.queryParameters["limit"]?.let { requireNotNull(it.toIntOrNull()) } ?: 100
+                    require(size in 1..100)
+                    cursor to size
+                }
+                val rows = databaseCall { editable.versions(scope, after, limit) }
+                val page = rows.take(limit)
+                call.json(buildJsonObject {
+                    put("scope", scope.json())
+                    put("hasMore", rows.size > limit)
+                    put("items", JsonArray(page.map {
+                        buildJsonObject {
+                            put("id", it.id.toString())
+                            put("sequence", it.sequence.toString())
+                            put("kind", it.kind)
+                            put("key", it.key)
+                            put("rootId", it.root.toString())
+                            put("sha256", it.sha256)
+                            put("parents", JsonArray(it.parents.map(::JsonPrimitive)))
+                            put("current", it.current)
+                        }
+                    }))
+                })
+            }
+            get("/editable/versions/{versionId}") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireRecordScope(scope)
+                val id = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
+                if (!recordTransfers.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the record download later.")
+                try {
+                    val archive = databaseCall { editable.download(scope, id) }
+                    call.response.headers.append("X-Content-SHA256", archive.sha256)
+                    call.respondBytes(archive.bytes, ContentType.Application.OctetStream)
+                } finally {
+                    recordTransfers.release()
+                }
+            }
+            get("/editable/versions/{versionId}/preview") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireRecordScope(scope)
+                val id = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
+                if (!recordTransfers.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the preview later.")
+                try {
+                    val preview = databaseCall { EditableRecordArchive.preview(editable.download(scope, id).bytes) }
+                    val body = preview.toString()
+                    if (body.encodeToByteArray().size > 8 * 1024 * 1024) {
+                        throw ApiFailure(413, "LIMIT_EXCEEDED", "The record exceeds the browser preview limit.")
+                    }
+                    call.respondText(body, ContentType.Application.Json)
+                } finally {
+                    recordTransfers.release()
                 }
             }
             get("/bootstrap") {
@@ -315,7 +433,7 @@ private suspend fun ApplicationCall.body(): JsonObject {
     }
 }
 
-private fun ApplicationCall.requireJournalScope(scope: SyncScope, optional: Boolean = false) {
+private fun ApplicationCall.requireRecordScope(scope: SyncScope, optional: Boolean = false) {
     val dataset = request.headers["X-LifeApp-Dataset"]
     val epoch = request.headers["X-LifeApp-Epoch"]
     if (optional && dataset == null && epoch == null) return
@@ -365,6 +483,7 @@ private inline fun <T> validated(block: () -> T): T = try {
 }
 
 private fun invalid(): Nothing = throw ApiFailure(400, "INVALID_REQUEST", "Malformed or invalid request.")
+private fun recordTooLarge(): Nothing = throw ApiFailure(413, "LIMIT_EXCEEDED", "The record archive exceeds 16 MiB.")
 private fun inkTooLarge(): Nothing = throw ApiFailure(413, "LIMIT_EXCEEDED", "The stroke exceeds 20,000,012 bytes.")
 private fun tooLarge(): Nothing = throw ApiFailure(413, "LIMIT_EXCEEDED", "The request exceeds 16 KiB.")
 private suspend fun <T> databaseCall(block: () -> T): T = withContext(databaseDispatcher) { block() }

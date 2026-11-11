@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { commitJournalFixture } from './journal-fixture.ts';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
@@ -201,7 +203,7 @@ test('workout and original weight unit survive offline reload', async ({ page, c
   await expect(page.getByText('No completed workouts this month.')).toBeVisible();
 });
 
-test('journal preview draws committed LJPT vectors and hides them offline', async ({ context, page }) => {
+test('journal, planner and notebook previews draw committed vectors and hide them offline', async ({ context, page }) => {
   await page.goto('/');
   await signIn(page);
   const date = '2026-11-09';
@@ -215,10 +217,36 @@ test('journal preview draws committed LJPT vectors and hides them offline', asyn
     return Array.from(source.getContext('2d')!.getImageData(307, 307, 1, 1).data);
   });
   expect(pixel).toEqual([0, 0, 0, 255]);
+  const session = await (await context.request.get('/v1/session')).json();
+  const headers = { Origin: new URL(page.url()).origin, 'X-CSRF-Token': session.csrfToken,
+    'X-LifeApp-Dataset': session.scope.dataset, 'X-LifeApp-Epoch': session.scope.epoch };
+  for (const kind of ['planner', 'notebook']) {
+    const archive = execFileSync('python3', ['../../contracts/fixtures/editable-archive.py', kind]);
+    const version = randomUUID();
+    const sha256 = createHash('sha256').update(archive).digest('hex');
+    expect((await context.request.put('/v1/editable/staged/' + version, {
+      headers: { ...headers, 'Content-Type': 'application/octet-stream', 'X-Content-SHA256': sha256 }, data: archive,
+    })).status()).toBe(204);
+    expect((await context.request.post('/v1/editable/versions/' + version + '/commit', {
+      headers, data: { sha256, parents: [] },
+    })).status()).toBe(204);
+  }
+  await page.getByText('Server record versions', { exact: true }).click();
+  await page.getByRole('button', { name: 'Planner · 2026-11' }).click();
+  const planner = page.getByRole('img', { name: 'Handwriting for 2026-11', exact: true });
+  await expect(planner).toBeVisible();
+  expect(await planner.evaluate(element => Array.from((element as HTMLCanvasElement).getContext('2d')!
+    .getImageData(137, 241, 1, 1).data))).toEqual([0, 0, 0, 255]);
+  await page.getByRole('button', { name: /Notebook ·/ }).click();
+  const notebook = page.getByRole('img', { name: 'Handwriting for Field notes' });
+  await expect(notebook).toBeVisible();
+  expect(await notebook.evaluate(element => Array.from((element as HTMLCanvasElement).getContext('2d')!
+    .getImageData(192, 338, 1, 1).data))).toEqual([0, 0, 0, 255]);
   const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
     (await (await caches.open(name)).keys()).map(item => new URL(item.url).pathname)))).flat());
-  expect(cachedPaths.some(path => path.startsWith('/v1/journal/'))).toBe(false);
+  expect(cachedPaths.some(path => path.startsWith('/v1/journal/') || path.startsWith('/v1/editable/'))).toBe(false);
   await context.setOffline(true);
   await expect(canvas).toHaveCount(0);
+  await expect(notebook).toHaveCount(0);
   await expect(page.getByText('Connect to view committed journal pages.')).toBeVisible();
 });
