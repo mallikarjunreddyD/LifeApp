@@ -1,9 +1,11 @@
 package com.myjournal.android
 
 import com.myjournal.data.BackupArchive
+import com.myjournal.data.JournalInkJson
 import com.myjournal.data.TodoOperationJson
 import com.myjournal.data.TodoServerJson
 import com.myjournal.data.checkJsonSizeAndDepth
+import com.myjournal.domain.JournalEntry
 import com.myjournal.domain.ServerEndpoint
 import com.myjournal.domain.SyncCheckpoint
 import com.myjournal.domain.SyncScope
@@ -89,6 +91,28 @@ internal class ServerApi(
         return found
     }
 
+    suspend fun journalEntries(session: ServerSession, token: String): List<JournalEntry> {
+        val entries = mutableListOf<JournalEntry>()
+        var cursor: String? = null
+        repeat(500) {
+            val path = "/v1/journal/entries?limit=100" + (cursor?.let { "&cursor=$it" } ?: "")
+            val response = request(path, token = token, journalScope = session.scope).objectValue()
+            val items = response.getValue("items").jsonArray
+            require(items.size <= 100) { "Invalid server journal page size" }
+            for (item in items) {
+                val entry = JournalInkJson.readEntry(item.jsonObject)
+                val id = entry.metadata.id.toString()
+                require(entry.pages.size == 1 && !entry.pages.single().archived) { "Invalid server journal page" }
+                require(cursor?.let { id > it } ?: true) { "Invalid server journal entry order" }
+                entries += entry
+                cursor = id
+            }
+            val next = response.getValue("next").jsonPrimitive.contentOrNull ?: return entries
+            require(items.size == 100 && next == cursor) { "Invalid server journal cursor" }
+        }
+        error("The server journal inventory exceeds 50,000 entries.")
+    }
+
     fun transport(
         session: ServerSession,
         token: String,
@@ -117,7 +141,9 @@ internal class ServerApi(
         }
     }
 
-    private suspend fun request(path: String, method: String = "GET", token: String? = null, body: JsonObject? = null): String =
+    private suspend fun request(
+        path: String, method: String = "GET", token: String? = null, body: JsonObject? = null, journalScope: SyncScope? = null,
+    ): String =
         withContext(Dispatchers.IO) {
             val conn = connection(URI(endpoint.origin + path).toURL())
             try {
@@ -128,6 +154,10 @@ internal class ServerApi(
                 conn.requestMethod = method
                 conn.setRequestProperty("Accept", "application/json")
                 token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
+                journalScope?.let {
+                    conn.setRequestProperty("X-LifeApp-Dataset", it.dataset.toString())
+                    conn.setRequestProperty("X-LifeApp-Epoch", it.epoch.toString())
+                }
                 if (body != null) {
                     val bytes = body.toString().encodeToByteArray()
                     require(bytes.size <= 16_384) { "Request exceeds the LifeApp limit" }

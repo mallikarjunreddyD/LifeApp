@@ -100,6 +100,27 @@ internal class AndroidServerSync(private val context: Context, private val repos
         message("Review the dataset and save a verified local backup to continue.")
     }
 
+    suspend fun inspectJournal(expectedOrigin: String, expectedScope: SyncScope, backup: JournalSnapshot): JournalImportInventory =
+        gate.withLock {
+            try {
+                val (credential, session, api) = currentSession()
+                if (api.endpoint.origin != expectedOrigin || session.scope != expectedScope) {
+                    throw UserSyncError("The server or dataset changed. Sign in and review the journal inventory again.")
+                }
+                withContext(Dispatchers.IO) {
+                    JournalImportInventory.compare(backup, api.journalEntries(session, credential.token))
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if ((failure is ServerHttpFailure && failure.status == 401) || failure is ExpiredSyncSession) {
+                    store.clear()
+                    refresh(null, load = false)
+                }
+                throw UserSyncError("The backup was verified. Journal review failed. ${safeMessage(failure)}")
+            }
+        }
+
     /** Invoked only after the chosen backup document was written and read back. */
     suspend fun bindFromVerifiedBackup(expected: BindingPreview, backedUp: List<Todo>) = gate.withLock {
         try {

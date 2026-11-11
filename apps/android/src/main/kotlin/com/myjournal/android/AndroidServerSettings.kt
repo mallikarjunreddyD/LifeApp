@@ -5,6 +5,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +33,22 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
     val selectBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         val preview = server.preview
         if (uri != null && preview != null && preview.allowed) operations.bindServer(uri, sync, preview)
+    }
+    var journalTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    val currentTarget = server.accountScope?.let { "${server.origin}/${it.dataset}/${it.epoch}" }
+    val selectJournalBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val account = server.accountScope
+        val serverOrigin = server.origin
+        if (uri != null && account != null && serverOrigin != null && journalTarget == currentTarget) {
+            operations.reviewJournal(uri, sync, serverOrigin, account)
+        }
+        journalTarget = null
+    }
+    val inventoryPreview = backupState.journalInventory
+    LaunchedEffect(currentTarget, inventoryPreview, backupState.busy) {
+        if (inventoryPreview != null && (inventoryPreview.scope != server.accountScope || inventoryPreview.origin != server.origin)) {
+            operations.dismissJournalInventory()
+        }
     }
     val enabled = !server.working && !backupState.busy
     Text("LifeApp Server", style = MaterialTheme.typography.titleLarge)
@@ -73,7 +92,15 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
         } else {
             Button(enabled = enabled && server.bound?.scope == server.accountScope, onClick = sync::syncNow) { Text("Sync To-do now") }
         }
-        TextButton(enabled = enabled, onClick = sync::disconnect) { Text("Disconnect server") }
+        OutlinedButton(enabled = enabled && currentTarget != null, onClick = {
+            journalTarget = currentTarget
+            selectJournalBackup.launch(exportName("LifeApp-BeforeJournalImport", "zip"))
+        }) { Text("Back up and review journal inventory") }
+        Text("Choose a local file for a separate backup, then compare journal dates. The review sends no journal records.")
+        TextButton(enabled = enabled, onClick = {
+            operations.dismissJournalInventory()
+            sync.disconnect()
+        }) { Text("Disconnect server") }
     }
     server.bound?.let { Text("Bound dataset ${it.scope.dataset} · applied commit ${it.sequence}") }
     Text("${server.pending} queued To-do operations")
@@ -86,6 +113,35 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
     if (server.conflicts.isNotEmpty()) {
         Text("Task conflicts", style = MaterialTheme.typography.titleMedium)
         for (heads in server.conflicts) ConflictChoices(heads, enabled, sync)
+    }
+    if (!backupState.busy && inventoryPreview != null &&
+        inventoryPreview.scope == server.accountScope && inventoryPreview.origin == server.origin) {
+        val inventory = inventoryPreview.inventory
+        AlertDialog(
+            onDismissRequest = operations::dismissJournalInventory,
+            title = { Text("Journal inventory") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        Text("Backup contains ${inventory.localEntries} journal entries, ${inventory.localPages} pages and ${inventory.localStrokes} strokes.")
+                    }
+                    item { Text("Server has ${inventory.serverEntries} committed entries.") }
+                    item {
+                        Text("${inventory.localOnlyEntries} entries only in the backup · ${inventory.serverOnlyEntries} only on the server.")
+                    }
+                    if (inventory.overlappingDates.isNotEmpty()) {
+                        item { Text("Dates present in both inventories", style = MaterialTheme.typography.titleSmall) }
+                        items(inventory.overlappingDates) { Text(it.toString()) }
+                    }
+                    if (inventory.reusedIdentityDates.isNotEmpty()) {
+                        item { Text("Dates affected by an entry or page ID used on different dates", style = MaterialTheme.typography.titleSmall) }
+                        items(inventory.reusedIdentityDates) { Text(it.toString()) }
+                    }
+                    item { Text("This review compares entry and page identities. Ink comparison and import are still unavailable.") }
+                }
+            },
+            confirmButton = { TextButton(onClick = operations::dismissJournalInventory) { Text("Done") } },
+        )
     }
     if (confirm) {
         AlertDialog(

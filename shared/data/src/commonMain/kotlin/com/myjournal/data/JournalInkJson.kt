@@ -7,8 +7,10 @@ import kotlinx.serialization.json.*
 import kotlin.uuid.Uuid
 
 object JournalInkJson {
-    fun entry(value: JsonObject): JournalEntry = decodeEntry(value).also {
-        require(value == encodeEntry(it))
+    fun entry(value: JsonObject): JournalEntry = readEntry(value).also { require(value == encodeEntry(it)) }
+
+    // PostgreSQL JSONB can normalize numeric spelling in an already validated entry.
+    fun readEntry(value: JsonObject): JournalEntry = decodeEntry(value).also {
         require(it.metadata.schemaVersion == 1 && it.pages.all { page -> page.metadata.schemaVersion == 1 })
     }
 

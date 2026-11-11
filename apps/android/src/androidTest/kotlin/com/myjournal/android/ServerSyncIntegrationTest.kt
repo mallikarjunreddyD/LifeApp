@@ -49,11 +49,14 @@ class ServerSyncIntegrationTest {
         var database = open()
         try {
             api.ready()
+            val journalId = newRecordMetadata()
+            val journal = JournalEntry(journalId, LocalDate(2026, 11, 9),
+                listOf(JournalPage(newRecordMetadata(), journalId.id, 0)))
             val originalBook = Notebook(newRecordMetadata(), "Existing Android notebook")
             val page = NotebookPage(newRecordMetadata(), originalBook.metadata.id, 0, paper = PaperTemplate.DOTTED)
             val stroke = InkStroke(newRecordMetadata(), page.metadata.id, 0, BrushTool.PEN, 0xFF000000, 3f,
                 listOf(InkPoint(120f, 200f, 0, 0.4f), InkPoint(180f, 220f, 10, 0.8f)))
-            val original = JournalSnapshot(notebooks = listOf(originalBook), notebookPages = listOf(page), strokes = listOf(stroke))
+            val original = JournalSnapshot(journals = listOf(journal), notebooks = listOf(originalBook), notebookPages = listOf(page), strokes = listOf(stroke))
             val snapshots = RoomSnapshotRepository(database)
             snapshots.replace(original)
             val repository = RoomTodoRepository(database)
@@ -61,6 +64,19 @@ class ServerSyncIntegrationTest {
             val backup = File(directory, "before-sync.zip")
             BackupArchive.write(backup, snapshots.capture())
             val saved = BackupArchive.read(backup).snapshot
+            val journalEntries = api.journalEntries(credential.session, credential.token)
+            assertTrue(journalEntries.isEmpty())
+            val inventory = JournalImportInventory.compare(saved, journalEntries)
+            assertEquals(1, inventory.localOnlyEntries)
+            assertEquals(1, inventory.localPages)
+            assertEquals(0, inventory.localStrokes)
+            try {
+                val stale = credential.session.copy(scope = credential.session.scope.copy(epoch = Uuid.random()))
+                api.journalEntries(stale, credential.token)
+                fail("Unexpected recovery epoch accepted for journal inventory")
+            } catch (failure: ServerHttpFailure) {
+                assertEquals(409, failure.status)
+            }
             val firstPage = transport.pull(SyncCheckpoint(credential.session.scope))
             assertTrue(firstPage.entries.isEmpty())
             repository.bindEndpoint(credential.session.scope, api.endpoint, saved.todos, remoteHasHistory = false)
@@ -88,6 +104,11 @@ class ServerSyncIntegrationTest {
                 }
                 found
             }
+            val overlap = JournalImportInventory.compare(saved, api.journalEntries(credential.session, credential.token))
+            assertEquals(1, overlap.serverEntries)
+            assertEquals(listOf(journal.date), overlap.overlappingDates)
+            assertEquals(0, overlap.localOnlyEntries)
+
             reopened.edit(browserId, "Android edited browser task", LocalDate(2030, 11, 12))
             coordinator.synchronize()
             assertTrue(browserId in api.visibleTaskIds(credential.token))
@@ -100,6 +121,7 @@ class ServerSyncIntegrationTest {
             assertEquals(setOf(false, true), reopened.conflicts(taskId).map { it.record.deleted }.toSet())
             assertFalse(taskId in api.visibleTaskIds(credential.token))
             val restored = RoomSnapshotRepository(database).capture()
+            assertEquals(original.journals, restored.journals)
             assertEquals(original.notebooks, restored.notebooks)
             assertEquals(original.notebookPages, restored.notebookPages)
             assertEquals(stroke.metadata.id, restored.strokes.single().metadata.id)

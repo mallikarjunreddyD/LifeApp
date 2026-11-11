@@ -328,3 +328,15 @@ The browser test used a synthetic fixture and an iPhone-sized Chromium
 viewport. Physical iPhone Safari, Xiaomi Pad 7 handwriting and Android-to-PWA
 journal sync remain unverified. Android first sync, editor replay and conflict
 review, and Planner, Habits and Notebook synchronization remain pending.
+
+## Phase 7E Android journal inventory
+
+The inventory unit tests cover same-date overlap, reused entry and page
+identities, archived-page counts and duplicate server records. Web typecheck,
+lint, four web unit tests and all five Chromium tests passed against the
+disposable stack. The Android/PWA bridge fixture now creates a server journal
+entry on the same date as an Android backup entry. It checks overlap,
+stale-epoch rejection and preservation of the local journal during To-do
+replay. Physical device acceptance still requires selecting and verifying a
+local backup through the Android system picker, reviewing the inventory and
+confirming that local journal content remains intact.

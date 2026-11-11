@@ -11,8 +11,11 @@ import java.security.MessageDigest
 import kotlin.time.Clock
 
 data class RestorePreview(val file: File, val backup: BackupArchive.Validated, val replacesData: Boolean, val sourceUri: Uri?)
+data class JournalInventoryPreview(val origin: String, val scope: SyncScope, val inventory: JournalImportInventory)
+
 data class OperationState(val busy: Boolean = false, val message: String? = null, val error: Boolean = false,
-    val preview: RestorePreview? = null, val pdfSnapshot: JournalSnapshot? = null, val driveVersions: List<CloudBackupVersion>? = null)
+    val preview: RestorePreview? = null, val pdfSnapshot: JournalSnapshot? = null, val driveVersions: List<CloudBackupVersion>? = null,
+    val journalInventory: JournalInventoryPreview? = null)
 
 /** Application-owned operations survive Activity recreation. The UI is locked while busy. */
 class DataOperations(private val app: JournalApplication, private val repository: SnapshotRepository) {
@@ -69,6 +72,28 @@ class DataOperations(private val app: JournalApplication, private val repository
                 file.delete()
             }
         }
+
+    internal fun reviewJournal(uri: Uri, sync: AndroidServerSync, origin: String, scope: SyncScope) =
+        start("Creating a verified backup before reviewing journal records…") {
+            mutable.value = mutable.value.copy(journalInventory = null)
+            val data = snapshot()
+            val file = temp(".zip")
+            try {
+                withContext(Dispatchers.IO) {
+                    BackupArchive.write(file, data)
+                    writeVerified(file, uri)
+                }
+            } finally {
+                file.delete()
+            }
+            val inventory = sync.inspectJournal(origin, scope, data)
+            mutable.value = mutable.value.copy(journalInventory = JournalInventoryPreview(origin, scope, inventory))
+            "Backup verified. Journal inventory ready to review."
+        }
+
+    fun dismissJournalInventory() {
+        if (!mutable.value.busy) mutable.value = mutable.value.copy(journalInventory = null)
+    }
 
     fun clearDriveVersions() {
         if (!mutable.value.busy) mutable.value = mutable.value.copy(driveVersions = null)
