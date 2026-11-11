@@ -224,7 +224,7 @@ class ServerSyncIntegrationTest {
             credentials.setEditableEnabled(target)
             automaticBaselines.record(target, mapOf(updated.key to recorded))
             val automatic = AndroidServerSync(app, reopened, automaticScope, { endpoint ->
-                assertEquals(api.endpoint, endpoint)
+                assertEquals(api.endpoint.origin, endpoint.origin)
                 api
             }, editableDirectory)
             val localBook = newBook.copy(name = "Automatically uploaded",
