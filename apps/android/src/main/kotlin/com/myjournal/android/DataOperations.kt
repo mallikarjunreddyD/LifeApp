@@ -17,11 +17,23 @@ data class OperationState(val busy: Boolean = false, val message: String? = null
     val preview: RestorePreview? = null, val pdfSnapshot: JournalSnapshot? = null, val driveVersions: List<CloudBackupVersion>? = null,
     val journalInventory: JournalInventoryPreview? = null)
 
+internal data class EditableImportReview(
+    val target: EditableImportQueue.Target,
+    val eligible: List<EditableImportRecord>,
+    val overlaps: List<EditableImportKey>,
+    val serverCount: Int,
+    val downloadable: List<EditableRemoteVersion>,
+    val conflicted: List<EditableImportKey>,
+)
+
 /** Application-owned operations survive Activity recreation. The UI is locked while busy. */
-class DataOperations(private val app: JournalApplication, private val repository: SnapshotRepository) {
+class DataOperations(private val app: JournalApplication, private val repository: RoomSnapshotRepository) {
     private val scope = CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
     private val mutable = MutableStateFlow(OperationState())
     val state = mutable.asStateFlow()
+    private val importReviewMutable = MutableStateFlow<EditableImportReview?>(null)
+    internal val importReview = importReviewMutable.asStateFlow()
+
     private fun start(label: String, action: suspend ()->String) {
         if (mutable.value.busy) return
         mutable.value=mutable.value.copy(busy=true,message=label,error=false)
@@ -93,6 +105,51 @@ class DataOperations(private val app: JournalApplication, private val repository
 
     fun dismissJournalInventory() {
         if (!mutable.value.busy) mutable.value = mutable.value.copy(journalInventory = null)
+    }
+
+    internal fun reviewEditableImport(uri: Uri, sync: AndroidServerSync, target: EditableImportQueue.Target) =
+        start("Creating a verified backup before reviewing record uploads…") {
+            importReviewMutable.value = null
+            val data = snapshot()
+            val file = temp(".zip")
+            try {
+                withContext(Dispatchers.IO) {
+                    BackupArchive.write(file, data)
+                    writeVerified(file, uri)
+                }
+            } finally {
+                file.delete()
+            }
+            importReviewMutable.value = sync.reviewEditableImport(target, data)
+            "Backup verified. Review the records before approving upload."
+        }
+
+    internal fun approveEditableImport(sync: AndroidServerSync, review: EditableImportReview) =
+        start("Saving the approved upload queue…") {
+            check(importReviewMutable.value === review)
+            sync.queueEditableImport(review)
+            importReviewMutable.value = null
+            sync.resumeEditableImport()
+            "Approved uploads queued."
+        }
+
+    internal fun applyEditableDownload(sync: AndroidServerSync, review: EditableImportReview) =
+        start("Downloading and validating reviewed records…") {
+            check(importReviewMutable.value === review && review.downloadable.isNotEmpty())
+            val records = sync.downloadEditableImport(review)
+            snapshot() // Drain editors again before applying any received records.
+            app.session.cancel()
+            try {
+                repository.addEditableRecords(records)
+            } finally {
+                app.rebuildEditors()
+            }
+            importReviewMutable.value = null
+            "Added ${records.size} reviewed server records. Existing Android records were kept."
+        }
+
+    internal fun dismissEditableImport() {
+        if (!mutable.value.busy) importReviewMutable.value = null
     }
 
     fun clearDriveVersions() {

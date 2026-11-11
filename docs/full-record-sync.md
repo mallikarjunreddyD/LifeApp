@@ -120,9 +120,31 @@ server purges expired staging in bounded batches. The clean database
 restore script clears staged uploads, retains committed versions and
 rotates the recovery epoch.
 
-The Android editors still save these four record types locally. Remaining
-work includes the Android transfer queue and transactional replay, the
-backup-verified import and conflict resolution workflow, migration of
-the original journal imports, and per-date habit operations and PWA
-checkbox editing. Cross-device acceptance must exercise those paths
-before enabling synchronization.
+## First transfer between Android and the server
+
+In **Settings → LifeApp Server**, choose **Back up and review first record
+transfer**. After the separate backup is verified, LifeApp compares its
+journal dates, planner months, habit months and notebook UUIDs with the
+authenticated server inventory. The review lists overlaps and competing
+server versions. Existing records on either side are skipped.
+
+**Approve upload** saves each approved record archive and a stable version
+UUID in a private, backup-excluded queue. The queue is bound to the selected
+HTTPS origin, dataset and recovery epoch. Each archive is committed in its
+own server transaction. If a matching key appears after review, that
+upload stays queued for review. **Resume record uploads** resends the same
+archive after interruption or a lost receipt. **Clear queued upload copies**
+discards pending copies while retaining Android records, the independent
+backup and any completed server uploads.
+
+**Add reviewed server records** verifies the chosen versions and each
+archive checksum, then adds the batch in one Room transaction. The
+transaction rejects all records in the batch if a local date, month or
+record identity would collide. Existing records and To-do replay state
+are preserved. The editor caches are reloaded after application.
+
+The transfer is add-only. Android editor changes after transfer remain
+local. Continuous capture and replay, conflict resolution, migration of
+the original single-page journal imports, per-date habit operations, and
+PWA checkbox editing remain open. Complete cross-device acceptance before
+calling the four modules synchronized.

@@ -230,17 +230,22 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                 call.requireRecordScope(session.scope)
                 val id = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
                 val request = call.body()
-                val (digest, parents) = validated {
-                    require(request.keys == setOf("sha256", "parents"))
+                val (digest, parents, requireEmpty) = validated {
+                    val fields = setOf("sha256", "parents")
+                    require(request.keys == fields || request.keys == fields + "requireEmpty")
+                    val requireEmpty = request["requireEmpty"]?.jsonPrimitive?.let {
+                        require(!it.isString)
+                        requireNotNull(it.booleanOrNull)
+                    } ?: false
                     val digest = request.text("sha256")
                     require(digest.matches(Regex("[0-9a-f]{64}")))
                     val parents = request.getValue("parents").jsonArray.map {
                         Uuid.parse(it.jsonPrimitive.also { value -> require(value.isString) }.content)
                     }
                     require(parents.size == parents.toSet().size)
-                    digest to parents.toSet()
+                    Triple(digest, parents.toSet(), requireEmpty)
                 }
-                databaseCall { validated { editable.commit(session.scope, id, digest, parents) } }
+                databaseCall { validated { editable.commit(session.scope, id, digest, parents, requireEmpty) } }
                 call.respond(HttpStatusCode.NoContent)
             }
             get("/editable/versions") {

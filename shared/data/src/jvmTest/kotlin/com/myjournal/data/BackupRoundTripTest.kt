@@ -13,6 +13,32 @@ import kotlin.test.*
 class BackupRoundTripTest {
     private fun database(file: File, driver: SQLiteDriver = BundledSQLiteDriver()) = Room.databaseBuilder<FoundationDatabase>(file.path)
         .setDriver(driver).setQueryCoroutineContext(Dispatchers.IO).addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build()
+    @Test fun firstRecordReplayAddsOnlyMissingRecordsInOneRoomTransaction() = runTest {
+        val directory = Files.createTempDirectory("lifeapp-record-replay").toFile()
+        val database = database(File(directory, "app.db"))
+        try {
+            val repository = RoomSnapshotRepository(database)
+            val source = backupFixture()
+            val initial = source.copy(journals = emptyList(), planners = emptyList(), habits = emptyList(),
+                notebooks = emptyList(), notebookPages = emptyList(), strokes = emptyList())
+            repository.replace(initial)
+            val records = source.editableImportRecords()
+            repository.addEditableRecords(records)
+            val before = SnapshotJson.encode(repository.capture())
+            assertEquals(SnapshotJson.encode(source), before)
+
+            val newBook = Notebook(newRecordMetadata(), "Do not partially insert")
+            val extra = JournalSnapshot(notebooks = listOf(newBook)).editableImportRecords().single()
+            assertFailsWith<IllegalArgumentException> {
+                repository.addEditableRecords(listOf(extra, records.first()))
+            }
+            assertEquals(before, SnapshotJson.encode(repository.capture()))
+        } finally {
+            database.close()
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun completeArchiveRestoresExactEditableStateAcrossRealDatabaseReopening() = runTest {
         val directory=Files.createTempDirectory("lifeapp-roundtrip").toFile()
         val original=backupFixture()

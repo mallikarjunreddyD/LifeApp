@@ -23,6 +23,12 @@ test('browser exchanges task changes with the Android HTTPS client', async ({ pa
   }
 
   await syncUntil('Android offline import');
+  await page.getByRole('button', { name: 'Journal', exact: true }).click();
+  await page.getByText('Server record versions', { exact: true }).click();
+  await page.getByRole('button', { name: /Notebook ·/ }).click();
+  await expect(page.getByRole('heading', { name: 'Existing Android notebook' })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Handwriting for Page 1' })).toBeVisible();
+  await page.getByRole('button', { name: 'To-do', exact: true }).click();
   await commitJournalFixture(page.request, new URL(page.url()).origin, '2026-11-09');
   await page.getByRole('button', { name: 'Add task' }).click();
   await page.getByLabel('Task title').fill('Browser created task');

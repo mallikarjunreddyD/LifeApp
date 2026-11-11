@@ -50,9 +50,26 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
             operations.dismissJournalInventory()
         }
     }
+    var discardImport by rememberSaveable { mutableStateOf(false) }
+    var importTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectImportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val account = server.accountScope
+        val serverOrigin = server.origin
+        if (uri != null && account != null && serverOrigin != null && importTarget == currentTarget) {
+            operations.reviewEditableImport(uri, sync, EditableImportQueue.Target(serverOrigin, account))
+        }
+        importTarget = null
+    }
+    val importReview by operations.importReview.collectAsState()
+    LaunchedEffect(currentTarget, importReview, backupState.busy) {
+        val target = importReview?.target
+        if (target != null && (target.scope != server.accountScope || target.origin != server.origin)) {
+            operations.dismissEditableImport()
+        }
+    }
     val enabled = !server.working && !backupState.busy
     Text("LifeApp Server", style = MaterialTheme.typography.titleLarge)
-    Text("Server sync covers To-do. Journal, Planner, Habits, Notebook and editable ink stay local.")
+    Text("To-do sync runs after binding. First record transfer adds new journal, planner, habit and notebook records to the chosen destination.")
     server.message?.let { Text(it, color = if (server.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
     OutlinedTextField(
         value = origin,
@@ -90,17 +107,31 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
         if (server.bound == null) {
             OutlinedButton(enabled = enabled, onClick = sync::preview) { Text("Review first sync") }
         } else {
-            Button(enabled = enabled && server.bound?.scope == server.accountScope, onClick = sync::syncNow) { Text("Sync To-do now") }
+            Button(enabled = enabled && server.bound.scope == server.accountScope, onClick = sync::syncNow) { Text("Sync To-do now") }
         }
         OutlinedButton(enabled = enabled && currentTarget != null, onClick = {
             journalTarget = currentTarget
             selectJournalBackup.launch(exportName("LifeApp-BeforeJournalImport", "zip"))
         }) { Text("Back up and review journal inventory") }
         Text("Choose a local file for a separate backup, then compare journal dates. The review sends no journal records.")
+        if (server.pendingImport > 0) {
+            Text("${server.pendingImport} approved record uploads pending")
+            OutlinedButton(enabled = enabled, onClick = sync::resumeEditableImport) { Text("Resume record uploads") }
+        } else if (!server.importQueueUnreadable) {
+            OutlinedButton(enabled = enabled && currentTarget != null, onClick = {
+                importTarget = currentTarget
+                selectImportBackup.launch(exportName("LifeApp-BeforeRecordImport", "zip"))
+            }) { Text("Back up and review first record transfer") }
+        }
         TextButton(enabled = enabled, onClick = {
             operations.dismissJournalInventory()
+            operations.dismissEditableImport()
             sync.disconnect()
         }) { Text("Disconnect server") }
+    }
+    if (server.importQueueUnreadable) Text("The record upload queue could not be read.", color = MaterialTheme.colorScheme.error)
+    if (server.pendingImport > 0 || server.importQueueUnreadable) {
+        TextButton(enabled = enabled, onClick = { discardImport = true }) { Text("Clear queued upload copies") }
     }
     server.bound?.let { Text("Bound dataset ${it.scope.dataset} · applied commit ${it.sequence}") }
     Text("${server.pending} queued To-do operations")
@@ -125,9 +156,9 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
                     item {
                         Text("Backup contains ${inventory.localEntries} journal entries, ${inventory.localPages} pages and ${inventory.localStrokes} strokes.")
                     }
-                    item { Text("Server has ${inventory.serverEntries} committed entries.") }
+                    item { Text("The original single-page journal store has ${inventory.serverEntries} committed entries.") }
                     item {
-                        Text("${inventory.localOnlyEntries} entries only in the backup · ${inventory.serverOnlyEntries} only on the server.")
+                        Text("${inventory.localOnlyEntries} backup entries absent from that store · ${inventory.serverOnlyEntries} entries only in that store.")
                     }
                     if (inventory.overlappingDates.isNotEmpty()) {
                         item { Text("Dates present in both inventories", style = MaterialTheme.typography.titleSmall) }
@@ -137,12 +168,62 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
                         item { Text("Dates affected by an entry or page ID used on different dates", style = MaterialTheme.typography.titleSmall) }
                         items(inventory.reusedIdentityDates) { Text(it.toString()) }
                     }
-                    item { Text("This review compares entry and page identities. Ink comparison and import are still unavailable.") }
+                    item { Text("This review covers the original single-page journal store. Use the first record upload review to also check versioned records.") }
                 }
             },
             confirmButton = { TextButton(onClick = operations::dismissJournalInventory) { Text("Done") } },
         )
     }
+    importReview?.takeIf { !backupState.busy && it.target.scope == server.accountScope && it.target.origin == server.origin }?.let { review ->
+        AlertDialog(
+            onDismissRequest = operations::dismissEditableImport,
+            title = { Text("Review first record transfer") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { Text("Server ${review.target.origin}") }
+                    item { Text("${review.eligible.size} Android records can be uploaded. ${review.downloadable.size} server records can be added to Android.") }
+                    item { Text("The server has ${review.serverCount} record keys. Existing records are skipped.") }
+                    val counts = review.eligible.groupingBy { it.key.kind }.eachCount()
+                    item { Text("Journal ${counts["journal"] ?: 0} · Planner ${counts["planner"] ?: 0} · Habits ${counts["habits"] ?: 0} · Notebook ${counts["notebook"] ?: 0}") }
+                    if (review.overlaps.isNotEmpty()) {
+                        item { Text("Present on both sides", style = MaterialTheme.typography.titleSmall) }
+                        items(review.overlaps) { Text("${it.kind.replaceFirstChar(Char::uppercaseChar)} · ${it.key}") }
+                    }
+                    if (review.conflicted.isNotEmpty()) {
+                        item { Text("Skipped because the server has competing versions", style = MaterialTheme.typography.titleSmall) }
+                        items(review.conflicted) { Text("${it.kind.replaceFirstChar(Char::uppercaseChar)} · ${it.key}") }
+                    }
+                }
+            },
+            confirmButton = {
+                Column {
+                    if (review.eligible.isNotEmpty()) {
+                        TextButton(enabled = enabled, onClick = { operations.approveEditableImport(sync, review) }) {
+                            Text("Approve upload")
+                        }
+                    }
+                    if (review.downloadable.isNotEmpty()) {
+                        TextButton(enabled = enabled, onClick = { operations.applyEditableDownload(sync, review) }) {
+                            Text("Add reviewed server records")
+                        }
+                    }
+                }
+            },
+            dismissButton = { TextButton(onClick = operations::dismissEditableImport) { Text("Close") } },
+        )
+    }
+    if (discardImport) AlertDialog(
+        onDismissRequest = { discardImport = false },
+        title = { Text("Clear queued upload copies?") },
+        text = { Text("This cancels the remaining uploads. Your Android records, separate backup and records already on the server will be kept.") },
+        confirmButton = {
+            TextButton(enabled = enabled, onClick = {
+                discardImport = false
+                sync.discardEditableImport()
+            }) { Text("Clear queued copies") }
+        },
+        dismissButton = { TextButton(onClick = { discardImport = false }) { Text("Cancel") } },
+    )
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },

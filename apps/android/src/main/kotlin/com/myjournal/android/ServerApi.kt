@@ -5,6 +5,7 @@ import com.myjournal.data.JournalInkJson
 import com.myjournal.data.TodoOperationJson
 import com.myjournal.data.TodoServerJson
 import com.myjournal.data.checkJsonSizeAndDepth
+import com.myjournal.domain.EditableImportKey
 import com.myjournal.domain.JournalEntry
 import com.myjournal.domain.ServerEndpoint
 import com.myjournal.domain.SyncCheckpoint
@@ -14,12 +15,15 @@ import com.myjournal.domain.TodoSyncTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
+import java.io.File
 import java.io.IOException
 import java.net.URI
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
+
+internal data class EditableRemoteVersion(val id: Uuid, val key: EditableImportKey, val digest: String)
 
 internal data class ServerSession(val scope: SyncScope, val expiresAt: Instant)
 internal data class ServerCredential(
@@ -113,6 +117,48 @@ internal class ServerApi(
         error("The server journal inventory exceeds 50,000 entries.")
     }
 
+    suspend fun editableVersions(session: ServerSession, token: String): List<EditableRemoteVersion> {
+        val versions = mutableListOf<EditableRemoteVersion>()
+        var cursor = 0L
+        repeat(500) {
+            val page = request("/v1/editable/versions?after=$cursor&limit=100",
+                token = token, journalScope = session.scope).objectValue()
+            require(page.scope() == session.scope)
+            val items = page.getValue("items").jsonArray
+            require(items.size <= 100)
+            for (value in items) {
+                val item = value.jsonObject
+                val next = item.getValue("sequence").jsonPrimitive.content.toLong()
+                require(next > cursor)
+                cursor = next
+                if (item.getValue("current").jsonPrimitive.boolean) {
+                    val key = EditableImportKey(item.getValue("kind").jsonPrimitive.content, item.getValue("key").jsonPrimitive.content)
+                    val digest = item.getValue("sha256").jsonPrimitive.content
+                    require(digest.matches(Regex("[0-9a-f]{64}")))
+                    versions += EditableRemoteVersion(Uuid.parse(item.getValue("id").jsonPrimitive.content), key, digest)
+                }
+            }
+            if (!page.getValue("hasMore").jsonPrimitive.boolean) return versions
+            require(items.size == 100)
+        }
+        error("The server inventory exceeds the review limit.")
+    }
+
+    suspend fun downloadEditableVersion(session: ServerSession, token: String, version: EditableRemoteVersion, destination: File) {
+        request("/v1/editable/versions/${version.id}", token = token, journalScope = session.scope,
+            download = destination, digest = version.digest)
+    }
+
+    suspend fun uploadEditableImport(session: ServerSession, token: String, id: Uuid, file: File, sha256: String) {
+        request("/v1/editable/staged/$id", "PUT", token, journalScope = session.scope, archive = file, digest = sha256)
+        val body = buildJsonObject {
+            put("sha256", sha256)
+            put("parents", JsonArray(emptyList()))
+            put("requireEmpty", true)
+        }
+        request("/v1/editable/versions/$id/commit", "POST", token, body, session.scope)
+    }
+
     fun transport(
         session: ServerSession,
         token: String,
@@ -143,6 +189,7 @@ internal class ServerApi(
 
     private suspend fun request(
         path: String, method: String = "GET", token: String? = null, body: JsonObject? = null, journalScope: SyncScope? = null,
+        archive: File? = null, digest: String? = null, download: File? = null,
     ): String =
         withContext(Dispatchers.IO) {
             val conn = connection(URI(endpoint.origin + path).toURL())
@@ -152,7 +199,7 @@ internal class ServerApi(
                 conn.connectTimeout = 10_000
                 conn.readTimeout = 20_000
                 conn.requestMethod = method
-                conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Accept", if (download == null) "application/json" else "application/octet-stream")
                 token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
                 journalScope?.let {
                     conn.setRequestProperty("X-LifeApp-Dataset", it.dataset.toString())
@@ -166,6 +213,14 @@ internal class ServerApi(
                     conn.setFixedLengthStreamingMode(bytes.size)
                     conn.outputStream.use { it.write(bytes) }
                 }
+                if (archive != null) {
+                    require(archive.length() in 1..EditableImportQueue.MAX_ARCHIVE_BYTES)
+                    conn.doOutput = true
+                    conn.setRequestProperty("Content-Type", "application/octet-stream")
+                    conn.setRequestProperty("X-Content-SHA256", requireNotNull(digest))
+                    conn.setFixedLengthStreamingMode(archive.length())
+                    conn.outputStream.use { target -> archive.inputStream().use { it.copyTo(target) } }
+                }
                 val status = conn.responseCode
                 if (status !in 200..299) {
                     val code = runCatching {
@@ -173,6 +228,14 @@ internal class ServerApi(
                             ?.objectValue()?.get("code")?.jsonPrimitive?.contentOrNull
                     }.getOrNull()
                     throw ServerHttpFailure(status, code, conn.getHeaderField("Retry-After")?.toLongOrNull()?.takeIf { it >= 0 })
+                }
+                if (download != null) {
+                    require(status == 200 && conn.contentType == "application/octet-stream" &&
+                        conn.getHeaderField("X-Content-SHA256") == digest)
+                    val bytes = conn.inputStream.use { BackupArchive.boundedRead(it, EditableImportQueue.MAX_ARCHIVE_BYTES) }
+                    require(BackupArchive.sha256(bytes) == digest) { "The downloaded archive failed checksum verification." }
+                    download.writeBytes(bytes)
+                    return@withContext ""
                 }
                 if (status == 204) return@withContext ""
                 require(conn.contentType?.substringBefore(';')?.trim()?.equals("application/json", ignoreCase = true) == true) {
@@ -189,12 +252,9 @@ internal class ServerApi(
         return Json.parseToJsonElement(this).jsonObject
     }
 
-    private fun JsonObject.session(): ServerSession {
-        val scope = getValue("scope").jsonObject
-        return ServerSession(
-            SyncScope(Uuid.parse(scope.getValue("dataset").jsonPrimitive.content),
-                Uuid.parse(scope.getValue("epoch").jsonPrimitive.content)),
-            Instant.parse(getValue("expiresAt").jsonPrimitive.content),
-        )
+    private fun JsonObject.scope(): SyncScope = getValue("scope").jsonObject.let {
+        SyncScope(Uuid.parse(it.getValue("dataset").jsonPrimitive.content), Uuid.parse(it.getValue("epoch").jsonPrimitive.content))
     }
+
+    private fun JsonObject.session() = ServerSession(scope(), Instant.parse(getValue("expiresAt").jsonPrimitive.content))
 }
