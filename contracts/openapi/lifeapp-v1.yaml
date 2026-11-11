@@ -177,6 +177,61 @@ paths:
         schema:
           type: string
           minLength: 1
+  /v1/ink/staged/{uploadId}:
+    put:
+      operationId: stageInk
+      description: Store validated LJPT v1 bytes temporarily. Identical retries within the staging period are idempotent.
+      parameters:
+      - name: uploadId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-LifeApp-Dataset
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-LifeApp-Epoch
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-Content-SHA256
+        in: header
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '204':
+          description: Bytes staged without making a stroke visible.
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '408':
+          description: Stroke upload timed out.
+        '409':
+          $ref: '#/components/responses/Http409'
+        '413':
+          $ref: '#/components/responses/Http413'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
   /v1/sync/pull:
     get:
       operationId: pull

@@ -1,6 +1,10 @@
 package com.myjournal.server
 
+import com.myjournal.data.StrokePointCodec
 import com.myjournal.data.TodoOperationJson
+import com.myjournal.domain.InkPoint
+import java.security.MessageDigest
+import java.util.HexFormat
 import com.myjournal.data.TodoServerJson
 import com.myjournal.domain.SyncCheckpoint
 import com.myjournal.domain.TodoOperation
@@ -108,6 +112,52 @@ class PostgresHttpTest {
         } finally {
             java.nio.file.Files.deleteIfExists(seed)
         }
+    }
+
+    @Test fun inkStagingPreservesExactBytesAndEnforcesScopeAndRetryIdentity() = testApplication {
+        application { lifeApp(database, auth, origin) }
+        val id = Uuid.random()
+        val bytes = StrokePointCodec.encode(listOf(InkPoint(-0.0f, 2f, 0, null)))
+        fun digest(content: ByteArray) = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content))
+        val token = client.login(user).token()
+        suspend fun upload(
+            accessToken: String? = token,
+            epoch: Uuid = scope.epoch,
+            content: ByteArray = bytes,
+            checksum: String = digest(content),
+        ) = client.put("/v1/ink/staged/$id") {
+            accessToken?.let { bearerAuth(it) }
+            header("X-LifeApp-Dataset", scope.dataset.toString())
+            header("X-LifeApp-Epoch", epoch.toString())
+            header("X-Content-SHA256", checksum)
+            contentType(ContentType.Application.OctetStream)
+            setBody(content)
+        }
+        assertEquals(401, upload(accessToken = null).status.value)
+        val webLogin = client.login(user, browser = true, suppliedOrigin = origin)
+        val cookie = requireNotNull(webLogin.headers[HttpHeaders.SetCookie]).substringBefore(';')
+        assertEquals(403, client.put("/v1/ink/staged/$id") {
+            header(HttpHeaders.Cookie, cookie)
+            header(HttpHeaders.Origin, origin)
+            contentType(ContentType.Application.OctetStream)
+            setBody(bytes)
+        }.status.value)
+        assertEquals(409, upload(epoch = Uuid.random()).status.value)
+        assertEquals(400, upload(checksum = "0".repeat(64)).status.value)
+        assertEquals(400, upload(content = ByteArray(32)).status.value)
+        val other = "other-${Uuid.random()}"
+        auth.initializeOwner(other, password.toCharArray(), requireEmpty = false)
+        assertEquals(409, upload(accessToken = client.login(other).token()).status.value)
+        assertEquals(204, upload().status.value)
+        assertEquals(204, upload().status.value)
+        val different = StrokePointCodec.encode(listOf(InkPoint(1f, 2f, 0, null)))
+        assertEquals(409, upload(content = different).status.value)
+        val saved = database.transaction {
+            query("SELECT bytes FROM staged_ink WHERE dataset_id = ? AND id = ?", scope.dataset.sql(), id.sql()) {
+                it.getBytes(1)
+            }.single()
+        }
+        assertContentEquals(bytes, saved)
     }
 
     @Test fun concurrentCommitsPreserveBothHeadsAndIdempotencyAcrossApplicationRestart() {
