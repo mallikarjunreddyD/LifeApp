@@ -203,7 +203,7 @@ test('workout and original weight unit survive offline reload', async ({ page, c
   await expect(page.getByText('No completed workouts this month.')).toBeVisible();
 });
 
-test('journal, planner and notebook previews draw committed vectors and hide them offline', async ({ context, page }) => {
+test('record previews preserve vectors and support per-day habit edits', async ({ context, page }) => {
   await page.goto('/');
   await signIn(page);
   const date = '2026-11-09';
@@ -220,7 +220,7 @@ test('journal, planner and notebook previews draw committed vectors and hide the
   const session = await (await context.request.get('/v1/session')).json();
   const headers = { Origin: new URL(page.url()).origin, 'X-CSRF-Token': session.csrfToken,
     'X-LifeApp-Dataset': session.scope.dataset, 'X-LifeApp-Epoch': session.scope.epoch };
-  async function commitArchive(kind: 'planner' | 'notebook', alternative = false) {
+  async function commitArchive(kind: 'planner' | 'notebook' | 'habits', alternative = false) {
     const archive = execFileSync('python3', ['../../contracts/fixtures/editable-archive.py', kind, ...(alternative ? ['alternative'] : [])]);
     const version = randomUUID();
     const sha256 = createHash('sha256').update(archive).digest('hex');
@@ -239,6 +239,7 @@ test('journal, planner and notebook previews draw committed vectors and hide the
 
   const initialPlanner = await commitArchive('planner');
   await commitArchive('notebook');
+  await commitArchive('habits');
 
   await page.getByText('Server record versions', { exact: true }).click();
   await page.getByRole('button', { name: 'Journal · ' + date }).click();
@@ -294,6 +295,17 @@ test('journal, planner and notebook previews draw committed vectors and hide the
   expect(planners.filter((row: { current: boolean }) => row.current)).toMatchObject([
     { id: resolutionId, parents: [initialPlanner, alternativePlanner].sort() },
   ]);
+  await page.getByRole('button', { name: /Notebook ·/ }).click();
+  await expect(notebook).toBeVisible();
+  await page.getByRole('button', { name: 'Habits · 2026-11', exact: true }).click();
+  const reading = page.getByRole('checkbox', { name: 'Reading' });
+  await expect(reading).toBeVisible();
+  await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('2');
+  await reading.click();
+  await expect(page.getByText('Habit completion saved.')).toBeVisible();
+  await expect(reading).toBeChecked();
+  await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('1');
+  await expect(reading).not.toBeChecked();
   await page.getByRole('button', { name: /Notebook ·/ }).click();
   await expect(notebook).toBeVisible();
   const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>

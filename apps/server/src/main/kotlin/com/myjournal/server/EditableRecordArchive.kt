@@ -21,7 +21,7 @@ internal data class EditableRecordArchive(
     val identities: JsonArray,
 ) {
     companion object {
-        private fun decode(bytes: ByteArray): JournalSnapshot {
+        fun decode(bytes: ByteArray): JournalSnapshot {
             val file = Files.createTempFile("lifeapp-editable-", ".zip")
             return try {
                 Files.write(file, bytes)
@@ -35,7 +35,20 @@ internal data class EditableRecordArchive(
             }
         }
 
-        fun preview(bytes: ByteArray): JsonObject {
+        fun encode(snapshot: JournalSnapshot): ByteArray {
+            val file = Files.createTempFile("lifeapp-editable-version-", ".zip").toFile()
+            try {
+                BackupArchive.write(file, snapshot)
+                if (file.length() > EditableRecordStore.MAX_ARCHIVE_BYTES) {
+                    throw ApiFailure(413, "LIMIT_EXCEEDED", "The record archive exceeds 16 MiB.")
+                }
+                return file.readBytes()
+            } finally {
+                file.delete()
+            }
+        }
+
+        fun preview(bytes: ByteArray, includeHabitIds: Boolean = false): JsonObject {
             val snapshot = decode(bytes)
             val strokesByPage = snapshot.strokes.groupBy { it.pageId }
             val size = snapshot.strokes.sumOf { 12L + 20L * it.points.size }
@@ -85,6 +98,7 @@ internal data class EditableRecordArchive(
                 put("habits", buildJsonArray {
                     ledger?.habits?.sortedBy { it.order }?.forEach { habit ->
                         add(buildJsonObject {
+                            if (includeHabitIds) put("id", habit.metadata.id.toString())
                             put("name", habit.name)
                             put("archived", habit.archived)
                             put("completedDays", JsonArray(ledger.completions.filter { it.habitId == habit.metadata.id && it.checked }

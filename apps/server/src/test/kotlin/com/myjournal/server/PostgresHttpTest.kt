@@ -7,6 +7,8 @@ import com.myjournal.data.StrokePointCodec
 import com.myjournal.data.TodoOperationJson
 import com.myjournal.domain.CalendarLayout
 import com.myjournal.domain.JournalMonth
+import com.myjournal.domain.HabitCompletion
+import com.myjournal.domain.HabitDefinition
 import com.myjournal.domain.MonthlyHabitLedger
 import com.myjournal.domain.MonthlyPlanner
 import com.myjournal.domain.Notebook
@@ -475,6 +477,53 @@ class PostgresHttpTest {
         assertEquals(204, stage(competingPlanner, plannerBytes))
         assertEquals(204, commit(competingPlanner, plannerBytes))
         assertEquals(2, list().heads("planner").size)
+
+        val habitRoot = newRecordMetadata()
+        val habit = HabitDefinition(newRecordMetadata(), habitRoot.id, "Reading", 0)
+        val existing = HabitCompletion(newRecordMetadata(), habit.metadata.id, month.date(1), false)
+        val ledger = MonthlyHabitLedger(habitRoot, JournalMonth(2026, 12), listOf(habit),
+            listOf(existing.copy(date = LocalDate(2026, 12, 1))))
+        val habitBase = Uuid.random()
+        val habitBytes = archive(JournalSnapshot(habits = listOf(ledger)))
+        assertEquals(204, stage(habitBase, habitBytes))
+        assertEquals(204, commit(habitBase, habitBytes))
+        suspend fun checkbox(base: Uuid, id: Uuid, day: Int, checked: Boolean) =
+            client.post("/v1/editable/versions/$base/habit-check") {
+                scoped()
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject {
+                    put("id", id.toString())
+                    put("habitId", habit.metadata.id.toString())
+                    put("date", ledger.month.date(day).toString())
+                    put("checked", checked)
+                }.toString())
+            }
+        suspend fun ledgerAt(version: Uuid) = EditableRecordArchive.decode(
+            client.get("/v1/editable/versions/$version") { scoped() }.body<ByteArray>(),
+        ).habits.single()
+
+        val firstCheck = Uuid.random()
+        val secondCheck = Uuid.random()
+        val firstReceipt = checkbox(habitBase, firstCheck, 1, true)
+        assertEquals(200, firstReceipt.status.value)
+        assertFalse(firstReceipt.json().getValue("conflicted").jsonPrimitive.boolean)
+        assertEquals(firstReceipt.json(), checkbox(habitBase, firstCheck, 1, true).json())
+        assertEquals(409, checkbox(habitBase, firstCheck, 1, false).status.value)
+        assertFalse(checkbox(habitBase, secondCheck, 2, true).json().getValue("conflicted").jsonPrimitive.boolean)
+        val merged = ledgerAt(secondCheck)
+        assertTrue(merged.checked(habit.metadata.id, 1))
+        assertTrue(merged.checked(habit.metadata.id, 2))
+        assertEquals(existing.metadata.id, merged.completions.single { it.date.day == 1 }.metadata.id)
+        assertEquals(2L, merged.completions.single { it.date.day == 1 }.metadata.revision)
+
+        val competingCheck = Uuid.random()
+        assertTrue(checkbox(habitBase, competingCheck, 1, false).json().getValue("conflicted").jsonPrimitive.boolean)
+        assertFalse(ledgerAt(competingCheck).checked(habit.metadata.id, 1))
+        assertTrue(ledgerAt(competingCheck).checked(habit.metadata.id, 2))
+        assertEquals(409, checkbox(secondCheck, Uuid.random(), 3, true).status.value)
+        assertEquals(200, checkbox(habitBase, competingCheck, 1, false).status.value)
+        val habitReview = client.get("/v1/editable/versions/$habitBase/review") { scoped() }.json().variants()
+        assertEquals(setOf(secondCheck, competingCheck), habitReview)
 
         val other = "other-${Uuid.random()}"
         val otherScope = auth.initializeOwner(other, password.toCharArray(), requireEmpty = false)

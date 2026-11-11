@@ -144,8 +144,8 @@ record identity would collide. Existing records and To-do replay state
 are preserved. The editor caches are reloaded after application.
 
 The transfer is add-only. Android editor changes after transfer remain
-local. Continuous capture and replay, per-date habit operations, and
-PWA checkbox editing remain open. Complete cross-device acceptance before
+local. Continuous Android capture and replay, including Android habit
+completion edits, remain open. Complete cross-device acceptance before
 calling the four modules synchronized.
 
 
@@ -185,3 +185,24 @@ the migrated date go through the versioned API. The archive retains the
 entry, page and stroke UUIDs and original metadata. Entries beyond the
 portable record limits or the 16 MiB archive limit remain in the earlier
 store.
+
+
+## Per-day habit checkboxes in the PWA
+
+Open a current habit ledger under **Journal → Server record versions**.
+Choose a day and toggle an active habit. The browser sends one habit ID,
+date and checkbox value. The server publishes a new ledger version and
+saves the operation receipt in one transaction. An interrupted response
+can be retried with the same operation ID while the browser view stays open.
+
+If the current ledger changed on other dates, the server applies the edit
+to that ledger and keeps the independent changes. If the requested date
+and habit also changed and the values disagree, the server retains two
+current versions. Both include the other dates' latest changes. Resolve
+the variants before making more checkbox edits. Completion identities
+are retained on updates. An archived habit or a changed ledger identity
+requires a fresh review.
+
+Checkbox editing is online. Android first transfer can add a new server
+ledger, while ongoing replay into an existing ledger and Android editor
+outbound operations remain pending.
