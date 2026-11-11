@@ -1,5 +1,8 @@
 """HTTP assertions for the isolated Compose stack, with no credential output."""
+import hashlib
 import json
+import struct
+import uuid
 import os
 from pathlib import Path
 import sys
@@ -12,7 +15,10 @@ origin = os.environ["LIFEAPP_HTTPS_ORIGIN"]
 
 def call(path, *, method="GET", expected=200, body=None, headers=None):
     request = Request(base + path, method=method, headers=headers or {})
-    if body is not None:
+    if isinstance(body, bytes):
+        request.data = body
+        request.add_header("Content-Type", "application/octet-stream")
+    elif body is not None:
         request.data = json.dumps(body).encode()
         request.add_header("Content-Type", "application/json")
     try:
@@ -34,6 +40,14 @@ operation = json.loads(Path("contracts/fixtures/todo-operation.json").read_text(
 session = json.loads(call("/v1/session", method="POST", body={**credentials, "client": "android"})[0])
 auth = {"Authorization": f"Bearer {session['accessToken']}"}
 if sys.argv[1] == "hold":
+    points = struct.pack("<4sIIfffq", b"LJPT", 1, 1, 0.0, 2.0, -1.0, 0)
+    scope = session["scope"]
+    call(f"/v1/ink/staged/{uuid.uuid4()}", method="PUT", expected=204, body=points, headers={
+        **auth,
+        "X-LifeApp-Dataset": scope["dataset"],
+        "X-LifeApp-Epoch": scope["epoch"],
+        "X-Content-SHA256": hashlib.sha256(points).hexdigest(),
+    })
     Path(sys.argv[2]).write_text(session["accessToken"], encoding="utf-8")
     sys.exit(0)
 if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):

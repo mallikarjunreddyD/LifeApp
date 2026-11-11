@@ -74,6 +74,7 @@ if [[ ${LIFEAPP_SMOKE_RESTORE:-0} == 1 ]]; then
   python3 deploy/backup/database-backup.py --project "$restore_project" restore \
     --identity "$work/identity" --input "$work/recovery/$name" --sha256 "$digest"
   test "$("${restore[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -Atc "SELECT count(*) FROM sessions")" = 0
+  test "$("${restore[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -Atc "SELECT count(*) FROM staged_ink")" = 0
   test "$("${restore[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -Atc "SELECT id FROM recovery_epochs WHERE active")" != "$epoch"
   LIFEAPP_LOOPBACK_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
   export LIFEAPP_LOOPBACK_PORT

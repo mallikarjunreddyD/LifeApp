@@ -158,6 +158,10 @@ class PostgresHttpTest {
             }.single()
         }
         assertContentEquals(bytes, saved)
+        database.transaction {
+            execute("UPDATE staged_ink SET expires_at = now() WHERE dataset_id = ? AND id = ?", scope.dataset.sql(), id.sql())
+        }
+        assertEquals(204, upload(content = different).status.value)
     }
 
     @Test fun concurrentCommitsPreserveBothHeadsAndIdempotencyAcrossApplicationRestart() {
