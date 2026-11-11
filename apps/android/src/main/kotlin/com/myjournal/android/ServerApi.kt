@@ -144,9 +144,18 @@ internal class ServerApi(
         error("The server inventory exceeds the review limit.")
     }
 
-    suspend fun downloadEditableVersion(session: ServerSession, token: String, version: EditableRemoteVersion, destination: File) {
-        request("/v1/editable/versions/${version.id}", token = token, journalScope = session.scope,
-            download = destination, digest = version.digest)
+    suspend fun downloadEditableVersion(session: ServerSession, token: String, version: EditableRemoteVersion, destination: File) =
+        downloadEditableArchive(session, token, version.id, destination, version.digest)
+
+    suspend fun downloadEditableArchive(session: ServerSession, token: String, id: Uuid, destination: File, digest: String? = null) {
+        request("/v1/editable/versions/$id", token = token, journalScope = session.scope,
+            download = destination, digest = digest)
+    }
+
+    suspend fun uploadHabitCheck(session: ServerSession, token: String, parent: Uuid, body: JsonObject): Boolean {
+        val response = request("/v1/editable/versions/$parent/habit-check", "POST", token, body, session.scope).objectValue()
+        require(response.getValue("versionId") == body.getValue("id"))
+        return response.getValue("conflicted").jsonPrimitive.boolean
     }
 
     suspend fun uploadEditableImport(
@@ -232,10 +241,11 @@ internal class ServerApi(
                     throw ServerHttpFailure(status, code, conn.getHeaderField("Retry-After")?.toLongOrNull()?.takeIf { it >= 0 })
                 }
                 if (download != null) {
+                    val checksum = requireNotNull(conn.getHeaderField("X-Content-SHA256"))
                     require(status == 200 && conn.contentType == "application/octet-stream" &&
-                        conn.getHeaderField("X-Content-SHA256") == digest)
+                        checksum.matches(Regex("[0-9a-f]{64}")) && (digest == null || checksum == digest))
                     val bytes = conn.inputStream.use { BackupArchive.boundedRead(it, EditableImportQueue.MAX_ARCHIVE_BYTES) }
-                    require(BackupArchive.sha256(bytes) == digest) { "The downloaded archive failed checksum verification." }
+                    require(BackupArchive.sha256(bytes) == checksum) { "The downloaded archive failed checksum verification." }
                     download.writeBytes(bytes)
                     return@withContext ""
                 }

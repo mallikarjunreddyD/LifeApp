@@ -413,3 +413,20 @@ its parent version, checked after reopening the queue, uploaded, downloaded
 and applied over its exact local base. It checks recovery-epoch isolation
 of version tracking and retains queued bytes when tracking is reset.
 Physical devices and continuous Android edit capture remain open.
+
+## Phase 7E tracked Android synchronization and CI
+
+The Android/PWA bridge exercises automatic upload and foreground replay
+against the disposable HTTPS server. The fixture includes a tracked
+notebook, an Android habit check whose original completion metadata is
+preserved, and existing To-do conflicts. The PostgreSQL integration suite
+covers Android completion metadata, retries, independent date changes and
+retention of competing versions. Physical Xiaomi Pad 7 and iPhone Safari
+acceptance remains open.
+
+The failed PR #28 browser, Android bridge and deployment jobs stopped at
+runner package installation. Their logs show DNS failures for
+security.ubuntu.com. The affected jobs now use Ubuntu 24.04. Browser
+setup uses the runner's libraries and downloads the pinned Playwright
+browser. Recovery verification installs its tools from Ubuntu's signed
+archive.

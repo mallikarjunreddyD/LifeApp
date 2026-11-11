@@ -1,5 +1,6 @@
 package com.myjournal.server
 
+import com.myjournal.core.RecordMetadata
 import com.myjournal.data.workoutJson
 import com.myjournal.data.TodoOperationJson
 import com.myjournal.data.checkJsonSizeAndDepth
@@ -312,14 +313,20 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                 val base = validated { Uuid.parse(requireNotNull(call.parameters["versionId"])) }
                 val request = call.body()
                 val edit = validated {
-                    require(request.keys == setOf("id", "habitId", "date", "checked"))
+                    val fields = setOf("id", "habitId", "date", "checked")
+                    require(request.keys == fields || request.keys == fields + "completionMetadata")
+                    val source = request["completionMetadata"]?.jsonObject?.let {
+                        require(it.keys == setOf("id", "createdAt", "updatedAt", "revision"))
+                        RecordMetadata(Uuid.parse(it.text("id")), kotlin.time.Instant.parse(it.text("createdAt")),
+                            kotlin.time.Instant.parse(it.text("updatedAt")), revision = it.text("revision").toLong())
+                    }
                     val checked = request.getValue("checked").jsonPrimitive
                     require(!checked.isString)
                     val raw = request.text("date")
                     val date = LocalDate.parse(raw)
                     require(date.year in 1..9999 && date.toString() == raw)
                     EditableRecordStore.HabitCheck(Uuid.parse(request.text("id")), Uuid.parse(request.text("habitId")),
-                        date, requireNotNull(checked.booleanOrNull))
+                        date, requireNotNull(checked.booleanOrNull), source)
                 }
                 if (!recordTransfers.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the habit edit later.")
                 try {

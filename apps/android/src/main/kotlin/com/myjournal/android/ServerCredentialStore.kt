@@ -74,6 +74,18 @@ internal class ServerCredentialStore(context: Context) {
         check(prefs.edit().putString("last-verified", value).commit())
     }
 
+    fun editableEnabled(target: EditableImportQueue.Target): Boolean =
+        prefs.getString("editable-sync-target", null) == editableTarget(target)
+
+    suspend fun setEditableEnabled(target: EditableImportQueue.Target?) = withContext(Dispatchers.IO) {
+        val edit = prefs.edit()
+        if (target == null) edit.remove("editable-sync-target") else edit.putString("editable-sync-target", editableTarget(target))
+        check(edit.commit()) { "Could not save the record synchronization preference." }
+    }
+
+    private fun editableTarget(target: EditableImportQueue.Target) =
+        listOf(target.origin, target.scope.dataset.toString(), target.scope.epoch.toString()).joinToString("|")
+
     private fun key(create: Boolean): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(alias, null) as? SecretKey)?.let { return it }

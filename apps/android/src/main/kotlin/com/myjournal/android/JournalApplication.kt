@@ -41,7 +41,8 @@ class JournalApplication : Application() {
     val notebooks get() = session.notebooks
     private val generationMutable = MutableStateFlow(0)
     val generation = generationMutable.asStateFlow()
-    val operations by lazy { DataOperations(this,RoomSnapshotRepository(database)) }
+    internal val snapshots by lazy { RoomSnapshotRepository(database) }
+    val operations by lazy { DataOperations(this, snapshots) }
     fun rebuildEditors() {
         currentSession?.cancel(); currentSession = EditorSession(database)
         generationMutable.value++

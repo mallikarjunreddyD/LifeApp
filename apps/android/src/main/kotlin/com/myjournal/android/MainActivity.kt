@@ -94,7 +94,9 @@ class MainActivity : ComponentActivity() {
     }
     override fun onStart() {
         super.onStart()
-        (application as JournalApplication).serverSync.onForeground()
+        val app = application as JournalApplication
+        app.serverSync.onForeground()
+        app.operations.syncTrackedOnForeground(app.serverSync)
     }
 
     override fun onNewIntent(intent: Intent) {

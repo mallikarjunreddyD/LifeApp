@@ -8,6 +8,7 @@ import com.myjournal.domain.HabitCompletion
 import com.myjournal.domain.JournalMonth
 import com.myjournal.domain.JournalSnapshot
 import com.myjournal.domain.SyncScope
+import com.myjournal.domain.mergeIndependentHabitCompletions
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.datetime.LocalDate
@@ -130,11 +131,39 @@ internal class EditableRecordStore(private val database: Database) {
                     dataset, kind, key, parentsSql,
                 )
                 execute("INSERT INTO editable_record_heads VALUES (?, ?, ?, ?)", dataset, kind, key, id.sql())
+                val previousHead = heads.singleOrNull()
+                val parent = parents.singleOrNull()
+                if (kind == "habits" && previousHead != null && parent != null && previousHead != parent) {
+                    mergeHabitBranches(dataset, key, parent, previousHead, id)
+                }
                 execute("DELETE FROM editable_record_staging WHERE dataset_id = ? AND epoch_id = ? AND id = ?", dataset, epoch, id.sql())
             } finally {
                 parentsSql.free()
             }
         }
+    }
+
+    private fun Connection.mergeHabitBranches(dataset: UUID, key: String, base: Uuid, head: Uuid, incoming: Uuid) {
+        val merged = mergeIndependentHabitCompletions(
+            habitLedger(dataset, base), habitLedger(dataset, head), habitLedger(dataset, incoming), Clock.System.now(),
+        ) ?: return
+        val bytes = try {
+            EditableRecordArchive.encode(JournalSnapshot(habits = listOf(merged)))
+        } catch (failure: ApiFailure) {
+            if (failure.status == 413) return
+            throw failure
+        } catch (_: IllegalArgumentException) {
+            // The two valid archives can exceed portable limits when combined. Keep both versions.
+            return
+        }
+        val version = Uuid.random()
+        execute(
+            """INSERT INTO editable_record_versions (dataset_id, id, kind, logical_key, root_id, sha256, parents, archive)
+               VALUES (?, ?, 'habits', ?, ?, ?, ARRAY[CAST(? AS uuid), CAST(? AS uuid)], ?)""",
+            dataset, version.sql(), key, merged.metadata.id.sql(), BackupArchive.sha256(bytes), head.sql(), incoming.sql(), bytes,
+        )
+        execute("DELETE FROM editable_record_heads WHERE dataset_id = ? AND kind = 'habits' AND logical_key = ?", dataset, key)
+        execute("INSERT INTO editable_record_heads VALUES (?, 'habits', ?, ?)", dataset, key, version.sql())
     }
 
     private fun Connection.registerIdentities(dataset: UUID, kind: String, key: String, identities: String) {
@@ -216,20 +245,23 @@ internal class EditableRecordStore(private val database: Database) {
         version
     }
 
-    data class HabitCheck(val id: Uuid, val habit: Uuid, val date: LocalDate, val checked: Boolean)
+    data class HabitCheck(
+        val id: Uuid, val habit: Uuid, val date: LocalDate, val checked: Boolean, val source: RecordMetadata? = null,
+    )
     data class HabitReceipt(val version: Uuid, val conflicted: Boolean)
 
     fun editHabit(scope: SyncScope, base: Uuid, edit: HabitCheck): HabitReceipt = database.transaction {
         require(edit.id != base)
         lockEpoch(scope, write = true)
         val dataset = scope.dataset.sql()
+        val sourceMetadata = edit.source?.let { "${it.id} ${it.createdAt} ${it.updatedAt} ${it.revision}" }
         val prior = query(
-            """SELECT base_version_id, habit_id, local_date::text, checked, conflicted
+            """SELECT base_version_id, habit_id, local_date::text, checked, conflicted, source_metadata
                FROM editable_habit_checks WHERE dataset_id = ? AND id = ?""",
             dataset, edit.id.sql(),
         ) {
             val matches = it.uuid(1) == base && it.uuid(2) == edit.habit &&
-                it.getString(3) == edit.date.toString() && it.getBoolean(4) == edit.checked
+                it.getString(3) == edit.date.toString() && it.getBoolean(4) == edit.checked && it.getString(6) == sourceMetadata
             matches to it.getBoolean(5)
         }.singleOrNull()
         if (prior != null) {
@@ -252,14 +284,23 @@ internal class EditableRecordStore(private val database: Database) {
         }
         val before = previous.completions.find { it.habitId == edit.habit && it.date == edit.date }
         val latest = current.completions.find { it.habitId == edit.habit && it.date == edit.date }
-        val conflicted = before != latest && (latest?.checked ?: false) != edit.checked
+        val supplied = edit.source
+        if (supplied != null && before != null) {
+            require(supplied.id == before.metadata.id && supplied.createdAt == before.metadata.createdAt &&
+                supplied.revision > before.metadata.revision && supplied.updatedAt >= before.metadata.updatedAt)
+        }
+        val sameValue = latest?.checked == edit.checked && (supplied == null || latest.metadata == supplied)
+        val conflicted = before != latest && !sameValue && (supplied != null || (latest?.checked ?: false) != edit.checked)
         val parent = if (conflicted) base else head
-        val updated = if (latest?.checked == edit.checked) current else {
+        val updated = if (sameValue) current else {
             val original = latest ?: before
-            val at = maxOf(Clock.System.now(), current.metadata.updatedAt, original?.metadata?.updatedAt ?: current.metadata.updatedAt)
-            val metadata = original?.metadata?.revised(at) ?: RecordMetadata(Uuid.random(), at, at)
+            val at = maxOf(Clock.System.now(), current.metadata.updatedAt,
+                original?.metadata?.updatedAt ?: current.metadata.updatedAt, supplied?.updatedAt ?: current.metadata.updatedAt)
+            val metadata = supplied ?: original?.metadata?.revised(at) ?: RecordMetadata(Uuid.random(), at, at)
             val completion = HabitCompletion(metadata, edit.habit, edit.date, edit.checked)
-            current.copy(metadata = current.metadata.revised(at), completions = current.completions.filterNot { it.habitId == edit.habit && it.date == edit.date } + completion)
+            current.copy(metadata = current.metadata.revised(at), completions = current.completions.filterNot {
+                it.habitId == edit.habit && it.date == edit.date
+            } + completion)
         }
         val snapshot = JournalSnapshot(habits = listOf(updated))
         val archive = EditableRecordArchive.fromSnapshot(snapshot)
@@ -276,8 +317,10 @@ internal class EditableRecordStore(private val database: Database) {
         )
         execute("INSERT INTO editable_record_heads VALUES (?, 'habits', ?, ?)", dataset, archive.key, edit.id.sql())
         execute(
-            "INSERT INTO editable_habit_checks VALUES (?, ?, ?, ?, CAST(? AS date), ?, ?)",
-            dataset, edit.id.sql(), base.sql(), edit.habit.sql(), edit.date.toString(), edit.checked, conflicted,
+            """INSERT INTO editable_habit_checks
+               (dataset_id, id, base_version_id, habit_id, local_date, checked, conflicted, source_metadata)
+               VALUES (?, ?, ?, ?, CAST(? AS date), ?, ?, ?)""",
+            dataset, edit.id.sql(), base.sql(), edit.habit.sql(), edit.date.toString(), edit.checked, conflicted, sourceMetadata,
         )
         HabitReceipt(edit.id, conflicted)
     }

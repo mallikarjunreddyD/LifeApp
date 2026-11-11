@@ -5,6 +5,8 @@ import android.system.OsConstants
 import com.myjournal.data.BackupArchive
 import com.myjournal.domain.EditableImportKey
 import com.myjournal.domain.EditableImportRecord
+import com.myjournal.domain.HabitCompletion
+import kotlinx.serialization.json.*
 import com.myjournal.domain.ServerEndpoint
 import com.myjournal.domain.SyncScope
 import java.io.File
@@ -27,14 +29,17 @@ internal class EditableImportQueue(private val root: File) {
         val fields = pending.resolve(targetFile).readLines()
         require(fields.size == 3)
         val target = Target(ServerEndpoint.parse(fields[0]).origin, SyncScope(Uuid.parse(fields[1]), Uuid.parse(fields[2])))
-        val files = directory.filter { it.name != targetFile && it.name != baselineInvalidatedFile }.sortedBy { it.name }
+        val files = directory.filter { it.name != targetFile && it.name != baselineInvalidatedFile && it.extension != "checks" }.sortedBy { it.name }
         require(files.all { it.isFile && it.extension == "zip" && it.nameWithoutExtension.split('_').let { ids ->
             ids.size in 1..2 && ids.all { id -> Uuid.parse(id).toString() == id }
         } })
         return Batch(target, files, !pending.resolve(baselineInvalidatedFile).exists())
     }
 
-    fun enqueue(target: Target, records: List<EditableImportRecord>, parents: Map<EditableImportKey, Uuid> = emptyMap()) {
+    fun enqueue(
+        target: Target, records: List<EditableImportRecord>, parents: Map<EditableImportKey, Uuid> = emptyMap(),
+        habitChecks: Map<EditableImportKey, List<HabitCompletion>> = emptyMap(),
+    ) {
         require(records.isNotEmpty())
         check(!pending.exists()) { "Resume the previous record upload first." }
         if (!root.isDirectory) {
@@ -50,6 +55,28 @@ internal class EditableImportQueue(private val root: File) {
                 BackupArchive.write(file, record.snapshot)
                 require(file.length() <= MAX_ARCHIVE_BYTES) {
                     "The ${record.key.kind} record ${record.key.key} exceeds the server's 16 MiB limit."
+                }
+                val checks = habitChecks[record.key].orEmpty()
+                if (checks.isNotEmpty()) {
+                    require(record.key in parents)
+                    val bodies = JsonArray(checks.map { completion ->
+                        buildJsonObject {
+                            put("id", Uuid.random().toString())
+                            put("habitId", completion.habitId.toString())
+                            put("date", completion.date.toString())
+                            put("checked", completion.checked)
+                            put("completionMetadata", buildJsonObject {
+                                put("id", completion.metadata.id.toString())
+                                put("createdAt", completion.metadata.createdAt.toString())
+                                put("updatedAt", completion.metadata.updatedAt.toString())
+                                put("revision", completion.metadata.revision.toString())
+                            })
+                        }
+                    })
+                    FileOutputStream(checkFile(file)).use { output ->
+                        output.write(bodies.toString().encodeToByteArray())
+                        output.fd.sync()
+                    }
                 }
             }
             FileOutputStream(preparing.resolve(targetFile)).use {
@@ -70,9 +97,16 @@ internal class EditableImportQueue(private val root: File) {
         syncDirectory(pending)
     }
 
+    fun checks(file: File): List<JsonObject> = checkFile(file).takeIf { it.exists() }?.let {
+        Json.parseToJsonElement(it.readText()).jsonArray.map { body -> body.jsonObject }
+    }.orEmpty()
+
+    private fun checkFile(file: File) = File(requireNotNull(file.parentFile), "${file.nameWithoutExtension}.checks")
+
     fun acknowledge(file: File) {
         check(file.parentFile == pending && file.delete()) { "Could not clear a committed upload." }
         syncDirectory(pending)
+        checkFile(file).delete()
     }
 
     fun finishIfEmpty() {

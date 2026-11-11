@@ -487,7 +487,7 @@ class PostgresHttpTest {
         val habitBytes = archive(JournalSnapshot(habits = listOf(ledger)))
         assertEquals(204, stage(habitBase, habitBytes))
         assertEquals(204, commit(habitBase, habitBytes))
-        suspend fun checkbox(base: Uuid, id: Uuid, day: Int, checked: Boolean) =
+        suspend fun checkbox(base: Uuid, id: Uuid, day: Int, checked: Boolean, source: HabitCompletion? = null) =
             client.post("/v1/editable/versions/$base/habit-check") {
                 scoped()
                 contentType(ContentType.Application.Json)
@@ -496,6 +496,14 @@ class PostgresHttpTest {
                     put("habitId", habit.metadata.id.toString())
                     put("date", ledger.month.date(day).toString())
                     put("checked", checked)
+                    source?.metadata?.let {
+                        put("completionMetadata", buildJsonObject {
+                            put("id", it.id.toString())
+                            put("createdAt", it.createdAt.toString())
+                            put("updatedAt", it.updatedAt.toString())
+                            put("revision", it.revision.toString())
+                        })
+                    }
                 }.toString())
             }
         suspend fun ledgerAt(version: Uuid) = EditableRecordArchive.decode(
@@ -516,6 +524,30 @@ class PostgresHttpTest {
         assertEquals(existing.metadata.id, merged.completions.single { it.date.day == 1 }.metadata.id)
         assertEquals(2L, merged.completions.single { it.date.day == 1 }.metadata.revision)
 
+        val androidDay = HabitCompletion(newRecordMetadata(), habit.metadata.id, ledger.month.date(3), true)
+        val androidVersion = Uuid.random()
+        val androidBytes = archive(JournalSnapshot(habits = listOf(ledger.copy(completions = ledger.completions + androidDay))))
+        assertEquals(204, stage(androidVersion, androidBytes))
+        assertEquals(204, commit(androidVersion, androidBytes, habitBase))
+        assertEquals(204, commit(androidVersion, androidBytes, habitBase))
+        val combined = client.get("/v1/editable/versions/$habitBase/review") { scoped() }.json().variants().single()
+        assertNotEquals(androidVersion, combined)
+        assertTrue(ledgerAt(combined).checked(habit.metadata.id, 1))
+        assertTrue(ledgerAt(combined).checked(habit.metadata.id, 2))
+        assertEquals(androidDay, ledgerAt(combined).completions.single { it.date == androidDay.date })
+        assertContentEquals(androidBytes, client.get("/v1/editable/versions/$androidVersion") { scoped() }.body<ByteArray>())
+
+        val androidCheck = HabitCompletion(newRecordMetadata(), habit.metadata.id, ledger.month.date(4), true)
+        val androidOperation = Uuid.random()
+        val androidReceipt = checkbox(habitBase, androidOperation, 4, true, androidCheck)
+        assertEquals(200, androidReceipt.status.value)
+        assertFalse(androidReceipt.json().getValue("conflicted").jsonPrimitive.boolean)
+        assertEquals(200, checkbox(habitBase, androidOperation, 4, true, androidCheck).status.value)
+        assertEquals(409, checkbox(habitBase, androidOperation, 4, true,
+            androidCheck.copy(metadata = newRecordMetadata())).status.value)
+        assertEquals(androidCheck, ledgerAt(androidOperation).completions.single { it.date == androidCheck.date })
+        assertTrue(ledgerAt(androidOperation).checked(habit.metadata.id, 3))
+
         val competingCheck = Uuid.random()
         assertTrue(checkbox(habitBase, competingCheck, 1, false).json().getValue("conflicted").jsonPrimitive.boolean)
         assertFalse(ledgerAt(competingCheck).checked(habit.metadata.id, 1))
@@ -523,7 +555,7 @@ class PostgresHttpTest {
         assertEquals(409, checkbox(secondCheck, Uuid.random(), 3, true).status.value)
         assertEquals(200, checkbox(habitBase, competingCheck, 1, false).status.value)
         val habitReview = client.get("/v1/editable/versions/$habitBase/review") { scoped() }.json().variants()
-        assertEquals(setOf(secondCheck, competingCheck), habitReview)
+        assertEquals(setOf(androidOperation, competingCheck), habitReview)
 
         val other = "other-${Uuid.random()}"
         val otherScope = auth.initializeOwner(other, password.toCharArray(), requireEmpty = false)
