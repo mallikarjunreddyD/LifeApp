@@ -5,7 +5,7 @@ import type { Exercise, Session } from './workout.ts';
 const format = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 
 function measured(values: (number | null | undefined)[]) {
-  return values.flatMap(value => value == null ? [] : [value]);
+  return values.flatMap(value => value === null || value === undefined ? [] : [value]);
 }
 
 export function WorkoutReport({ sessions, exercises, close }: {
@@ -17,7 +17,7 @@ export function WorkoutReport({ sessions, exercises, close }: {
   const [compact, setCompact] = useState(false);
   const rows = sessions.filter(session => session.completed && session.date.slice(0, 7) === month);
   const names = new Map(exercises.map(exercise => [exercise.metadata.id, exercise.name]));
-  const minutes = measured(rows.map(session => session.durationSeconds == null ? null : session.durationSeconds / 60));
+  const minutes = measured(rows.map(session => session.durationSeconds === null ? null : session.durationSeconds / 60));
   const heartRates = measured(rows.map(session => session.averageHeartRateBpm));
   const calories = measured(rows.map(session => session.caloriesKcal));
   const total = (values: number[]) => values.reduce((sum, value) => sum + value, 0);
