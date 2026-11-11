@@ -33,6 +33,7 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
     val todos = TodoStore(database)
     val workouts = WorkoutReader(database)
     val stagedInk = StagedInkStore(database)
+    val journalInk = JournalInkStore(database)
     val inkUploads = Semaphore(2)
     intercept(ApplicationCallPipeline.Plugins) {
         call.response.headers.append(REQUEST_ID, Uuid.random().toString())
@@ -121,6 +122,46 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                     if (bytes.size > StagedInkStore.MAX_BYTES) inkTooLarge()
                     databaseCall { validated { stagedInk.stage(scope, id, checksum, bytes) } }
                     call.respond(HttpStatusCode.NoContent)
+                } finally {
+                    inkUploads.release()
+                }
+            }
+            post("/journal/ink/commit") {
+                val session = call.authenticate(auth).second
+                call.requireMutation(session, origin)
+                val request = call.body()
+                val scope = validated {
+                    require(request.keys == setOf("scope", "entry", "stroke", "uploadId", "sha256"))
+                    val fields = request.getValue("scope").jsonObject
+                    require(fields.keys == setOf("dataset", "epoch"))
+                    SyncScope(Uuid.parse(fields.text("dataset")), Uuid.parse(fields.text("epoch")))
+                }
+                if (scope != session.scope) conflict("SCOPE_MISMATCH", "The submitted dataset or epoch does not match the session.")
+                if (!inkUploads.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the stroke commit later.")
+                try {
+                    databaseCall {
+                        validated {
+                            val digest = request.text("sha256")
+                            require(digest.matches(Regex("[0-9a-f]{64}")))
+                            journalInk.commit(
+                                scope, request.getValue("entry").jsonObject, request.getValue("stroke").jsonObject,
+                                Uuid.parse(request.text("uploadId")), digest,
+                            )
+                        }
+                    }
+                    call.respond(HttpStatusCode.NoContent)
+                } finally {
+                    inkUploads.release()
+                }
+            }
+            get("/journal/ink/{strokeId}") {
+                val scope = call.authenticate(auth).second.scope
+                val id = validated { Uuid.parse(requireNotNull(call.parameters["strokeId"])) }
+                if (!inkUploads.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the stroke download later.")
+                try {
+                    val stroke = databaseCall { journalInk.download(scope, id) }
+                    call.response.headers.append("X-Content-SHA256", stroke.sha256)
+                    call.respondBytes(stroke.bytes, ContentType.Application.OctetStream)
                 } finally {
                     inkUploads.release()
                 }

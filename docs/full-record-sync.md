@@ -17,3 +17,26 @@ Still pending are the atomic commit and authenticated download paths,
 scheduled cleanup for inactive datasets, durable client operations, initial
 migration review, conflict resolution and cross-device validation for each
 module. Journal, Planner, Habits and Notebook continue to save locally.
+
+## Journal stroke commit and download
+
+`POST /v1/journal/ink/commit` accepts an existing portable journal entry with
+one active page, a portable stroke header, the staging upload UUID and SHA-256,
+and the authenticated dataset and recovery epoch. The stroke header contains
+metadata, surface UUID, order, brush, ARGB, width and point format version.
+The original bytes travel only through the binary endpoint.
+
+The transaction checks page ownership and logical bounds, writes the entry
+and stroke together, and consumes the staging row. A replay with the same
+entry, stroke and digest succeeds after staging is consumed. A reused UUID,
+date, page position or upload with different content returns a conflict.
+The endpoint leaves both existing data and staged bytes intact when validation
+fails. This increment supports one active page per imported entry and
+additional strokes on that page. Entry edits and additional pages need
+separate conflict rules.
+
+`GET /v1/journal/ink/{strokeId}` returns the original bytes and their SHA-256
+for a committed stroke in the authenticated dataset. The server stores the
+committed records independently of the recovery epoch. Encrypted PostgreSQL
+backups retain them, and clean recovery discards temporary uploads. Existing
+Journal, Planner, Habits and Notebook editors continue to save locally.

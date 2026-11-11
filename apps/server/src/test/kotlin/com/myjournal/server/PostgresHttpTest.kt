@@ -1,14 +1,24 @@
 package com.myjournal.server
 
+import com.myjournal.data.JournalInkJson
+import com.myjournal.data.SnapshotJson
 import com.myjournal.data.StrokePointCodec
 import com.myjournal.data.TodoOperationJson
+import com.myjournal.domain.BrushTool
 import com.myjournal.domain.InkPoint
+import com.myjournal.domain.InkStroke
+import com.myjournal.domain.JournalEntry
+import com.myjournal.domain.JournalPage
+import com.myjournal.domain.JournalSnapshot
+import com.myjournal.domain.newRecordMetadata
+import kotlinx.datetime.LocalDate
 import java.security.MessageDigest
 import java.util.HexFormat
 import com.myjournal.data.TodoServerJson
 import com.myjournal.domain.SyncCheckpoint
 import com.myjournal.domain.TodoOperation
 import io.ktor.client.*
+import io.ktor.client.call.body
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -162,6 +172,66 @@ class PostgresHttpTest {
             execute("UPDATE staged_ink SET expires_at = now() WHERE dataset_id = ? AND id = ?", scope.dataset.sql(), id.sql())
         }
         assertEquals(204, upload(content = different).status.value)
+    }
+
+    @Test fun journalInkCommitIsAtomicAndReturnsOriginalBytesOnlyToItsOwner() = testApplication {
+        application { lifeApp(database, auth, origin) }
+        val token = client.login(user).token()
+        val entry = newRecordMetadata()
+        val page = JournalPage(newRecordMetadata(), entry.id, 0)
+        val journal = JournalEntry(entry, LocalDate(2026, 11, 9), listOf(page))
+        fun entryJson(value: JournalEntry) = Json.parseToJsonElement(SnapshotJson.encode(JournalSnapshot(journals = listOf(value))))
+            .jsonObject.getValue("journals").jsonArray.single().jsonObject
+        val stroke = InkStroke(newRecordMetadata(), page.metadata.id, 0, BrushTool.PEN, 0xFF000000, 3f,
+            listOf(InkPoint(-0.0f, 2f, 0, null)))
+        val bytes = StrokePointCodec.encode(stroke.points)
+        val checksum = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
+        val upload = Uuid.random()
+        val url = "/v1/journal/ink/${stroke.metadata.id}"
+        suspend fun commit(value: JournalEntry = journal, header: JsonObject = JournalInkJson.strokeHeader(stroke),
+                           epoch: Uuid = scope.epoch) = client.post("/v1/journal/ink/commit") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("scope", buildJsonObject { put("dataset", scope.dataset.toString()); put("epoch", epoch.toString()) })
+                put("entry", entryJson(value))
+                put("stroke", header)
+                put("uploadId", upload.toString())
+                put("sha256", checksum)
+            }.toString())
+        }
+        assertEquals(401, client.get(url).status.value)
+        assertEquals(409, commit().status.value)
+        assertEquals(204, client.put("/v1/ink/staged/$upload") {
+            bearerAuth(token)
+            header("X-LifeApp-Dataset", scope.dataset.toString())
+            header("X-LifeApp-Epoch", scope.epoch.toString())
+            header("X-Content-SHA256", checksum)
+            contentType(ContentType.Application.OctetStream)
+            setBody(bytes)
+        }.status.value)
+        assertEquals(404, client.get(url) { bearerAuth(token) }.status.value)
+        assertEquals(409, commit(epoch = Uuid.random()).status.value)
+        assertEquals(400, commit(journal.copy(pages = listOf(page.copy(height = 1f)))).status.value)
+        val entryCount = database.transaction {
+            query("SELECT count(*) FROM journal_ink_entries WHERE dataset_id = ?", scope.dataset.sql()) { it.getInt(1) }.single()
+        }
+        assertEquals(0, entryCount)
+        assertEquals(204, commit().status.value)
+        assertEquals(204, commit().status.value)
+        assertEquals(409, commit(header = JournalInkJson.strokeHeader(stroke.copy(width = 4f))).status.value)
+        val other = "other-${Uuid.random()}"
+        auth.initializeOwner(other, password.toCharArray(), requireEmpty = false)
+        val otherToken = client.login(other).token()
+        assertEquals(404, client.get(url) { bearerAuth(otherToken) }.status.value)
+        val result = client.get(url) { bearerAuth(token) }
+        assertEquals(200, result.status.value)
+        assertEquals(checksum, result.headers["X-Content-SHA256"])
+        assertContentEquals(bytes, result.body<ByteArray>())
+        val remaining = database.transaction {
+            query("SELECT count(*) FROM staged_ink WHERE dataset_id = ?", scope.dataset.sql()) { it.getInt(1) }.single()
+        }
+        assertEquals(0, remaining)
     }
 
     @Test fun concurrentCommitsPreserveBothHeadsAndIdempotencyAcrossApplicationRestart() {

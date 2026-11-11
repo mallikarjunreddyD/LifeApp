@@ -232,6 +232,86 @@ paths:
           $ref: '#/components/responses/Http429'
         '503':
           $ref: '#/components/responses/Http503'
+  /v1/journal/ink/commit:
+    post:
+      operationId: commitJournalInk
+      description: Atomically create a single-page journal entry if needed and attach a staged stroke. Replays require matching records and digest.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [scope, entry, stroke, uploadId, sha256]
+              properties:
+                scope:
+                  $ref: '#/components/schemas/Scope'
+                entry:
+                  type: object
+                  description: Portable JournalEntry JSON containing one active page.
+                stroke:
+                  type: object
+                  description: Portable stroke header without pointsFile or pointsBase64.
+                uploadId:
+                  type: string
+                  format: uuid
+                sha256:
+                  type: string
+                  pattern: '^[0-9a-f]{64}$'
+      responses:
+        '204':
+          description: Stroke committed or identical commit replayed.
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '413':
+          $ref: '#/components/responses/Http413'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+  /v1/journal/ink/{strokeId}:
+    get:
+      operationId: downloadJournalInk
+      description: Return committed LJPT bytes from the authenticated dataset.
+      parameters:
+      - name: strokeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Original committed LJPT bytes.
+          headers:
+            X-Content-SHA256:
+              schema:
+                type: string
+                pattern: '^[0-9a-f]{64}$'
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '404':
+          $ref: '#/components/responses/Http404'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
   /v1/sync/pull:
     get:
       operationId: pull

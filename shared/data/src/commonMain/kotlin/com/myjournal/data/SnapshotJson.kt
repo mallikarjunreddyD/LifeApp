@@ -85,14 +85,14 @@ fun checkJsonSizeAndDepth(text: String) {
     require(!quoted && depth == 0) { "Truncated JSON" }
 }
 
-private fun encodeMeta(value: RecordMetadata) = buildJsonObject {
+internal fun encodeMeta(value: RecordMetadata) = buildJsonObject {
     put("id", JsonPrimitive(value.id.toString()))
     put("createdAt", JsonPrimitive(value.createdAt.toString()))
     put("updatedAt", JsonPrimitive(value.updatedAt.toString()))
     put("schemaVersion", JsonPrimitive(value.schemaVersion))
     put("revision", JsonPrimitive(value.revision))
 }
-private fun decodeMeta(value: JsonObject): RecordMetadata = with(value) { RecordMetadata(
+internal fun decodeMeta(value: JsonObject): RecordMetadata = with(value) { RecordMetadata(
     Uuid.parse(getValue("id").jsonPrimitive.content),
     Instant.parse(getValue("createdAt").jsonPrimitive.content),
     Instant.parse(getValue("updatedAt").jsonPrimitive.content),
@@ -119,12 +119,12 @@ private fun decodeJournalPage(value: JsonObject): JournalPage = with(value) { Jo
     get("archived")?.jsonPrimitive?.boolean ?: false
 ) }
 
-private fun encodeEntry(value: JournalEntry) = buildJsonObject {
+internal fun encodeEntry(value: JournalEntry) = buildJsonObject {
     put("metadata", encodeMeta(value.metadata))
     put("date", JsonPrimitive(value.date.toString()))
     put("pages", JsonArray(value.pages.map { encodeJournalPage(it) }))
 }
-private fun decodeEntry(value: JsonObject): JournalEntry = with(value) { JournalEntry(
+internal fun decodeEntry(value: JsonObject): JournalEntry = with(value) { JournalEntry(
     decodeMeta(getValue("metadata").jsonObject),
     LocalDate.parse(getValue("date").jsonPrimitive.content),
     getValue("pages").jsonArray.map { decodeJournalPage(it.jsonObject) }
