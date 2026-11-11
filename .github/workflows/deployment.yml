@@ -52,7 +52,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - run: deploy/scripts/build-images.sh
       - name: Install age for the disposable recovery drill
-        run: sudo apt-get update && sudo apt-get install -y age
+        run: sudo apt-get update && sudo apt-get install -y age rclone
       - run: python3 -B deploy/backup/test-retention.py
       - run: deploy/scripts/smoke.sh
         env:

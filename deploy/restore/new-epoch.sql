@@ -1,5 +1,6 @@
 -- Apply to an isolated restored database before starting the API.
 DELETE FROM sessions;
+UPDATE backup_jobs SET state = 'failed' WHERE state = 'running';
 CREATE TEMP TABLE epoch_map ON COMMIT DROP AS
 SELECT dataset_id, id AS old_epoch, gen_random_uuid() AS new_epoch, last_commit
 FROM recovery_epochs WHERE active;

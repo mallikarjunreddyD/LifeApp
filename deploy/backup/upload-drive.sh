@@ -6,35 +6,42 @@ umask 077
 : "${LIFEAPP_BACKUP_RECIPIENTS:?Set an age recipients file}"
 : "${LIFEAPP_BACKUP_DIRECTORY:?Set a private backup directory}"
 cd "$(dirname "$0")/.."
+project=${LIFEAPP_BACKUP_PROJECT:-lifeapp}
+if [[ $project != lifeapp && ! $project =~ ^lifeapp-smoke-[a-z0-9]+$ ]]; then
+  echo 'Invalid LifeApp backup project.' >&2
+  exit 2
+fi
+release=${LIFEAPP_BACKUP_RELEASE_FILE:-release.env}
+database=(python3 backup/database-backup.py --project "$project" --release "$release")
 exec 9>"$LIFEAPP_BACKUP_DIRECTORY/.lock"
 flock -n 9 || { echo 'A backup is already running.' >&2; exit 1; }
-exec 8>.release.lock
+exec 8>"$(dirname "$release")/.release.lock"
 flock -s -n 8 || { echo 'A rollout is running. Retry after deployment.' >&2; exit 1; }
-commit=$(sed -n 's/^LIFEAPP_RELEASE_COMMIT=//p' release.env)
+commit=$(sed -n 's/^LIFEAPP_RELEASE_COMMIT=//p' "$release")
 name="lifeapp-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 6).tar.age"
 archive="$LIFEAPP_BACKUP_DIRECTORY/$name"
 destination="${LIFEAPP_BACKUP_DRIVE_REMOTE%/}/$name"
 job=$(python3 -c 'from uuid import uuid4; print(uuid4())')
-python3 backup/database-backup.py report --id "$job" --state running
+"${database[@]}" report --id "$job" --state running
 failed() {
   status=$?
   if ((status != 0)); then
-    python3 backup/database-backup.py report --id "$job" --state failed || true
+    "${database[@]}" report --id "$job" --state failed || true
   fi
 }
 trap failed EXIT
-python3 backup/database-backup.py capture --commit "$commit" --recipients "$LIFEAPP_BACKUP_RECIPIENTS" --output "$archive"
+"${database[@]}" capture --commit "$commit" --recipients "$LIFEAPP_BACKUP_RECIPIENTS" --output "$archive"
 rclone=(rclone --config "$LIFEAPP_BACKUP_RCLONE_CONFIG")
 "${rclone[@]}" copyto --immutable "$archive" "$destination"
 local_hash=$(sha256sum "$archive" | cut -d ' ' -f 1)
 remote_hash=$("${rclone[@]}" cat "$destination" | sha256sum | cut -d ' ' -f 1)
 [[ "$local_hash" == "$remote_hash" ]] || { echo 'Uploaded object verification failed.' >&2; exit 1; }
 printf '%s  %s\n' "$local_hash" "$name" >> "$LIFEAPP_BACKUP_DIRECTORY/verified.sha256"
-python3 backup/database-backup.py report --id "$job" --state verified
+"${database[@]}" report --id "$job" --state verified
 printf 'Drive object verified: %s\n' "$name"
 
 # Retention is opt-in. Only exact objects in the verified ledger are eligible.
-if [[ ${LIFEAPP_BACKUP_PRUNE:-0} == 1 ]]; then
+if [[ $project == lifeapp && ${LIFEAPP_BACKUP_PRUNE:-0} == 1 ]]; then
   listing=$(mktemp "$LIFEAPP_BACKUP_DIRECTORY/.remote.XXXXXX")
   prune=$(mktemp "$LIFEAPP_BACKUP_DIRECTORY/.prune.XXXXXX")
   trap 'rm -f "$listing" "$prune"' EXIT
