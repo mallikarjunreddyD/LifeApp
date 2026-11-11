@@ -428,8 +428,9 @@ The failed PR #28 browser, Android bridge and deployment jobs stopped at
 runner package installation. Their logs show DNS failures for
 security.ubuntu.com. The affected jobs now use Ubuntu 24.04. Browser
 setup uses the runner's libraries and downloads the pinned Playwright
-browser. Recovery verification installs its tools from Ubuntu's signed
-archive.
+browser. Recovery verification downloads pinned age and rclone releases and
+verifies their SHA-256 digests before executing them. The runner's Ubuntu
+archive also failed to complete dependency installation.
 
 Once package setup succeeded, the emulator bridge exposed an older test
 harness issue. Its TLS adapter dropped the dataset and epoch headers and
