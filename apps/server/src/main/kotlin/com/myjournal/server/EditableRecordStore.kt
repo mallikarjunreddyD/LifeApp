@@ -2,6 +2,8 @@ package com.myjournal.server
 
 import com.myjournal.domain.SyncScope
 import java.security.MessageDigest
+import java.sql.Connection
+import java.util.UUID
 import java.util.HexFormat
 import kotlin.uuid.Uuid
 
@@ -75,10 +77,7 @@ internal class EditableRecordStore(private val database: Database) {
                 ) { arrayOf(it.getString(1), it.getString(2), it.getString(3), it.getString(4)) }.singleOrNull()
                     ?: conflict("MISSING_DEPENDENCY", "The matching staged record is missing or expired.")
                 val (kind, key, root, identities) = staged
-                val heads = query(
-                    "SELECT version_id FROM editable_record_heads WHERE dataset_id = ? AND kind = ? AND logical_key = ?",
-                    dataset, kind, key,
-                ) { it.uuid(1) }.toSet()
+                val heads = heads(dataset, kind, key).map { it.id }.toSet()
                 if (requireEmpty && heads.isNotEmpty()) {
                     conflict("CONFLICT_CHANGED", "The server now has a record for this date, month or notebook.")
                 }
@@ -141,6 +140,64 @@ internal class EditableRecordStore(private val database: Database) {
             }
         }
     }
+
+    data class Variant(val id: Uuid, val sequence: Long)
+    data class Review(val kind: String, val key: String, val variants: List<Variant>)
+    private data class Source(val kind: String, val key: String, val digest: String)
+
+    fun review(scope: SyncScope, version: Uuid): Review = database.transaction {
+        lockEpoch(scope)
+        val dataset = scope.dataset.sql()
+        val source = source(dataset, version)
+        Review(source.kind, source.key, heads(dataset, source.kind, source.key))
+    }
+
+    /** Keep the selected archive byte-for-byte and retain all superseded variants in history. */
+    fun resolve(scope: SyncScope, selected: Uuid, id: Uuid, reviewed: Set<Uuid>) {
+        require(reviewed.size in 2..32 && selected in reviewed && id !in reviewed)
+        database.transaction {
+            lockEpoch(scope, write = true)
+            val dataset = scope.dataset.sql()
+            val (kind, key, digest) = source(dataset, selected)
+            val parentsSql = createArrayOf("uuid", reviewed.map { it.sql() }.toTypedArray())
+            try {
+                val prior = query(
+                    """SELECT kind = ? AND logical_key = ? AND sha256 = ? AND parents @> ? AND parents <@ ?
+                       FROM editable_record_versions WHERE dataset_id = ? AND id = ?""",
+                    kind, key, digest, parentsSql, parentsSql, dataset, id.sql(),
+                ) { it.getBoolean(1) }.singleOrNull()
+                if (prior != null) {
+                    if (!prior) conflict("IDEMPOTENCY_MISMATCH", "The resolution ID already has different content.")
+                    return@transaction
+                }
+                if (heads(dataset, kind, key).map { it.id }.toSet() != reviewed) {
+                    conflict("CONFLICT_CHANGED", "The current record versions changed. Review them again.")
+                }
+                check(execute(
+                    """INSERT INTO editable_record_versions (dataset_id, id, kind, logical_key, root_id, sha256, parents, archive)
+                       SELECT dataset_id, ?, kind, logical_key, root_id, sha256, ?, archive
+                       FROM editable_record_versions WHERE dataset_id = ? AND id = ?""",
+                    id.sql(), parentsSql, dataset, selected.sql(),
+                ) == 1)
+                execute("DELETE FROM editable_record_heads WHERE dataset_id = ? AND kind = ? AND logical_key = ?", dataset, kind, key)
+                execute("INSERT INTO editable_record_heads VALUES (?, ?, ?, ?)", dataset, kind, key, id.sql())
+            } finally {
+                parentsSql.free()
+            }
+        }
+    }
+
+    private fun Connection.source(dataset: UUID, version: Uuid) = query(
+        "SELECT kind, logical_key, sha256 FROM editable_record_versions WHERE dataset_id = ? AND id = ?", dataset, version.sql(),
+    ) { Source(it.getString(1), it.getString(2), it.getString(3)) }.singleOrNull()
+        ?: throw ApiFailure(404, "NOT_FOUND", "Record version not found.")
+
+    private fun Connection.heads(dataset: UUID, kind: String, key: String) = query(
+        """SELECT v.id, v.sequence FROM editable_record_heads h
+           JOIN editable_record_versions v ON h.dataset_id = v.dataset_id AND h.version_id = v.id
+           WHERE h.dataset_id = ? AND h.kind = ? AND h.logical_key = ? ORDER BY v.sequence""",
+        dataset, kind, key,
+    ) { Variant(it.uuid(1), it.getLong(2)) }
 
     fun versions(scope: SyncScope, after: Long, limit: Int) = database.transaction {
         lockEpoch(scope)

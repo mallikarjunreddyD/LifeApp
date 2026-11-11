@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { editablePreview, editableVersions } from './api.ts';
+import { ApiError, editablePreview, editableReview, editableVersions, resolveEditable } from './api.ts';
+import type { BrowserSession } from './api.ts';
 import { drawStroke } from './journalInk.ts';
 import { object, sameScope, scopeOf, sequence, uuid } from './protocol.ts';
 import type { Scope } from './protocol.ts';
@@ -55,13 +56,14 @@ function previewOf(value: unknown) {
 
 type Preview = ReturnType<typeof previewOf>;
 
-export function EditableRecords({ scope }: { scope: Scope }) {
-  const { dataset, epoch } = scope;
+export function EditableRecords({ session }: { session: BrowserSession }) {
+  const { dataset, epoch } = session.scope;
   const [open, setOpen] = useState(false);
   const [after, setAfter] = useState('0');
   const [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [failure, setFailure] = useState(false);
+  const [resolved, setResolved] = useState(false);
   const [listing, setListing] = useState<{
     rows: { id: string; label: string; current: boolean }[]; next: string | null;
   } | null>(null);
@@ -99,38 +101,137 @@ export function EditableRecords({ scope }: { scope: Scope }) {
   const next = listing?.next;
   return <details onToggle={event => {
     setOpen(event.currentTarget.open);
-    if (!event.currentTarget.open) load('0');
+    if (!event.currentTarget.open) { setResolved(false); load('0'); }
   }}>
     <summary>Server record versions</summary>
     {open && <>
-      <p>Read-only previews of committed journals, planners, habits and notebooks.</p>
+      <p>Preview committed journals, planners, habits and notebooks and review competing versions.</p>
+      {resolved && <p role="status">The selected version is current. Earlier versions are available in history.</p>}
       {failure ? <p role="alert">Could not load server record versions.</p> :
         !listing ? <p role="status">Loading record versions…</p> :
         listing.rows.length === 0 ? <p>No committed record versions.</p> :
         <ul>{listing.rows.map(row => <li key={row.id}>
-          <button aria-pressed={selected === row.id} onClick={() => setSelected(row.id)}>
+          <button aria-pressed={selected === row.id} onClick={() => { setResolved(false); setSelected(row.id); }}>
             {row.label}{row.current ? '' : ' (history)'}
           </button>
         </li>)}</ul>}
       {after !== '0' && <button onClick={() => load('0')}>First versions</button>}
       {next && <button onClick={() => load(next)}>Next versions</button>}
       {(failure || listing) && <button onClick={() => load(after)}>{failure ? 'Retry' : 'Refresh versions'}</button>}
-      {selected && <RecordPreview key={selected} scope={scope} id={selected} />}
+      {selected && <SelectedRecord key={selected} session={session} id={selected} onResolved={() => {
+        load(after);
+        setResolved(true);
+      }} />}
     </>}
   </details>;
 }
 
-function RecordPreview({ scope: { dataset, epoch }, id }: { scope: Scope; id: string }) {
+function SelectedRecord({ session, id, onResolved }: { session: BrowserSession; id: string; onResolved: () => void }) {
+  const [reviewing, setReviewing] = useState(false);
+  if (!reviewing) return <>
+    <button onClick={() => setReviewing(true)}>Review current versions</button>
+    <RecordPreview scope={session.scope} id={id} />
+  </>;
+  return <ConflictReview session={session} id={id} onClose={() => setReviewing(false)} onResolved={onResolved} />;
+}
+
+function ConflictReview({ session, id, onClose, onResolved }: {
+  session: BrowserSession; id: string; onClose: () => void; onResolved: () => void;
+}) {
+  const { dataset, epoch } = session.scope;
+  const [variants, setVariants] = useState<{ id: string; sequence: string }[] | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [viewed, setViewed] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState<{ selected: string; id: string } | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const sending = useRef(false);
+
+  useEffect(() => {
+    const cancel = new AbortController();
+    const scope = { dataset, epoch };
+    void editableReview(scope, id, cancel.signal).then(value => {
+      const review = object(value, ['scope', 'kind', 'key', 'variants']);
+      if (!sameScope(scope, scopeOf(review.scope))) throw new Error('The record scope changed.');
+      const rows = array(review.variants).map(item => {
+        const row = object(item, ['id', 'sequence']);
+        return { id: uuid(row.id), sequence: sequence(row.sequence) };
+      });
+      if (rows.length < 1 || rows.length > 32 || new Set(rows.map(row => row.id)).size !== rows.length) {
+        throw new Error('Invalid record variants.');
+      }
+      if (!cancel.signal.aborted) setVariants(rows);
+    }).catch(() => { if (!cancel.signal.aborted) setError('Could not read the current versions.'); });
+    return () => cancel.abort();
+  }, [dataset, epoch, id, retry]);
+
+  async function keepVersion() {
+    if (sending.current || !selected || viewed !== selected || !variants || variants.length < 2) return;
+    if (!window.confirm('Make this version current? All earlier versions will remain in history.')) return;
+    const operation = attempt?.selected === selected ? attempt : { selected, id: crypto.randomUUID() };
+    sending.current = true;
+    setAttempt(operation);
+    setBusy(true);
+    setError('');
+    try {
+      await resolveEditable(session, selected, operation.id, variants.map(row => row.id));
+      onResolved();
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.status === 409) {
+        setVariants(null);
+        setSelected(null);
+        setViewed(null);
+        setAttempt(null);
+        setError('The current versions changed. Refresh and review them again.');
+      } else {
+        setError('Could not confirm the resolution. Retry to check the same request.');
+      }
+    } finally {
+      sending.current = false;
+      setBusy(false);
+    }
+  }
+
+  return <section aria-label="Record conflict review">
+    <h2>Current versions</h2>
+    {error && <p role="alert">{error}</p>}
+    {!variants && !error && <p role="status">Loading current versions…</p>}
+    {variants?.length === 1 && <p>This record has one current version.</p>}
+    {variants && variants.length > 1 && <>
+      <p>Preview each version to decide which one should be current.</p>
+      <ul>{variants.map(row => <li key={row.id}>
+        <button disabled={busy || (attempt !== null && selected !== row.id)} aria-pressed={selected === row.id}
+          onClick={() => {
+            if (selected !== row.id) { setViewed(null); setSelected(row.id); }
+          }}>Preview version {row.sequence}</button>
+      </li>)}</ul>
+      {selected && <RecordPreview key={selected} scope={session.scope} id={selected} onReady={setViewed} />}
+      <button disabled={busy || !selected || viewed !== selected} onClick={() => void keepVersion()}>
+        {busy ? 'Saving resolution…' : attempt ? 'Retry resolution' : 'Keep selected version'}
+      </button>
+    </>}
+    {!variants && error && <button onClick={() => { setError(''); setRetry(value => value + 1); }}>Refresh current versions</button>}
+    <button disabled={busy} onClick={onClose}>Close version review</button>
+  </section>;
+}
+
+function RecordPreview({ scope: { dataset, epoch }, id, onReady }: {
+  scope: Scope; id: string; onReady?: (id: string) => void;
+}) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [failed, setFailed] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   useEffect(() => {
     const cancel = new AbortController();
     void editablePreview({ dataset, epoch }, id, cancel.signal).then(value => {
-      if (!cancel.signal.aborted) setPreview(previewOf(value));
+      if (!cancel.signal.aborted) {
+        setPreview(previewOf(value));
+        onReady?.(id);
+      }
     }).catch(() => { if (!cancel.signal.aborted) setFailed(true); });
     return () => cancel.abort();
-  }, [dataset, epoch, id]);
+  }, [dataset, epoch, id, onReady]);
   if (failed) return <p role="alert">Could not display this version. It may exceed the preview limit.</p>;
   if (!preview) return <p role="status">Loading record preview…</p>;
   const page = preview.pages[pageIndex];
