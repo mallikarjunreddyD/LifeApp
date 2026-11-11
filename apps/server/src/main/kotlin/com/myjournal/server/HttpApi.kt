@@ -16,6 +16,8 @@ import io.ktor.utils.io.readBuffer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.io.readByteArray
 import kotlinx.serialization.json.*
 import java.security.MessageDigest
@@ -30,6 +32,8 @@ private val databaseDispatcher = Dispatchers.IO.limitedParallelism(12)
 internal fun Application.lifeApp(database: Database, auth: Authentication, origin: String) {
     val todos = TodoStore(database)
     val workouts = WorkoutReader(database)
+    val stagedInk = StagedInkStore(database)
+    val inkUploads = Semaphore(2)
     intercept(ApplicationCallPipeline.Plugins) {
         call.response.headers.append(REQUEST_ID, Uuid.random().toString())
         call.response.headers.append(HttpHeaders.CacheControl, "no-store")
@@ -92,6 +96,34 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                 databaseCall { auth.revoke(token) }
                 if (session.csrfToken != null) call.sessionCookie("", 0)
                 call.respond(HttpStatusCode.NoContent)
+            }
+            put("/ink/staged/{uploadId}") {
+                val session = call.authenticate(auth).second
+                call.requireMutation(session, origin)
+                val (id, scope, checksum) = validated {
+                    val id = Uuid.parse(requireNotNull(call.parameters["uploadId"]))
+                    val scope = SyncScope(
+                        Uuid.parse(requireNotNull(call.request.headers["X-LifeApp-Dataset"])),
+                        Uuid.parse(requireNotNull(call.request.headers["X-LifeApp-Epoch"])),
+                    )
+                    val checksum = requireNotNull(call.request.headers["X-Content-SHA256"])
+                    require(checksum.matches(Regex("[0-9a-f]{64}")))
+                    require(call.request.contentType().match(ContentType.Application.OctetStream))
+                    Triple(id, scope, checksum)
+                }
+                if (scope != session.scope) conflict("SCOPE_MISMATCH", "The submitted dataset or epoch does not match the session.")
+                if ((call.request.contentLength() ?: 0) > StagedInkStore.MAX_BYTES) inkTooLarge()
+                if (!inkUploads.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the stroke upload later.")
+                try {
+                    val bytes = withTimeoutOrNull(30_000) {
+                        call.receiveChannel().readBuffer(StagedInkStore.MAX_BYTES.toLong() + 1).readByteArray()
+                    } ?: throw ApiFailure(408, "INVALID_REQUEST", "The stroke upload timed out.")
+                    if (bytes.size > StagedInkStore.MAX_BYTES) inkTooLarge()
+                    databaseCall { validated { stagedInk.stage(scope, id, checksum, bytes) } }
+                    call.respond(HttpStatusCode.NoContent)
+                } finally {
+                    inkUploads.release()
+                }
             }
             get("/bootstrap") {
                 val scope = call.authenticate(auth).second.scope
@@ -266,5 +298,6 @@ private inline fun <T> validated(block: () -> T): T = try {
 }
 
 private fun invalid(): Nothing = throw ApiFailure(400, "INVALID_REQUEST", "Malformed or invalid request.")
+private fun inkTooLarge(): Nothing = throw ApiFailure(413, "LIMIT_EXCEEDED", "The stroke exceeds 20,000,012 bytes.")
 private fun tooLarge(): Nothing = throw ApiFailure(413, "LIMIT_EXCEEDED", "The request exceeds 16 KiB.")
 private suspend fun <T> databaseCall(block: () -> T): T = withContext(databaseDispatcher) { block() }

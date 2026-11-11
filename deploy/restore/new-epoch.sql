@@ -1,5 +1,12 @@
 -- Apply to an isolated restored database before starting the API.
 DELETE FROM sessions;
+DO $$
+BEGIN
+    IF to_regclass('public.staged_ink') IS NOT NULL THEN
+        DELETE FROM staged_ink;
+    END IF;
+END;
+$$;
 UPDATE backup_jobs SET state = 'failed' WHERE state = 'running';
 CREATE TEMP TABLE epoch_map ON COMMIT DROP AS
 SELECT dataset_id, id AS old_epoch, gen_random_uuid() AS new_epoch, last_commit
