@@ -39,20 +39,44 @@ credentials = {"username": "compose-smoke-owner", "password": "disposable compos
 operation = json.loads(Path("contracts/fixtures/todo-operation.json").read_text())
 session = json.loads(call("/v1/session", method="POST", body={**credentials, "client": "android"})[0])
 auth = {"Authorization": f"Bearer {session['accessToken']}"}
+points = struct.pack("<4sIIfffq", b"LJPT", 1, 1, 0.0, 2.0, -1.0, 0)
+stroke_id = "71000000-0000-4000-8000-000000000003"
 if sys.argv[1] == "hold":
-    points = struct.pack("<4sIIfffq", b"LJPT", 1, 1, 0.0, 2.0, -1.0, 0)
     scope = session["scope"]
-    call(f"/v1/ink/staged/{uuid.uuid4()}", method="PUT", expected=204, body=points, headers={
+    digest = hashlib.sha256(points).hexdigest()
+    headers = {
         **auth,
         "X-LifeApp-Dataset": scope["dataset"],
         "X-LifeApp-Epoch": scope["epoch"],
-        "X-Content-SHA256": hashlib.sha256(points).hexdigest(),
+        "X-Content-SHA256": digest,
+    }
+    upload = str(uuid.uuid4())
+    call(f"/v1/ink/staged/{upload}", method="PUT", expected=204, body=points, headers=headers)
+
+    def metadata(identity):
+        time = "2026-11-09T12:00:00Z"
+        return {"id": identity, "createdAt": time, "updatedAt": time, "schemaVersion": 1, "revision": 1}
+
+    entry_id = "71000000-0000-4000-8000-000000000001"
+    page_id = "71000000-0000-4000-8000-000000000002"
+    call("/v1/journal/ink/commit", method="POST", expected=204, headers=auth, body={
+        "scope": scope, "uploadId": upload, "sha256": digest,
+        "entry": {"metadata": metadata(entry_id), "date": "2026-11-09", "pages": [{
+            "metadata": metadata(page_id), "entryId": entry_id, "order": 0,
+            "width": 1000.0, "height": 1414.0, "paper": "RULED", "archived": False,
+        }]},
+        "stroke": {"metadata": metadata(stroke_id), "surfaceId": page_id, "order": 0,
+                   "brush": "PEN", "colorArgb": 4278190080, "width": 3.0, "pointFormatVersion": 1},
     })
+    # This second upload remains staged. Recovery should keep only the committed bytes.
+    call(f"/v1/ink/staged/{uuid.uuid4()}", method="PUT", expected=204, body=points, headers=headers)
     Path(sys.argv[2]).write_text(session["accessToken"], encoding="utf-8")
     sys.exit(0)
 if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):
     token = Path(held).read_text(encoding="utf-8")
     call("/v1/session", headers={"Authorization": f"Bearer {token}"}, expected=401)
+    restored_ink, ink_headers = call(f"/v1/journal/ink/{stroke_id}", headers=auth)
+    assert restored_ink == points and ink_headers["X-Content-SHA256"] == hashlib.sha256(points).hexdigest()
     backup = json.loads(call("/v1/backups/status", headers=auth)[0])
     assert backup["state"] == "failed" and backup["lastVerifiedAt"] is None
     workout = json.loads(call("/v1/workouts/70000000-0000-4000-8000-000000000002", headers=auth)[0])
