@@ -202,9 +202,10 @@ the variants before making more checkbox edits. Completion identities
 are retained on updates. An archived habit or a changed ledger identity
 requires a fresh review.
 
-Checkbox editing is online. Android can apply the resulting ledger in
-record review. Android outbound uploads still use whole-record versions,
-including when a local change is one checkbox.
+The PWA checkbox editor requires a connection. Android keeps local
+checkbox edits in Room offline. When a tracked ledger only changed
+checkboxes, Android queues the changed dates as individual operations
+with the original completion IDs and metadata.
 
 
 ## Reviewed Android updates
@@ -226,6 +227,31 @@ Unrelated records, To-do synchronization state and workouts are untouched.
 Restoring a backup resets version tracking while preserving pending
 upload copies.
 
-This is a manual, backup-verified transfer. Automatic Android editor
-capture and replay, per-checkbox Android operations, and physical
-cross-device acceptance remain pending.
+Physical cross-device acceptance remains pending.
+
+
+## Automatic Android transfer for tracked records
+
+After confirming a shared version through the backup-verified review,
+enable **Automatically sync records** in **Settings → LifeApp
+Server**. The preference applies to that HTTPS origin, dataset and
+recovery epoch. Android periodically checks committed Room records while
+connected and saves upload copies before sending. It also checks for
+server updates when the app opens. Automatic transfer covers tracked
+records and new records created after automatic sync is enabled.
+Existing untracked records are left for the backup-verified review.
+Overlapping keys without a shared version are also left for review.
+
+The upload pass can coalesce multiple committed edits into one record
+version. Checkbox-only Android changes use individual date operations
+with stable retry IDs. Mixed definition and completion edits can still
+use a record archive. Independent checkbox-only archive branches can
+merge without changing completion identities. Competing versions remain
+available in the PWA review.
+
+Before applying a server update, the foreground pass drains editor saves
+and checks the exact reviewed local copy inside the Room transaction.
+If the local record changed, it keeps that copy and retries on a later
+pass. Android applies downloads while the app is open so it can safely
+reload the editor caches. Signing out or restoring a local backup pauses automatic work and keeps
+queued copies. A changed recovery epoch requires a fresh review.

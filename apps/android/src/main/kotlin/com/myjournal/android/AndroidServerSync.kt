@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
@@ -31,6 +32,8 @@ internal data class AndroidServerState(
     val pinnedOrigin: String? = null,
     val pending: Int = 0,
     val pendingImport: Int = 0,
+    val automaticEditable: Boolean = false,
+    val editableStatus: String? = null,
     val importQueueUnreadable: Boolean = false,
     val working: Boolean = false,
     val message: String? = null,
@@ -42,12 +45,17 @@ internal data class AndroidServerState(
 
 internal enum class SyncOutcome { DONE, RETRY, CONTINUE }
 
-internal class AndroidServerSync(private val context: Context, private val repository: RoomTodoRepository) {
+internal class AndroidServerSync(
+    private val context: Context,
+    private val repository: RoomTodoRepository,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    private val apiFor: (ServerEndpoint) -> ServerApi = { ServerApi(it) },
+    editableDirectory: File = context.noBackupFilesDir,
+) {
     private val store = ServerCredentialStore(context)
-    private val editableBaselines = EditableSyncBaselines(context.noBackupFilesDir.resolve("editable-baselines"))
-    private val importQueue = EditableImportQueue(context.noBackupFilesDir.resolve("editable-import"))
+    private val editableBaselines = EditableSyncBaselines(editableDirectory.resolve("editable-baselines"))
+    private val importQueue = EditableImportQueue(editableDirectory.resolve("editable-import"))
     private val gate = Mutex()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutable = MutableStateFlow(AndroidServerState(origin = store.origin(), lastSync = store.lastVerified()))
     val state = mutable.asStateFlow()
 
@@ -64,6 +72,7 @@ internal class AndroidServerSync(private val context: Context, private val repos
             try {
                 gate.withLock { refresh() }
                 schedule()
+                if (mutable.value.automaticEditable) ensureEditableWork()
             } catch (failure: Exception) { report(failure) }
         }
     }
@@ -72,13 +81,13 @@ internal class AndroidServerSync(private val context: Context, private val repos
     fun onLocalCommit() = schedule(uploadOnly = true)
 
     fun testConnection(origin: String) = action {
-        val api = ServerApi(endpoint(origin))
+        val api = apiFor(endpoint(origin))
         api.ready()
         message("LifeApp server is ready. Sign in to verify the account.")
     }
 
     fun signIn(origin: String, username: String, password: String, secondFactor: String?) = action(invalidateOnExpired = false) {
-        val api = ServerApi(endpoint(origin))
+        val api = apiFor(endpoint(origin))
         val pinned = repository.boundOrigin()
         if (pinned != null && pinned != api.endpoint.origin) throw UserSyncError("This database is bound to a different HTTPS origin.")
         val credential = api.login(username.trim(), password, secondFactor)
@@ -133,58 +142,95 @@ internal class AndroidServerSync(private val context: Context, private val repos
             withContext(Dispatchers.IO) {
                 importQueue.finishIfEmpty()
                 check(importQueue.load() == null) { "Resume the previous record upload first." }
-                val local = backup.editableImportRecords().associateBy { it.key }
-                val remote = api.editableVersions(session, credential.token).groupBy { it.key }
-                val legacy = api.journalEntries(session, credential.token).map { EditableImportKey("journal", it.date.toString()) }.toSet()
-                val serverKeys = remote.keys + legacy
-                val known = editableBaselines.load(target)
-                val matched = mutableMapOf<EditableImportKey, EditableSyncBaselines.Baseline>()
-                val uploads = local.values.filter { it.key !in serverKeys }.toMutableList()
-                val uploadParents = mutableMapOf<EditableImportKey, Uuid>()
-                val downloads = remote.filter { (key, variants) -> key !in local && variants.size == 1 }.values.map { it.single() }.toMutableList()
-                val replacements = mutableMapOf<EditableImportKey, JournalSnapshot>()
-                val overlaps = local.keys.filter { it in legacy }.toMutableList()
-                val file = java.io.File.createTempFile("lifeapp-review-", ".zip", context.cacheDir)
-                try {
-                    for ((key, record) in local) {
-                        val variants = remote[key] ?: continue
-                        val version = variants.singleOrNull() ?: continue
-                        val fingerprint = EditableSyncBaselines.fingerprint(record.snapshot)
-                        val base = known[key]
-                        if (base?.fingerprint == fingerprint && base.version == version.id) continue
-
-                        // Confirm identical content before treating an older installation's copy as a shared base.
-                        if (base == null || base.fingerprint != fingerprint && version.id != base.version) {
-                            api.downloadEditableVersion(session, credential.token, version, file)
-                            val source = BackupArchive.read(file).snapshot
-                            require(source.editableImportRecords().single().key == key)
-                            if (EditableSyncBaselines.fingerprint(source) == fingerprint) {
-                                matched[key] = EditableSyncBaselines.Baseline(version.id, fingerprint)
-                                continue
-                            }
-                        }
-                        if (base == null) {
-                            overlaps += key
-                        } else if (base.fingerprint == fingerprint) {
-                            downloads += version
-                            replacements[key] = record.snapshot
-                        } else {
-                            uploads += record
-                            uploadParents[key] = base.version
-                        }
-                    }
-                    editableBaselines.record(target, matched)
-                } finally {
-                    file.delete()
-                }
-                val conflicted = remote.filterValues { it.size > 1 }.keys.toList()
-                EditableImportReview(target, uploads, overlaps, serverKeys.size, downloads, conflicted, uploadParents, replacements)
+                planEditable(target, backup, session, api, credential.token, trackedOnly = false)
             }
         }
 
-    suspend fun downloadEditableImport(review: EditableImportReview): List<EditableImportRecord> = gate.withLock {
-        val (credential, session, api) = currentSession()
-        requireImportTarget(review.target, api, session)
+    private suspend fun planEditable(
+        target: EditableImportQueue.Target, backup: JournalSnapshot, session: ServerSession, api: ServerApi,
+        token: String, trackedOnly: Boolean,
+    ): EditableImportReview {
+        val local = backup.editableImportRecords().associateBy { it.key }
+        val remote = api.editableVersions(session, token).groupBy { it.key }
+        val excluded = if (trackedOnly) editableBaselines.excluded(target) else emptySet()
+        val known = editableBaselines.load(target)
+        fun includesNew(key: EditableImportKey) = excluded != null && key !in excluded
+        val legacy = if (excluded == null) emptySet() else api.journalEntries(session, token)
+            .map { EditableImportKey("journal", it.date.toString()) }.toSet()
+        val serverKeys = remote.keys + legacy
+        val matched = mutableMapOf<EditableImportKey, EditableSyncBaselines.Baseline>()
+        val uploads = local.values.filter { includesNew(it.key) && it.key !in serverKeys && (!trackedOnly || it.key !in known) }.toMutableList()
+        val uploadParents = mutableMapOf<EditableImportKey, Uuid>()
+        val habitChecks = mutableMapOf<EditableImportKey, List<HabitCompletion>>()
+        val downloads = remote.filter { (key, variants) ->
+            includesNew(key) && key !in local && variants.size == 1 && (!trackedOnly || key !in known)
+        }.values.map { it.single() }.toMutableList()
+        val replacements = mutableMapOf<EditableImportKey, JournalSnapshot>()
+        val overlaps = local.keys.filter { it in legacy }.toMutableList()
+        val file = java.io.File.createTempFile("lifeapp-review-", ".zip", context.cacheDir)
+        try {
+            for ((key, record) in local) {
+                val variants = remote[key] ?: continue
+                val version = variants.singleOrNull() ?: continue
+                val fingerprint = EditableSyncBaselines.fingerprint(record.snapshot)
+                val base = known[key]
+                if (trackedOnly && base == null && !includesNew(key)) continue
+                if (base?.fingerprint == fingerprint && base.version == version.id) continue
+                // Confirm identical content before treating an older installation's copy as a shared base.
+                if (base == null || base.fingerprint != fingerprint && version.id != base.version) {
+                    api.downloadEditableVersion(session, token, version, file)
+                    val source = BackupArchive.read(file).snapshot
+                    require(source.editableImportRecords().single().key == key)
+                    if (EditableSyncBaselines.fingerprint(source) == fingerprint) {
+                        matched[key] = EditableSyncBaselines.Baseline(version.id, fingerprint)
+                        continue
+                    }
+                }
+                if (base == null) {
+                    overlaps += key
+                } else if (base.fingerprint == fingerprint) {
+                    downloads += version
+                    replacements[key] = record.snapshot
+                } else {
+                    uploads += record
+                    uploadParents[key] = base.version
+                    if (key.kind == "habits") {
+                        api.downloadEditableArchive(session, token, base.version, file)
+                        val previous = BackupArchive.read(file).snapshot.habits.single()
+                        val latest = record.snapshot.habits.single()
+                        val checks = changedHabitChecks(previous, latest)
+                        if (checks.isNotEmpty()) habitChecks[key] = checks
+                    }
+                }
+            }
+            editableBaselines.record(target, matched)
+        } finally {
+            file.delete()
+        }
+        val conflicted = remote.filter { (key, variants) -> variants.size > 1 && (key in known || includesNew(key)) }.keys.toList()
+        return EditableImportReview(target, uploads, overlaps, serverKeys.size, downloads, conflicted, uploadParents, replacements, habitChecks)
+    }
+
+    private fun changedHabitChecks(before: MonthlyHabitLedger, after: MonthlyHabitLedger): List<HabitCompletion> {
+        if (before.metadata.id != after.metadata.id || before.metadata.createdAt != after.metadata.createdAt ||
+            before.month != after.month || before.habits != after.habits) return emptyList()
+        val previous = before.completions.associateBy { it.habitId to it.date }
+        val current = after.completions.associateBy { it.habitId to it.date }
+        if (!current.keys.containsAll(previous.keys)) return emptyList()
+        val changes = current.filter { (key, completion) -> previous[key] != completion }
+        val active = after.activeHabits.map { it.metadata.id }.toSet()
+        if (changes.any { (key, completion) ->
+                val old = previous[key]
+                completion.habitId !in active || (old != null && (old.metadata.id != completion.metadata.id ||
+                    old.metadata.createdAt != completion.metadata.createdAt || old.metadata.revision >= completion.metadata.revision ||
+                    old.metadata.updatedAt > completion.metadata.updatedAt || old.checked == completion.checked))
+            }) return emptyList()
+        return changes.values.sortedWith(compareBy({ it.date }, { it.habitId.toString() }))
+    }
+
+    private suspend fun downloadReviewed(
+        review: EditableImportReview, credential: ServerCredential, session: ServerSession, api: ServerApi,
+    ): List<EditableImportRecord> =
         withContext(Dispatchers.IO) {
             fun verifyReviewedVersions(current: List<EditableRemoteVersion>) {
                 val versions = current.groupBy { it.key }
@@ -217,63 +263,169 @@ internal class AndroidServerSync(private val context: Context, private val repos
                 file.delete()
             }
         }
-    }
-
     suspend fun resetEditableBaselines() = gate.withLock {
         withContext(Dispatchers.IO) {
             importQueue.invalidateBaselines()
             editableBaselines.clear()
+            store.setEditableEnabled(null)
         }
     }
 
-    suspend fun recordEditableDownloads(review: EditableImportReview, records: List<EditableImportRecord>) = gate.withLock {
-        val versions = review.downloadable.associateBy { it.key }
-        withContext(Dispatchers.IO) {
-            editableBaselines.record(review.target, records.associate {
-                it.key to EditableSyncBaselines.Baseline(versions.getValue(it.key).id, EditableSyncBaselines.fingerprint(it.snapshot))
-            })
+    suspend fun applyReviewedDownloads(
+        review: EditableImportReview, apply: suspend (List<EditableImportRecord>) -> Unit,
+    ): Int = gate.withLock {
+        val (credential, session, api) = currentSession()
+        requireImportTarget(review.target, api, session)
+        applyTrackedDownloads(review, credential, session, api, apply)
+    }
+
+    private suspend fun applyTrackedDownloads(
+        review: EditableImportReview, credential: ServerCredential, session: ServerSession, api: ServerApi,
+        apply: suspend (List<EditableImportRecord>) -> Unit,
+    ): Int {
+        val records = downloadReviewed(review, credential, session, api)
+        apply(records)
+        try {
+            val versions = review.downloadable.associateBy { it.key }
+            withContext(Dispatchers.IO) {
+                editableBaselines.record(review.target, records.associate {
+                    it.key to EditableSyncBaselines.Baseline(versions.getValue(it.key).id, EditableSyncBaselines.fingerprint(it.snapshot))
+                })
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            throw UserSyncError("Records were applied, but their shared versions could not be saved. Review again.")
         }
+        return records.size
     }
 
     suspend fun queueEditableImport(review: EditableImportReview) = gate.withLock {
         val (_, session, api) = currentSession()
         requireImportTarget(review.target, api, session)
-        withContext(Dispatchers.IO) { importQueue.enqueue(review.target, review.eligible, review.uploadParents) }
+        withContext(Dispatchers.IO) { importQueue.enqueue(review.target, review.eligible, review.uploadParents, review.habitChecks) }
         refresh()
     }
 
     fun resumeEditableImport() = action {
         val (credential, session, api) = currentSession()
         try {
-            val conflicts = withContext(Dispatchers.IO) {
-                val batch = importQueue.load() ?: return@withContext 0
-                requireImportTarget(batch.target, api, session)
-                var rejected = 0
-                for (file in batch.files) {
-                    currentCoroutineContext().ensureActive()
-                    check(file.length() in 1..EditableImportQueue.MAX_ARCHIVE_BYTES)
-                    val digest = BackupArchive.sha256(file.readBytes())
-                    val ids = file.nameWithoutExtension.split('_').map(Uuid::parse)
-                    val version = ids.first()
-                    try {
-                        api.uploadEditableImport(session, credential.token, version, file, digest, ids.getOrNull(1))
-                    } catch (failure: ServerHttpFailure) {
-                        if (failure.code != "CONFLICT_CHANGED") throw failure
-                        rejected++
-                        continue
-                    }
-                    if (batch.recordsBaselines) {
-                        val record = BackupArchive.read(file).snapshot.editableImportRecords().single()
-                        editableBaselines.record(batch.target, mapOf(record.key to
-                            EditableSyncBaselines.Baseline(version, EditableSyncBaselines.fingerprint(record.snapshot))))
-                    }
-                    importQueue.acknowledge(file)
-                }
-                importQueue.finishIfEmpty()
-                rejected
-            }
+            val conflicts = sendEditableQueue(credential, session, api)
             if (conflicts == 0) message("Approved record uploads completed. Local records were kept.")
             else throw UserSyncError("$conflicts uploads need conflict review. Their local copies are still queued.")
+        } finally {
+            refresh()
+        }
+    }
+
+    private suspend fun sendEditableQueue(credential: ServerCredential, session: ServerSession, api: ServerApi): Int =
+        withContext(Dispatchers.IO) {
+            val batch = importQueue.load() ?: return@withContext 0
+            requireImportTarget(batch.target, api, session)
+            var rejected = 0
+            for (file in batch.files) {
+                currentCoroutineContext().ensureActive()
+                check(file.length() in 1..EditableImportQueue.MAX_ARCHIVE_BYTES)
+                val digest = BackupArchive.sha256(file.readBytes())
+                val ids = file.nameWithoutExtension.split('_').map(Uuid::parse)
+                val version = ids.first()
+                val parent = ids.getOrNull(1)
+                val checks = importQueue.checks(file)
+                try {
+                    if (checks.isEmpty()) {
+                        api.uploadEditableImport(session, credential.token, version, file, digest, parent)
+                    } else {
+                        for (check in checks) api.uploadHabitCheck(session, credential.token, requireNotNull(parent), check)
+                    }
+                } catch (failure: ServerHttpFailure) {
+                    if (failure.code != "CONFLICT_CHANGED") throw failure
+                    rejected++
+                    continue
+                }
+                if (batch.recordsBaselines) {
+                    val record = BackupArchive.read(file).snapshot.editableImportRecords().single()
+                    editableBaselines.record(batch.target, mapOf(record.key to
+                        EditableSyncBaselines.Baseline(if (checks.isEmpty()) version else requireNotNull(parent),
+                            EditableSyncBaselines.fingerprint(record.snapshot))))
+                }
+                importQueue.acknowledge(file)
+            }
+            importQueue.finishIfEmpty()
+            rejected
+        }
+
+    fun setAutomaticEditable(enabled: Boolean, capture: suspend () -> JournalSnapshot) = action {
+        if (enabled) {
+            val (credential, session, api) = currentSession()
+            val target = EditableImportQueue.Target(api.endpoint.origin, session.scope)
+            val local = capture().editableImportRecords().map { it.key }
+            withContext(Dispatchers.IO) {
+                val known = editableBaselines.load(target)
+                if (known.isEmpty()) throw UserSyncError("Confirm a shared record through the backup-verified transfer first.")
+                val remote = api.editableVersions(session, credential.token).map { it.key }
+                val legacy = api.journalEntries(session, credential.token).map { EditableImportKey("journal", it.date.toString()) }
+                editableBaselines.excludeExisting(target, (local + remote + legacy).toSet() - known.keys)
+            }
+            store.setEditableEnabled(target)
+            ensureEditableWork()
+        } else {
+            store.setEditableEnabled(null)
+            WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_WORK)
+        }
+        refresh()
+        message(if (enabled) "Automatic sync enabled for tracked and new records." else "Automatic record sync paused.")
+    }
+
+    private fun ensureEditableWork() {
+        val request = PeriodicWorkRequestBuilder<EditableSyncWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(EDITABLE_WORK, ExistingPeriodicWorkPolicy.KEEP, request)
+    }
+
+    suspend fun automaticEditableEnabled(): Boolean = gate.withLock {
+        val credential = store.load() ?: return@withLock false
+        store.editableEnabled(EditableImportQueue.Target(credential.endpoint.origin, credential.session.scope))
+    }
+
+    suspend fun syncTrackedRecords(
+        capture: suspend () -> JournalSnapshot,
+        apply: (suspend (List<EditableImportRecord>, Map<EditableImportKey, JournalSnapshot>) -> Unit)? = null,
+    ) = gate.withLock {
+        val saved = store.load() ?: return@withLock
+        val target = EditableImportQueue.Target(saved.endpoint.origin, saved.session.scope)
+        if (!store.editableEnabled(target) || saved.session.expiresAt <= Clock.System.now()) return@withLock
+        try {
+            val (credential, session, api) = currentSession()
+            requireImportTarget(target, api, session)
+            if (sendEditableQueue(credential, session, api) > 0) {
+                mutable.update { it.copy(editableStatus = "Queued record uploads need review.") }
+                return@withLock
+            }
+            suspend fun plan(): EditableImportReview {
+                val snapshot = capture()
+                return withContext(Dispatchers.IO) {
+                    planEditable(target, snapshot, session, api, credential.token, trackedOnly = true)
+                }
+            }
+            var review = plan()
+            if (review.eligible.isNotEmpty()) {
+                withContext(Dispatchers.IO) { importQueue.enqueue(target, review.eligible, review.uploadParents, review.habitChecks) }
+                if (sendEditableQueue(credential, session, api) > 0) {
+                    mutable.update { it.copy(editableStatus = "Queued record uploads need review.") }
+                    return@withLock
+                }
+                if (apply != null) review = plan()
+            }
+            if (apply != null && review.downloadable.isNotEmpty()) {
+                applyTrackedDownloads(review, credential, session, api) { records -> apply(records, review.replaceExpected) }
+            }
+            mutable.update { it.copy(editableStatus = if (review.conflicted.isEmpty() && review.overlaps.isEmpty())
+                "Records checked." else "Overlapping records or competing versions need review.") }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            mutable.update { it.copy(editableStatus = safeMessage(failure)) }
+            throw failure
         } finally {
             refresh()
         }
@@ -318,13 +470,15 @@ internal class AndroidServerSync(private val context: Context, private val repos
     }
 
     fun disconnect() = action {
+        store.setEditableEnabled(null)
+        WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(WORK)
         val credential = runCatching { store.load() }.getOrNull()
         store.clear()
         mutable.update { it.copy(preview = null) }
         refresh(null, load = false)
         val revoked = credential == null || try {
-            ServerApi(credential.endpoint).logout(credential.token)
+            apiFor(credential.endpoint).logout(credential.token)
             true
         } catch (_: ServerHttpFailure) { false }
           catch (_: IOException) { false }
@@ -415,7 +569,7 @@ internal class AndroidServerSync(private val context: Context, private val repos
     private suspend fun currentSession(): Triple<ServerCredential, ServerSession, ServerApi> {
         val credential = store.load() ?: throw UserSyncError("Sign in to the LifeApp server first.")
         if (credential.session.expiresAt <= Clock.System.now()) throw ExpiredSyncSession()
-        val api = ServerApi(credential.endpoint)
+        val api = apiFor(credential.endpoint)
         val session = api.session(credential.token)
         if (session.scope != credential.session.scope) throw UserSyncError("The server recovery epoch changed. Local records were kept.")
         return Triple(credential, session, api)
@@ -439,6 +593,7 @@ internal class AndroidServerSync(private val context: Context, private val repos
             pinnedOrigin = pinned,
             lastSync = store.lastVerified(),
             pendingImport = pendingImport ?: 0,
+            automaticEditable = saved?.let { store.editableEnabled(EditableImportQueue.Target(it.endpoint.origin, it.session.scope)) } == true,
             importQueueUnreadable = pendingImport == null,
             conflicts = conflicts,
         ) }
@@ -492,7 +647,10 @@ internal class AndroidServerSync(private val context: Context, private val repos
     private class UserSyncError(message: String) : IllegalStateException(message)
     private class ExpiredSyncSession : IllegalStateException("Server sign-in expired. Sign in again.")
 
-    companion object { private const val WORK = "lifeapp-todo-server-sync" }
+    companion object {
+        private const val WORK = "lifeapp-todo-server-sync"
+        private const val EDITABLE_WORK = "lifeapp-editable-server-sync"
+    }
 }
 
 class ServerSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
@@ -505,6 +663,29 @@ class ServerSyncWorker(context: Context, parameters: WorkerParameters) : Corouti
                 sync.schedule()
                 Result.success()
             }
+        }
+    }
+}
+
+
+class EditableSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
+    override suspend fun doWork(): Result {
+        val app = applicationContext as JournalApplication
+        return try {
+            app.serverSync.syncTrackedRecords(app.snapshots::capture)
+            Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: ServerHttpFailure) {
+            if (failure.retryable && runAttemptCount < 5) Result.retry() else Result.success()
+        } catch (_: SSLException) {
+            Result.success()
+        } catch (_: IOException) {
+            if (runAttemptCount < 5) Result.retry() else Result.success()
+        } catch (_: IllegalStateException) {
+            Result.success()
+        } catch (_: IllegalArgumentException) {
+            Result.success()
         }
     }
 }

@@ -29,7 +29,7 @@ permissions:
   contents: read
 jobs:
   verify-images:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       LIFEAPP_API_IMAGE: lifeapp-api:verification
@@ -51,8 +51,21 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - run: deploy/scripts/build-images.sh
-      - name: Install age for the disposable recovery drill
-        run: sudo apt-get update && sudo apt-get install -y age rclone
+      - name: Install verified recovery tools
+        run: |
+          work=$(mktemp -d "$RUNNER_TEMP/lifeapp-recovery-tools.XXXXXX")
+          cd "$work"
+          curl -fsSL --retry 3 --max-time 60 -o age.tar.gz https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-linux-amd64.tar.gz
+          curl -fsSL --retry 3 --max-time 60 -o rclone.zip https://github.com/rclone/rclone/releases/download/v1.70.3/rclone-v1.70.3-linux-amd64.zip
+          sha256sum -c <<'EOF'
+          cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10  age.tar.gz
+          7d69057e69385f6514a9684c7eaa424d972096b130284bb34dd967c4ed4f9dad  rclone.zip
+          EOF
+          tar -xzf age.tar.gz age/age age/age-keygen
+          unzip -q rclone.zip rclone-v1.70.3-linux-amd64/rclone
+          install -m 755 -D age/age "$work/bin/age"
+          install -m 755 age/age-keygen rclone-v1.70.3-linux-amd64/rclone "$work/bin/"
+          echo "$work/bin" >> "$GITHUB_PATH"
       - run: python3 -B deploy/backup/test-retention.py
       - run: deploy/scripts/smoke.sh
         env:

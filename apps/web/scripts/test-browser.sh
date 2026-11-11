@@ -8,6 +8,8 @@ server_pid=
 proxy_pid=
 browser_pid=
 cleanup() {
+  local status=$?
+  if ((status != 0)) && [ -f "$work/server.log" ]; then tail -50 "$work/server.log"; fi
   for pid in "$browser_pid" "$proxy_pid"; do
     if [ -n "$pid" ]; then
       kill "$pid" 2>/dev/null || true
@@ -89,7 +91,7 @@ for i in $(seq 1 10); do
 done
 test "$(cat "$work/tls-ready.json")" = '{"status":"ready"}'
 
-(cd "$root/apps/web" && exec npm run test:browser -- "$@") &
+(cd "$root/apps/web" && exec ./node_modules/.bin/playwright test "$@") &
 browser_pid=$!
 cert=$(base64 -w0 "$work/android-cert.pem")
 ./gradlew :apps:android:connectedDebugAndroidTest --console=plain \

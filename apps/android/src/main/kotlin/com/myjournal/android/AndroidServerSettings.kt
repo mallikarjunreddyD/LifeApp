@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -114,6 +115,12 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
             selectJournalBackup.launch(exportName("LifeApp-BeforeJournalImport", "zip"))
         }) { Text("Back up and review journal inventory") }
         Text("Choose a local file for a separate backup, then compare journal dates. The review sends no journal records.")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Switch(checked = server.automaticEditable, enabled = enabled, onCheckedChange = { operations.setAutomaticEditable(sync, it) })
+            Text("Automatically sync records")
+        }
+        Text("Confirm a shared version through record review first. Android syncs tracked and newly created records. Existing untracked records stay in manual review.")
+        server.editableStatus?.let { Text(it) }
         if (server.pendingImport > 0) {
             Text("${server.pendingImport} approved record uploads pending")
             OutlinedButton(enabled = enabled, onClick = sync::resumeEditableImport) { Text("Resume record uploads") }

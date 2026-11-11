@@ -413,3 +413,27 @@ its parent version, checked after reopening the queue, uploaded, downloaded
 and applied over its exact local base. It checks recovery-epoch isolation
 of version tracking and retains queued bytes when tracking is reset.
 Physical devices and continuous Android edit capture remain open.
+
+## Phase 7E tracked Android synchronization and CI
+
+The Android/PWA bridge exercises automatic upload and foreground replay
+against the disposable HTTPS server. The fixture includes a tracked
+notebook, an Android habit check whose original completion metadata is
+preserved, and existing To-do conflicts. The PostgreSQL integration suite
+covers Android completion metadata, retries, independent date changes and
+retention of competing versions. Physical Xiaomi Pad 7 and iPhone Safari
+acceptance remains open.
+
+The failed PR #28 browser, Android bridge and deployment jobs stopped at
+runner package installation. Their logs show DNS failures for
+security.ubuntu.com. The affected jobs now use Ubuntu 24.04. Browser
+setup uses the runner's libraries and downloads the pinned Playwright
+browser. Recovery verification downloads pinned age and rclone releases and
+verifies their SHA-256 digests before executing them. The runner's Ubuntu
+archive also failed to complete dependency installation.
+
+Once package setup succeeded, the emulator bridge exposed an older test
+harness issue. Its TLS adapter dropped the dataset and epoch headers and
+handled only small JSON requests. The bridge now forwards scoped headers,
+binary archive transfers and archive checksums. The production Android TLS
+implementation still uses normal certificate and hostname verification.

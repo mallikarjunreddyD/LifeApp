@@ -27,6 +27,7 @@ internal data class EditableImportReview(
     val conflicted: List<EditableImportKey>,
     val uploadParents: Map<EditableImportKey, Uuid>,
     val replaceExpected: Map<EditableImportKey, JournalSnapshot>,
+    val habitChecks: Map<EditableImportKey, List<HabitCompletion>>,
 )
 
 /** Application-owned operations survive Activity recreation. The UI is locked while busy. */
@@ -139,24 +140,42 @@ class DataOperations(private val app: JournalApplication, private val repository
     internal fun applyEditableDownload(sync: AndroidServerSync, review: EditableImportReview) =
         start("Downloading and validating reviewed records…") {
             check(importReviewMutable.value === review && review.downloadable.isNotEmpty())
-            val records = sync.downloadEditableImport(review)
-            snapshot() // Drain editors again before applying any received records.
-            app.session.cancel()
-            try {
-                repository.applyEditableRecords(records, review.replaceExpected)
-            } finally {
-                app.rebuildEditors()
-            }
+            val count = sync.applyReviewedDownloads(review) { applyRecordBatch(it, review.replaceExpected) }
             importReviewMutable.value = null
-            try {
-                sync.recordEditableDownloads(review, records)
+            "Applied $count reviewed server records."
+        }
+
+    internal fun setAutomaticEditable(sync: AndroidServerSync, enabled: Boolean) {
+        sync.setAutomaticEditable(enabled, ::snapshot)
+    }
+
+    internal fun syncTrackedOnForeground(sync: AndroidServerSync) {
+        scope.launch {
+            val enabled = try {
+                sync.automaticEditableEnabled()
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (failure: Exception) {
-                throw IllegalStateException("Records were applied, but their shared versions could not be saved. Review again before another transfer.", failure)
+            } catch (_: Exception) {
+                // The server foreground refresh reports credential storage failures.
+                return@launch
             }
-            "Applied ${records.size} reviewed server records."
+            if (!enabled || importReviewMutable.value != null || mutable.value.preview != null) return@launch
+            start("Checking tracked server records…") {
+                sync.syncTrackedRecords(::snapshot, ::applyRecordBatch)
+                "Finished checking tracked server records."
+            }
         }
+    }
+
+    private suspend fun applyRecordBatch(records: List<EditableImportRecord>, expected: Map<EditableImportKey, JournalSnapshot>) {
+        snapshot()
+        app.session.cancel()
+        try {
+            repository.applyEditableRecords(records, expected)
+        } finally {
+            app.rebuildEditors()
+        }
+    }
 
     internal fun dismissEditableImport() {
         if (!mutable.value.busy) importReviewMutable.value = null
