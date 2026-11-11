@@ -145,6 +145,10 @@ class DataOperations(private val app: JournalApplication, private val repository
             "Applied $count reviewed server records."
         }
 
+    internal fun setAutomaticEditable(sync: AndroidServerSync, enabled: Boolean) {
+        sync.setAutomaticEditable(enabled, ::snapshot)
+    }
+
     internal fun syncTrackedOnForeground(sync: AndroidServerSync) {
         scope.launch {
             val enabled = try {

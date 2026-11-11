@@ -116,10 +116,10 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
         }) { Text("Back up and review journal inventory") }
         Text("Choose a local file for a separate backup, then compare journal dates. The review sends no journal records.")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Switch(checked = server.automaticEditable, enabled = enabled, onCheckedChange = sync::setAutomaticEditable)
-            Text("Automatically sync tracked records")
+            Switch(checked = server.automaticEditable, enabled = enabled, onCheckedChange = { operations.setAutomaticEditable(sync, it) })
+            Text("Automatically sync records")
         }
-        Text("Confirm a shared version through record review first. Android uploads tracked edits periodically and checks for server updates when the app opens.")
+        Text("Confirm a shared version through record review first. Android syncs tracked and newly created records. Existing untracked records stay in manual review.")
         server.editableStatus?.let { Text(it) }
         if (server.pendingImport > 0) {
             Text("${server.pendingImport} approved record uploads pending")

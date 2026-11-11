@@ -188,65 +188,7 @@ class ServerSyncIntegrationTest {
             reopenedQueue.invalidateBaselines()
             assertFalse(EditableImportQueue(queueDirectory).load()!!.recordsBaselines)
 
-            val credentials = ServerCredentialStore(app)
-            val automaticScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-            val editableDirectory = directory.resolve("automatic")
-            val automaticBaselines = EditableSyncBaselines(editableDirectory.resolve("editable-baselines"))
-            val snapshotRepository = RoomSnapshotRepository(database)
-            try {
-                credentials.save(credential)
-                credentials.setEditableEnabled(target)
-                automaticBaselines.record(target, mapOf(updated.key to recorded))
-                val automatic = AndroidServerSync(app, reopened, automaticScope, { endpoint ->
-                    assertEquals(api.endpoint, endpoint)
-                    api
-                }, editableDirectory)
-                val localBook = newBook.copy(name = "Automatically uploaded",
-                    metadata = newBook.metadata.revised(newBook.metadata.updatedAt))
-                RoomNotebookRepository(database).apply(NotebookEdit(localBook, listOf(page)))
-                automatic.syncTrackedRecords(snapshotRepository::capture)
-                val uploaded = api.editableVersions(credential.session, credential.token).single()
-                assertNotEquals(updateId, uploaded.id)
-                api.downloadEditableVersion(credential.session, credential.token, uploaded, fetched)
-                val uploadedSnapshot = BackupArchive.read(fetched).snapshot
-                assertEquals(localBook.name, uploadedSnapshot.notebooks.single().name)
-
-                val remoteBook = localBook.copy(name = "Automatically applied",
-                    metadata = localBook.metadata.revised(localBook.metadata.updatedAt))
-                val incoming = uploadedSnapshot.copy(notebooks = listOf(remoteBook))
-                BackupArchive.write(fetched, incoming)
-                api.uploadEditableImport(credential.session, credential.token, Uuid.random(), fetched,
-                    BackupArchive.sha256(fetched.readBytes()), uploaded.id)
-                automatic.syncTrackedRecords(snapshotRepository::capture, snapshotRepository::applyEditableRecords)
-                assertEquals(remoteBook.name, snapshotRepository.capture().notebooks.single().name)
-                val habitMonth = JournalMonth(2027, 1)
-                val ledger = MonthlyHabitLedger(newRecordMetadata(), habitMonth)
-                val reading = HabitDefinition(newRecordMetadata(), ledger.metadata.id, "Read", 0)
-                val habitRepository = RoomHabitRepository(database)
-                habitRepository.apply(HabitLedgerEdit(ledger, definitions = listOf(reading)))
-                val habitBase = snapshotRepository.capture().editableImportRecords().single { it.key.kind == "habits" }
-                BackupArchive.write(fetched, habitBase.snapshot)
-                val habitParent = Uuid.random()
-                api.uploadEditableImport(credential.session, credential.token, habitParent, fetched,
-                    BackupArchive.sha256(fetched.readBytes()))
-                automaticBaselines.record(target, mapOf(habitBase.key to EditableSyncBaselines.Baseline(
-                    habitParent, EditableSyncBaselines.fingerprint(habitBase.snapshot),
-                )))
-                val check = HabitCompletion(newRecordMetadata(), reading.metadata.id, habitMonth.date(5), true)
-                habitRepository.apply(HabitLedgerEdit(habitBase.snapshot.habits.single(), completions = listOf(check)))
-                val savedCheck = requireNotNull(habitRepository.find(habitMonth)).completions.single()
-                automatic.syncTrackedRecords(snapshotRepository::capture, snapshotRepository::applyEditableRecords)
-                val remoteHabit = api.editableVersions(credential.session, credential.token).single { it.key == habitBase.key }
-                assertNotEquals(habitParent, remoteHabit.id)
-                api.downloadEditableVersion(credential.session, credential.token, remoteHabit, fetched)
-                assertEquals(savedCheck, BackupArchive.read(fetched).snapshot.habits.single().completions.single())
-                assertEquals(savedCheck, requireNotNull(habitRepository.find(habitMonth)).completions.single())
-                assertTrue(reopened.conflicts(taskId).isNotEmpty())
-            } finally {
-                automaticScope.cancel()
-                credentials.setEditableEnabled(null)
-                credentials.clear()
-            }
+            verifyAutomaticTransfer(app, database, directory, api, credential, updated, updateId, journal.date, taskId)
 
             val wrong = transport.scope.copy(epoch = Uuid.random())
             try {
@@ -261,4 +203,99 @@ class ServerSyncIntegrationTest {
             api.logout(credential.token)
         }
     }
+
+    private suspend fun verifyAutomaticTransfer(
+        app: android.content.Context, database: FoundationDatabase, directory: File, api: ServerApi,
+        credential: ServerCredential, updated: EditableImportRecord, updateId: Uuid, originalDate: LocalDate, taskId: Uuid,
+    ) {
+        val target = EditableImportQueue.Target(api.endpoint.origin, credential.session.scope)
+        val fetched = directory.resolve("automatic-download.zip")
+        val newBook = updated.snapshot.notebooks.single()
+        val page = updated.snapshot.notebookPages.single()
+        val recorded = EditableSyncBaselines.Baseline(updateId, EditableSyncBaselines.fingerprint(updated.snapshot))
+        val reopened = RoomTodoRepository(database)
+        val credentials = ServerCredentialStore(app)
+        val automaticScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val editableDirectory = directory.resolve("automatic")
+        val automaticBaselines = EditableSyncBaselines(editableDirectory.resolve("editable-baselines"))
+        val snapshotRepository = RoomSnapshotRepository(database)
+        try {
+            credentials.save(credential)
+            credentials.setEditableEnabled(target)
+            automaticBaselines.record(target, mapOf(updated.key to recorded))
+            val automatic = AndroidServerSync(app, reopened, automaticScope, { endpoint ->
+                assertEquals(api.endpoint, endpoint)
+                api
+            }, editableDirectory)
+            val localBook = newBook.copy(name = "Automatically uploaded",
+                metadata = newBook.metadata.revised(newBook.metadata.updatedAt))
+            RoomNotebookRepository(database).apply(NotebookEdit(localBook, listOf(page)))
+            automatic.syncTrackedRecords(snapshotRepository::capture)
+            val uploaded = api.editableVersions(credential.session, credential.token).single()
+            assertNotEquals(updateId, uploaded.id)
+            api.downloadEditableVersion(credential.session, credential.token, uploaded, fetched)
+            val uploadedSnapshot = BackupArchive.read(fetched).snapshot
+            assertEquals(localBook.name, uploadedSnapshot.notebooks.single().name)
+            val remoteBook = localBook.copy(name = "Automatically applied",
+                metadata = localBook.metadata.revised(localBook.metadata.updatedAt))
+            val incoming = uploadedSnapshot.copy(notebooks = listOf(remoteBook))
+            BackupArchive.write(fetched, incoming)
+            api.uploadEditableImport(credential.session, credential.token, Uuid.random(), fetched,
+                BackupArchive.sha256(fetched.readBytes()), uploaded.id)
+            automatic.syncTrackedRecords(snapshotRepository::capture, snapshotRepository::applyEditableRecords)
+            assertEquals(remoteBook.name, snapshotRepository.capture().notebooks.single().name)
+            val habitMonth = JournalMonth(2027, 1)
+            val ledger = MonthlyHabitLedger(newRecordMetadata(), habitMonth)
+            val reading = HabitDefinition(newRecordMetadata(), ledger.metadata.id, "Read", 0)
+            val habitRepository = RoomHabitRepository(database)
+            habitRepository.apply(HabitLedgerEdit(ledger, definitions = listOf(reading)))
+            val habitBase = snapshotRepository.capture().editableImportRecords().single { it.key.kind == "habits" }
+            BackupArchive.write(fetched, habitBase.snapshot)
+            val habitParent = Uuid.random()
+            api.uploadEditableImport(credential.session, credential.token, habitParent, fetched,
+                BackupArchive.sha256(fetched.readBytes()))
+            automaticBaselines.record(target, mapOf(habitBase.key to EditableSyncBaselines.Baseline(
+                habitParent, EditableSyncBaselines.fingerprint(habitBase.snapshot),
+            )))
+            val check = HabitCompletion(newRecordMetadata(), reading.metadata.id, habitMonth.date(5), true)
+            habitRepository.apply(HabitLedgerEdit(habitBase.snapshot.habits.single(), completions = listOf(check)))
+            val savedCheck = requireNotNull(habitRepository.find(habitMonth)).completions.single()
+            automatic.syncTrackedRecords(snapshotRepository::capture, snapshotRepository::applyEditableRecords)
+            val remoteHabit = api.editableVersions(credential.session, credential.token).single { it.key == habitBase.key }
+            assertNotEquals(habitParent, remoteHabit.id)
+            api.downloadEditableVersion(credential.session, credential.token, remoteHabit, fetched)
+            assertEquals(savedCheck, BackupArchive.read(fetched).snapshot.habits.single().completions.single())
+            assertEquals(savedCheck, requireNotNull(habitRepository.find(habitMonth)).completions.single())
+            val originalKey = EditableImportKey("journal", originalDate.toString())
+            automaticBaselines.excludeExisting(target, setOf(originalKey))
+            val extraDate = LocalDate(2027, 1, 8)
+            val extraEntry = newRecordMetadata()
+            val extraPage = JournalPage(newRecordMetadata(), extraEntry.id, 0)
+            val extraInk = InkStroke(newRecordMetadata(), extraPage.metadata.id, 0, BrushTool.PEN, 0xff000000, 3f,
+                listOf(InkPoint(-0.0f, 25f, 0)))
+            RoomJournalRepository(database).apply(PageEdit(extraDate, extraPage, put = listOf(extraInk)))
+            val planner = MonthlyPlanner(newRecordMetadata(), CalendarLayout(habitMonth))
+            val cell = planner.layout.cell(8)
+            val plannerInk = InkStroke(newRecordMetadata(), planner.metadata.id, 0, BrushTool.PEN, 0xff000000, 3f,
+                listOf(InkPoint(cell.left + 15, cell.top + 15, 0)))
+            RoomPlannerRepository(database).apply(PlannerEdit(planner, put = listOf(plannerInk)))
+            automatic.syncTrackedRecords(snapshotRepository::capture, snapshotRepository::applyEditableRecords)
+            val remoteRecords = api.editableVersions(credential.session, credential.token)
+            assertFalse(remoteRecords.any { it.key == originalKey })
+            for ((key, ink) in listOf(EditableImportKey("journal", extraDate.toString()) to extraInk,
+                EditableImportKey("planner", habitMonth.toString()) to plannerInk)) {
+                val remote = remoteRecords.single { it.key == key }
+                api.downloadEditableVersion(credential.session, credential.token, remote, fetched)
+                val downloadedInk = BackupArchive.read(fetched).snapshot.strokes.single()
+                assertEquals(ink.metadata.id, downloadedInk.metadata.id)
+                assertArrayEquals(StrokePointCodec.encode(ink.points), StrokePointCodec.encode(downloadedInk.points))
+            }
+            assertTrue(reopened.conflicts(taskId).isNotEmpty())
+        } finally {
+            automaticScope.cancel()
+            credentials.setEditableEnabled(null)
+            credentials.clear()
+        }
+    }
+
 }

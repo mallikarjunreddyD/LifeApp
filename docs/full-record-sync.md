@@ -233,13 +233,14 @@ Physical cross-device acceptance remains pending.
 ## Automatic Android transfer for tracked records
 
 After confirming a shared version through the backup-verified review,
-enable **Automatically sync tracked records** in **Settings → LifeApp
+enable **Automatically sync records** in **Settings → LifeApp
 Server**. The preference applies to that HTTPS origin, dataset and
 recovery epoch. Android periodically checks committed Room records while
 connected and saves upload copies before sending. It also checks for
 server updates when the app opens. Automatic transfer covers tracked
-records. New records and overlaps without a confirmed shared version
-use the backup-verified review.
+records and new records created after automatic sync is enabled.
+Existing untracked records are left for the backup-verified review.
+Overlapping keys without a shared version are also left for review.
 
 The upload pass can coalesce multiple committed edits into one record
 version. Checkbox-only Android changes use individual date operations
@@ -252,5 +253,5 @@ Before applying a server update, the foreground pass drains editor saves
 and checks the exact reviewed local copy inside the Room transaction.
 If the local record changed, it keeps that copy and retries on a later
 pass. Android applies downloads while the app is open so it can safely
-reload the editor caches. Signing out pauses automatic work and keeps
+reload the editor caches. Signing out or restoring a local backup pauses automatic work and keeps
 queued copies. A changed recovery epoch requires a fresh review.

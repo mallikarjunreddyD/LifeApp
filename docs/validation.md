@@ -430,3 +430,9 @@ security.ubuntu.com. The affected jobs now use Ubuntu 24.04. Browser
 setup uses the runner's libraries and downloads the pinned Playwright
 browser. Recovery verification installs its tools from Ubuntu's signed
 archive.
+
+Once package setup succeeded, the emulator bridge exposed an older test
+harness issue. Its TLS adapter dropped the dataset and epoch headers and
+handled only small JSON requests. The bridge now forwards scoped headers,
+binary archive transfers and archive checksums. The production Android TLS
+implementation still uses normal certificate and hostname verification.

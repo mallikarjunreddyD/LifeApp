@@ -27,13 +27,31 @@ internal class EditableSyncBaselines(private val directory: File) {
     fun record(target: EditableImportQueue.Target, updates: Map<EditableImportKey, Baseline>) {
         if (updates.isEmpty()) return
         val merged = load(target) + updates
+        write(file(target), merged.asSequence().map { (key, baseline) ->
+            "${key.kind}\t${key.key}\t${baseline.version}\t${baseline.fingerprint}"
+        })
+    }
+
+    fun excluded(target: EditableImportQueue.Target): Set<EditableImportKey>? {
+        val input = try { file(target, ".excluded").openRead() } catch (_: FileNotFoundException) { return null }
+        return input.bufferedReader().useLines { lines ->
+            lines.map { line ->
+                val parts = line.split('\t')
+                require(parts.size == 2)
+                EditableImportKey(parts[0], parts[1])
+            }.toSet()
+        }
+    }
+
+    fun excludeExisting(target: EditableImportQueue.Target, keys: Set<EditableImportKey>) {
+        write(file(target, ".excluded"), keys.asSequence().map { "${it.kind}\t${it.key}" })
+    }
+
+    private fun write(file: AtomicFile, lines: Sequence<String>) {
         check(directory.isDirectory || directory.mkdirs())
-        val file = file(target)
         val stream = file.startWrite()
         try {
-            for ((key, baseline) in merged) {
-                stream.write("${key.kind}\t${key.key}\t${baseline.version}\t${baseline.fingerprint}\n".encodeToByteArray())
-            }
+            lines.forEach { stream.write("$it\n".encodeToByteArray()) }
             file.finishWrite(stream)
         } catch (failure: Throwable) {
             file.failWrite(stream)
@@ -45,8 +63,8 @@ internal class EditableSyncBaselines(private val directory: File) {
         check(!directory.exists() || directory.deleteRecursively()) { "Could not reset editable record baselines." }
     }
 
-    private fun file(target: EditableImportQueue.Target) = AtomicFile(directory.resolve(
-        BackupArchive.sha256("${target.origin}\n${target.scope.dataset}\n${target.scope.epoch}".encodeToByteArray()),
+    private fun file(target: EditableImportQueue.Target, suffix: String = "") = AtomicFile(directory.resolve(
+        BackupArchive.sha256("${target.origin}\n${target.scope.dataset}\n${target.scope.epoch}".encodeToByteArray()) + suffix,
     ))
 
     companion object {

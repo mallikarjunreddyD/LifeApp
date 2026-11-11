@@ -285,6 +285,13 @@ internal class EditableRecordStore(private val database: Database) {
         val before = previous.completions.find { it.habitId == edit.habit && it.date == edit.date }
         val latest = current.completions.find { it.habitId == edit.habit && it.date == edit.date }
         val supplied = edit.source
+        if (supplied != null && query(
+                """SELECT 1 FROM journal_ink_entries WHERE dataset_id = ? AND (id = ? OR page_id = ?)
+                   UNION ALL SELECT 1 FROM journal_ink_strokes WHERE dataset_id = ? AND id = ? LIMIT 1""",
+                dataset, supplied.id.sql(), supplied.id.sql(), dataset, supplied.id.sql(),
+            ) { true }.isNotEmpty()) {
+            conflict("CONFLICT_CHANGED", "This completion identity belongs to an earlier journal import.")
+        }
         if (supplied != null && before != null) {
             require(supplied.id == before.metadata.id && supplied.createdAt == before.metadata.createdAt &&
                 supplied.revision > before.metadata.revision && supplied.updatedAt >= before.metadata.updatedAt)

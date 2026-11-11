@@ -72,6 +72,7 @@ internal class AndroidServerSync(
             try {
                 gate.withLock { refresh() }
                 schedule()
+                if (mutable.value.automaticEditable) ensureEditableWork()
             } catch (failure: Exception) { report(failure) }
         }
     }
@@ -151,14 +152,19 @@ internal class AndroidServerSync(
     ): EditableImportReview {
         val local = backup.editableImportRecords().associateBy { it.key }
         val remote = api.editableVersions(session, token).groupBy { it.key }
-        val legacy = if (trackedOnly) emptySet() else api.journalEntries(session, token).map { EditableImportKey("journal", it.date.toString()) }.toSet()
-        val serverKeys = remote.keys + legacy
+        val excluded = if (trackedOnly) editableBaselines.excluded(target) else emptySet()
         val known = editableBaselines.load(target)
+        fun includesNew(key: EditableImportKey) = excluded != null && key !in excluded
+        val legacy = if (excluded == null) emptySet() else api.journalEntries(session, token)
+            .map { EditableImportKey("journal", it.date.toString()) }.toSet()
+        val serverKeys = remote.keys + legacy
         val matched = mutableMapOf<EditableImportKey, EditableSyncBaselines.Baseline>()
-        val uploads = local.values.filter { !trackedOnly && it.key !in serverKeys }.toMutableList()
+        val uploads = local.values.filter { includesNew(it.key) && it.key !in serverKeys && (!trackedOnly || it.key !in known) }.toMutableList()
         val uploadParents = mutableMapOf<EditableImportKey, Uuid>()
         val habitChecks = mutableMapOf<EditableImportKey, List<HabitCompletion>>()
-        val downloads = remote.filter { (key, variants) -> !trackedOnly && key !in local && variants.size == 1 }.values.map { it.single() }.toMutableList()
+        val downloads = remote.filter { (key, variants) ->
+            includesNew(key) && key !in local && variants.size == 1 && (!trackedOnly || key !in known)
+        }.values.map { it.single() }.toMutableList()
         val replacements = mutableMapOf<EditableImportKey, JournalSnapshot>()
         val overlaps = local.keys.filter { it in legacy }.toMutableList()
         val file = java.io.File.createTempFile("lifeapp-review-", ".zip", context.cacheDir)
@@ -168,7 +174,7 @@ internal class AndroidServerSync(
                 val version = variants.singleOrNull() ?: continue
                 val fingerprint = EditableSyncBaselines.fingerprint(record.snapshot)
                 val base = known[key]
-                if (trackedOnly && base == null) continue
+                if (trackedOnly && base == null && !includesNew(key)) continue
                 if (base?.fingerprint == fingerprint && base.version == version.id) continue
                 // Confirm identical content before treating an older installation's copy as a shared base.
                 if (base == null || base.fingerprint != fingerprint && version.id != base.version) {
@@ -201,7 +207,7 @@ internal class AndroidServerSync(
         } finally {
             file.delete()
         }
-        val conflicted = remote.filterValues { it.size > 1 }.keys.toList()
+        val conflicted = remote.filter { (key, variants) -> variants.size > 1 && (key in known || includesNew(key)) }.keys.toList()
         return EditableImportReview(target, uploads, overlaps, serverKeys.size, downloads, conflicted, uploadParents, replacements, habitChecks)
     }
 
@@ -261,6 +267,7 @@ internal class AndroidServerSync(
         withContext(Dispatchers.IO) {
             importQueue.invalidateBaselines()
             editableBaselines.clear()
+            store.setEditableEnabled(null)
         }
     }
 
@@ -347,23 +354,32 @@ internal class AndroidServerSync(
             rejected
         }
 
-    fun setAutomaticEditable(enabled: Boolean) = action {
+    fun setAutomaticEditable(enabled: Boolean, capture: suspend () -> JournalSnapshot) = action {
         if (enabled) {
-            val (_, session, api) = currentSession()
+            val (credential, session, api) = currentSession()
             val target = EditableImportQueue.Target(api.endpoint.origin, session.scope)
-            check(withContext(Dispatchers.IO) { editableBaselines.load(target).isNotEmpty() }) {
-                "Confirm a shared record through the backup-verified transfer first."
+            val local = capture().editableImportRecords().map { it.key }
+            withContext(Dispatchers.IO) {
+                val known = editableBaselines.load(target)
+                if (known.isEmpty()) throw UserSyncError("Confirm a shared record through the backup-verified transfer first.")
+                val remote = api.editableVersions(session, credential.token).map { it.key }
+                val legacy = api.journalEntries(session, credential.token).map { EditableImportKey("journal", it.date.toString()) }
+                editableBaselines.excludeExisting(target, (local + remote + legacy).toSet() - known.keys)
             }
             store.setEditableEnabled(target)
-            val request = PeriodicWorkRequestBuilder<EditableSyncWorker>(15, TimeUnit.MINUTES)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(EDITABLE_WORK, ExistingPeriodicWorkPolicy.UPDATE, request)
+            ensureEditableWork()
         } else {
             store.setEditableEnabled(null)
             WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_WORK)
         }
         refresh()
-        message(if (enabled) "Automatic sync enabled for tracked records." else "Automatic record sync paused.")
+        message(if (enabled) "Automatic sync enabled for tracked and new records." else "Automatic record sync paused.")
+    }
+
+    private fun ensureEditableWork() {
+        val request = PeriodicWorkRequestBuilder<EditableSyncWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(EDITABLE_WORK, ExistingPeriodicWorkPolicy.KEEP, request)
     }
 
     suspend fun automaticEditableEnabled(): Boolean = gate.withLock {
@@ -403,8 +419,8 @@ internal class AndroidServerSync(
             if (apply != null && review.downloadable.isNotEmpty()) {
                 applyTrackedDownloads(review, credential, session, api) { records -> apply(records, review.replaceExpected) }
             }
-            mutable.update { it.copy(editableStatus = if (review.conflicted.isEmpty())
-                "Tracked records checked." else "Competing server versions need review.") }
+            mutable.update { it.copy(editableStatus = if (review.conflicted.isEmpty() && review.overlaps.isEmpty())
+                "Records checked." else "Overlapping records or competing versions need review.") }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
