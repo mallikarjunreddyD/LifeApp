@@ -57,7 +57,7 @@ export async function downloadStroke(scope: Scope, stroke: ReturnType<typeof str
 }
 
 export function drawStroke(context: CanvasRenderingContext2D, bytes: Uint8Array,
-  stroke: ReturnType<typeof strokeSummary>, page: { width: number; height: number }) {
+  stroke: { color: number; width: number }, page: { width: number; height: number }) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const count = view.getUint32(8, true);
   if (view.getUint32(0, true) !== 0x54504a4c || view.getUint32(4, true) !== 1 ||

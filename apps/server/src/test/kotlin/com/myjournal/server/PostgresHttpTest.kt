@@ -1,9 +1,16 @@
 package com.myjournal.server
 
+import com.myjournal.data.BackupArchive
 import com.myjournal.data.JournalInkJson
 import com.myjournal.data.SnapshotJson
 import com.myjournal.data.StrokePointCodec
 import com.myjournal.data.TodoOperationJson
+import com.myjournal.domain.CalendarLayout
+import com.myjournal.domain.JournalMonth
+import com.myjournal.domain.MonthlyHabitLedger
+import com.myjournal.domain.MonthlyPlanner
+import com.myjournal.domain.Notebook
+import com.myjournal.domain.NotebookPage
 import com.myjournal.domain.BrushTool
 import com.myjournal.domain.InkPoint
 import com.myjournal.domain.InkStroke
@@ -267,6 +274,130 @@ class PostgresHttpTest {
             query("SELECT count(*) FROM staged_ink WHERE dataset_id = ?", scope.dataset.sql()) { it.getInt(1) }.single()
         }
         assertEquals(0, remaining)
+    }
+
+    @Test fun editableRecordArchivesPreserveVariantsAndOriginalBytes() = testApplication {
+        application { lifeApp(database, auth, origin) }
+        val token = client.login(user).token()
+        val date = LocalDate(2026, 11, 9)
+        val month = JournalMonth.from(date)
+        fun journal(): JournalSnapshot {
+            val entry = newRecordMetadata()
+            val first = JournalPage(newRecordMetadata(), entry.id, 0)
+            val archived = JournalPage(newRecordMetadata(), entry.id, 1, archived = true)
+            val stroke = InkStroke(newRecordMetadata(), archived.metadata.id, 0, BrushTool.PEN,
+                0xff000000, 3f, listOf(InkPoint(-0.0f, 5f, 0)))
+            return JournalSnapshot(journals = listOf(JournalEntry(entry, date, listOf(first, archived))),
+                strokes = listOf(stroke))
+        }
+        fun archive(snapshot: JournalSnapshot): ByteArray {
+            val file = kotlin.io.path.createTempFile().toFile()
+            try {
+                BackupArchive.write(file, snapshot)
+                return file.readBytes()
+            } finally {
+                file.delete()
+            }
+        }
+        fun digest(bytes: ByteArray) = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
+        fun HttpRequestBuilder.scoped(bearer: String = token, requested: SyncScope = scope) {
+            bearerAuth(bearer)
+            header("X-LifeApp-Dataset", requested.dataset.toString())
+            header("X-LifeApp-Epoch", requested.epoch.toString())
+        }
+        suspend fun stage(id: Uuid, bytes: ByteArray, sha: String = digest(bytes)) =
+            client.put("/v1/editable/staged/$id") {
+                scoped()
+                header("X-Content-SHA256", sha)
+                contentType(ContentType.Application.OctetStream)
+                setBody(bytes)
+            }.status.value
+        suspend fun commit(id: Uuid, bytes: ByteArray, vararg parents: Uuid) =
+            client.post("/v1/editable/versions/$id/commit") {
+                scoped()
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject {
+                    put("sha256", digest(bytes))
+                    put("parents", JsonArray(parents.map { JsonPrimitive(it.toString()) }))
+                }.toString())
+            }.status.value
+        suspend fun list(path: String = "/v1/editable/versions") =
+            client.get(path) { scoped() }.json().getValue("items").jsonArray.map { it.jsonObject }
+        fun List<JsonObject>.heads(kind: String) = filter {
+            it.getValue("current").jsonPrimitive.boolean && it.getValue("kind").jsonPrimitive.content == kind
+        }.map { Uuid.parse(it.getValue("id").jsonPrimitive.content) }.toSet()
+
+        val left = Uuid.random()
+        val right = Uuid.random()
+        val original = journal()
+        val leftBytes = archive(original)
+        val rightBytes = archive(journal())
+        assertEquals(401, client.get("/v1/editable/versions").status.value)
+        assertEquals(409, commit(left, leftBytes))
+        assertEquals(400, stage(left, leftBytes, "0".repeat(64)))
+        assertEquals(400, stage(left, byteArrayOf(42)))
+        assertEquals(204, stage(left, leftBytes))
+        assertEquals(404, client.get("/v1/editable/versions/$left") { scoped() }.status.value)
+        assertTrue(list().isEmpty())
+        assertEquals(204, commit(left, leftBytes))
+        assertEquals(204, commit(left, leftBytes))
+        assertEquals(409, commit(left, rightBytes))
+        assertEquals(204, stage(right, rightBytes))
+        assertEquals(204, commit(right, rightBytes))
+        assertEquals(setOf(left, right), list().heads("journal"))
+
+        val resolved = Uuid.random()
+        assertEquals(204, stage(resolved, leftBytes))
+        assertEquals(204, commit(resolved, leftBytes, left, right))
+        assertEquals(setOf(resolved), list().heads("journal"))
+        val recovered = client.get("/v1/editable/versions/$left") { scoped() }
+        assertEquals(digest(leftBytes), recovered.headers["X-Content-SHA256"])
+        assertContentEquals(leftBytes, recovered.body<ByteArray>())
+        assertEquals(409, client.get("/v1/editable/versions/$left") {
+            scoped(requested = scope.copy(epoch = Uuid.random()))
+        }.status.value)
+
+        val changed = Uuid.random()
+        val invalidInk = archive(original.copy(strokes = original.strokes.map { it.copy(width = 4f) }))
+        assertEquals(204, stage(changed, invalidInk))
+        assertEquals(409, commit(changed, invalidInk, resolved))
+        assertEquals(setOf(resolved), list().heads("journal"))
+
+        val book = Notebook(newRecordMetadata(), "Existing notebook")
+        val fixtures = mapOf(
+            "planner" to JournalSnapshot(planners = listOf(MonthlyPlanner(newRecordMetadata(), CalendarLayout(month)))),
+            "habits" to JournalSnapshot(habits = listOf(MonthlyHabitLedger(newRecordMetadata(), month))),
+            "notebook" to JournalSnapshot(notebooks = listOf(book),
+                notebookPages = listOf(NotebookPage(newRecordMetadata(), book.metadata.id, 0))),
+        )
+        for ((kind, snapshot) in fixtures) {
+            val id = Uuid.random()
+            val bytes = archive(snapshot)
+            assertEquals(204, stage(id, bytes), kind)
+            assertEquals(204, commit(id, bytes), kind)
+            assertEquals(setOf(id), list().heads(kind))
+        }
+        val first = list("/v1/editable/versions?limit=1").single()
+        val cursor = first.getValue("sequence").jsonPrimitive.content
+        assertEquals(5, list("/v1/editable/versions?after=$cursor").size)
+        val competingPlanner = Uuid.random()
+        val plannerBytes = archive(JournalSnapshot(planners = listOf(MonthlyPlanner(newRecordMetadata(), CalendarLayout(month)))))
+        assertEquals(204, stage(competingPlanner, plannerBytes))
+        assertEquals(204, commit(competingPlanner, plannerBytes))
+        assertEquals(2, list().heads("planner").size)
+
+        val other = "other-${Uuid.random()}"
+        val otherScope = auth.initializeOwner(other, password.toCharArray(), requireEmpty = false)
+        val otherToken = client.login(other).token()
+        assertEquals(404, client.get("/v1/editable/versions/$left") { scoped(otherToken, otherScope) }.status.value)
+        assertEquals(404, client.get("/v1/editable/versions/$left/preview") { scoped(otherToken, otherScope) }.status.value)
+
+        database.transaction {
+            execute("UPDATE editable_record_staging SET expires_at = now() WHERE dataset_id = ?", scope.dataset.sql())
+        }
+        EditableRecordStore(database).purgeExpiredUploads()
+        assertEquals(409, commit(changed, invalidInk, resolved))
+        assertContentEquals(leftBytes, client.get("/v1/editable/versions/$left") { scoped() }.body<ByteArray>())
     }
 
     @Test fun concurrentCommitsPreserveBothHeadsAndIdempotencyAcrossApplicationRestart() {

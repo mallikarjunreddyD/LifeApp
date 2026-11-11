@@ -108,6 +108,15 @@ export async function journalList(path: string, scope: Scope, cursor: string | n
   return { items: result.items as unknown[], next };
 }
 
+export function editableVersions(scope: Scope, after: string, signal: AbortSignal) {
+  const query = new URLSearchParams({ after, limit: '50' });
+  return json('/v1/editable/versions?' + query, { headers: journalHeaders(scope), signal });
+}
+
+export function editablePreview(scope: Scope, version: string, signal: AbortSignal) {
+  return json('/v1/editable/versions/' + uuid(version) + '/preview', { headers: journalHeaders(scope), signal });
+}
+
 export const api = {
   async login(username: string, password: string, secondFactor?: string) {
     return browserSession(await json('/v1/session', {

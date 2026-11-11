@@ -2,6 +2,9 @@
 DELETE FROM sessions;
 DO $$
 BEGIN
+    IF to_regclass('public.editable_record_staging') IS NOT NULL THEN
+        DELETE FROM editable_record_staging;
+    END IF;
     IF to_regclass('public.staged_ink') IS NOT NULL THEN
         DELETE FROM staged_ink;
     END IF;

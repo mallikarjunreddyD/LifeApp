@@ -340,3 +340,18 @@ stale-epoch rejection and preservation of the local journal during To-do
 replay. Physical device acceptance still requires selecting and verifying a
 local backup through the Android system picker, reviewing the inventory and
 confirming that local journal content remains intact.
+
+## Phase 7E record archive versions
+
+Ten tests passed against disposable Ktor and PostgreSQL. The archive
+tests cover all four record kinds, staged visibility, invalid checksums,
+idempotent retries, same-date variants, explicit resolution, ownership,
+stale epochs, immutable stroke rejection and byte-for-byte archive
+downloads. The OpenAPI contract and recorded Ktor responses passed.
+
+Web typecheck, lint, four unit tests and the PWA build passed. All five
+Chromium tests passed against a disposable HTTPS stack. The record
+preview test checks rendered LJPT pixels in Journal, Planner and
+Notebook and verifies that the previews disappear offline. These tests
+use synthetic data. They leave Android editor upload and replay,
+per-checkbox habit synchronization and physical-device acceptance open.

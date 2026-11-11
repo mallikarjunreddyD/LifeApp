@@ -451,6 +451,202 @@ paths:
           $ref: '#/components/responses/Http429'
         '503':
           $ref: '#/components/responses/Http503'
+  /v1/editable/staged/{versionId}:
+    put:
+      operationId: stageEditableRecord
+      description: Validate and stage an archive containing a single journal entry, planner, habit ledger, or notebook and its children.
+      parameters:
+      - $ref: '#/components/parameters/EditableVersion'
+      - $ref: '#/components/parameters/EditableDataset'
+      - $ref: '#/components/parameters/EditableEpoch'
+      - name: X-Content-SHA256
+        in: header
+        required: true
+        schema:
+          $ref: '#/components/schemas/EditableDigest'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '204':
+          description: The archive is staged or was previously committed with the same digest.
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '408':
+          $ref: '#/components/responses/Http408'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '413':
+          $ref: '#/components/responses/Http413'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+  /v1/editable/versions/{versionId}/commit:
+    post:
+      operationId: commitEditableRecord
+      description: Commit staged bytes and update the version heads atomically.
+      parameters:
+      - $ref: '#/components/parameters/EditableVersion'
+      - $ref: '#/components/parameters/EditableDataset'
+      - $ref: '#/components/parameters/EditableEpoch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sha256, parents]
+              additionalProperties: false
+              properties:
+                sha256:
+                  $ref: '#/components/schemas/EditableDigest'
+                parents:
+                  $ref: '#/components/schemas/EditableParents'
+      responses:
+        '204':
+          description: Committed, or already committed with identical bytes and parents.
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '413':
+          $ref: '#/components/responses/Http413'
+        '503':
+          $ref: '#/components/responses/Http503'
+  /v1/editable/versions:
+    get:
+      operationId: listEditableRecordVersions
+      description: List immutable committed versions in order. Sequences may contain gaps.
+      parameters:
+      - $ref: '#/components/parameters/EditableDataset'
+      - $ref: '#/components/parameters/EditableEpoch'
+      - name: after
+        in: query
+        schema:
+          type: string
+          pattern: '^(0|[1-9][0-9]{0,18})$'
+          default: '0'
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      responses:
+        '200':
+          description: Committed versions after the exclusive sequence.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scope, hasMore, items]
+                properties:
+                  scope:
+                    $ref: '#/components/schemas/Scope'
+                  hasMore:
+                    type: boolean
+                  items:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/EditableVersion'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '503':
+          $ref: '#/components/responses/Http503'
+  /v1/editable/versions/{versionId}:
+    get:
+      operationId: downloadEditableRecordVersion
+      description: Read original ZIP archive bytes from the authenticated dataset.
+      parameters:
+      - $ref: '#/components/parameters/EditableVersion'
+      - $ref: '#/components/parameters/EditableDataset'
+      - $ref: '#/components/parameters/EditableEpoch'
+      responses:
+        '200':
+          description: Original archive.
+          headers:
+            X-Content-SHA256:
+              schema:
+                $ref: '#/components/schemas/EditableDigest'
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '404':
+          $ref: '#/components/responses/Http404'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
+  /v1/editable/versions/{versionId}/preview:
+    get:
+      operationId: previewEditableRecordVersion
+      description: Read a bounded vector preview of an immutable record version.
+      parameters:
+      - $ref: '#/components/parameters/EditableVersion'
+      - $ref: '#/components/parameters/EditableDataset'
+      - $ref: '#/components/parameters/EditableEpoch'
+      responses:
+        '200':
+          description: Logical pages with LJPT points encoded as Base64, or a habit summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [title, pages, habits]
+                properties:
+                  title:
+                    type: string
+                  pages:
+                    type: array
+                    items:
+                      type: object
+                      required: [title, width, height, archived, cells, strokes]
+                  habits:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, archived, completedDays]
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '404':
+          $ref: '#/components/responses/Http404'
+        '409':
+          $ref: '#/components/responses/Http409'
+        '413':
+          $ref: '#/components/responses/Http413'
+        '429':
+          $ref: '#/components/responses/Http429'
+        '503':
+          $ref: '#/components/responses/Http503'
   /v1/sync/pull:
     get:
       operationId: pull
@@ -728,7 +924,64 @@ components:
     androidBearer:
       type: http
       scheme: bearer
+  parameters:
+    EditableDataset:
+      name: X-LifeApp-Dataset
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EditableEpoch:
+      name: X-LifeApp-Epoch
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EditableVersion:
+      name: versionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   schemas:
+    EditableDigest:
+      type: string
+      pattern: '^[0-9a-f]{64}$'
+    EditableParents:
+      type: array
+      maxItems: 32
+      uniqueItems: true
+      items:
+        type: string
+        format: uuid
+    EditableVersion:
+      type: object
+      required: [id, sequence, kind, key, rootId, sha256, parents, current]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sequence:
+          type: string
+          pattern: '^[1-9][0-9]{0,18}$'
+        kind:
+          type: string
+          enum: [journal, planner, habits, notebook]
+        key:
+          type: string
+          description: Date, month or notebook UUID according to kind.
+        rootId:
+          type: string
+          format: uuid
+        sha256:
+          $ref: '#/components/schemas/EditableDigest'
+        parents:
+          $ref: '#/components/schemas/EditableParents'
+        current:
+          type: boolean
     Sequence:
       type: string
       pattern: ^(0|[1-9][0-9]{0,18})$

@@ -5,6 +5,7 @@ import type { BrowserSession } from './api.ts';
 import { sameScope, today } from './protocol.ts';
 import type { Todo } from './protocol.ts';
 import type { LifeStore, LocalView, TaskView } from './store.ts';
+import { EditableRecords } from './EditableRecords.tsx';
 import { Journal } from './Journal.tsx';
 import { Workouts } from './Workouts.tsx';
 import { useWorkerUpdate } from './worker.ts';
@@ -174,8 +175,10 @@ export function App({ store }: { store: LifeStore }) {
           kind={tab === 'Workouts' ? 'exercises' : 'workouts'} session={session} online={online} /></details>}
       </>}
       {tab === 'Journal' && <section><h1>Journal</h1>
-        {online && session ? <Journal key={session.scope.dataset + '/' + session.scope.epoch}
-          scope={session.scope} /> : <p>{online ? 'Sign in to view committed journal pages.' : 'Connect to view committed journal pages.'}</p>}
+        {online && session ? <div key={session.scope.dataset + '/' + session.scope.epoch}>
+          <Journal scope={session.scope} />
+          <EditableRecords scope={session.scope} />
+        </div> : <p>{online ? 'Sign in to view committed journal pages.' : 'Connect to view committed journal pages.'}</p>}
       </section>}
     </main>
     <nav aria-label="Main navigation">
