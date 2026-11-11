@@ -77,6 +77,39 @@ class ServerSyncIntegrationTest {
             } catch (failure: ServerHttpFailure) {
                 assertEquals(409, failure.status)
             }
+            val target = EditableImportQueue.Target(api.endpoint.origin, credential.session.scope)
+            val queueDirectory = directory.resolve("editable")
+            val approved = saved.editableImportRecords().filter { it.key.kind == "notebook" }
+            EditableImportQueue(queueDirectory).enqueue(target, approved)
+            val reopenedQueue = EditableImportQueue(queueDirectory)
+            val pending = requireNotNull(reopenedQueue.load())
+            assertEquals(target, pending.target)
+            val recordFile = pending.files.single()
+            val version = Uuid.parse(recordFile.nameWithoutExtension)
+            val bytes = recordFile.readBytes()
+            val sha = BackupArchive.sha256(bytes)
+            api.uploadEditableImport(credential.session, credential.token, version, recordFile, sha)
+            // Reopen after losing the acknowledgment and resend the exact original archive.
+            val retry = EditableImportQueue(queueDirectory).load()!!.files.single()
+            api.uploadEditableImport(credential.session, credential.token, version, retry, sha)
+            reopenedQueue.acknowledge(recordFile)
+            reopenedQueue.finishIfEmpty()
+            assertNull(reopenedQueue.load())
+            val remoteVersion = api.editableVersions(credential.session, credential.token).single()
+            assertEquals(approved.single().key, remoteVersion.key)
+            val fetched = directory.resolve("downloaded.zip")
+            api.downloadEditableVersion(credential.session, credential.token, remoteVersion, fetched)
+            assertArrayEquals(bytes, fetched.readBytes())
+            val receiver = Room.databaseBuilder<FoundationDatabase>(app, File(directory, "receiver.db").path)
+                .setDriver(BundledSQLiteDriver()).setQueryCoroutineContext(Dispatchers.IO).build()
+            try {
+                val replay = RoomSnapshotRepository(receiver)
+                replay.addEditableRecords(BackupArchive.read(fetched).snapshot.editableImportRecords())
+                assertEquals(approved.single().snapshot.canonical(), replay.capture().canonical())
+            } finally {
+                receiver.close()
+            }
+
             val firstPage = transport.pull(SyncCheckpoint(credential.session.scope))
             assertTrue(firstPage.entries.isEmpty())
             repository.bindEndpoint(credential.session.scope, api.endpoint, saved.todos, remoteHasHistory = false)

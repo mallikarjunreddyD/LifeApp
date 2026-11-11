@@ -511,6 +511,10 @@ paths:
                   $ref: '#/components/schemas/EditableDigest'
                 parents:
                   $ref: '#/components/schemas/EditableParents'
+                requireEmpty:
+                  type: boolean
+                  default: false
+                  description: Reject a new import if any version already exists for the record key. Requires empty parents.
       responses:
         '204':
           description: Committed, or already committed with identical bytes and parents.

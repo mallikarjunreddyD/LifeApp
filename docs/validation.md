@@ -355,3 +355,18 @@ preview test checks rendered LJPT pixels in Journal, Planner and
 Notebook and verifies that the previews disappear offline. These tests
 use synthetic data. They leave Android editor upload and replay,
 per-checkbox habit synchronization and physical-device acceptance open.
+
+## Phase 7E first record transfer
+
+The PostgreSQL suite verifies that a first upload cannot replace an existing
+date, month or notebook key, including when a competing record is committed
+after review. An acknowledged upload can still be retried with the same
+version and archive. OpenAPI validation, web typecheck, lint, four web unit
+tests and five Chromium tests passed locally.
+
+The Room replay test exercises all four record kinds and checks that an
+incoming duplicate causes the whole add-only transaction to be rejected.
+The Android/PWA emulator bridge includes a queued notebook upload, retry
+after reopening the queue, exact archive download into a separate Room
+database, and browser vector rendering. Physical device acceptance and
+continuous editor synchronization remain open.

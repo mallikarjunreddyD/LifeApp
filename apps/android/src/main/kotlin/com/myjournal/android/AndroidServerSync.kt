@@ -2,6 +2,7 @@ package com.myjournal.android
 
 import android.content.Context
 import androidx.work.*
+import com.myjournal.data.BackupArchive
 import com.myjournal.data.RoomTodoRepository
 import com.myjournal.domain.*
 import kotlinx.coroutines.*
@@ -29,6 +30,8 @@ internal data class AndroidServerState(
     val bound: SyncCheckpoint? = null,
     val pinnedOrigin: String? = null,
     val pending: Int = 0,
+    val pendingImport: Int = 0,
+    val importQueueUnreadable: Boolean = false,
     val working: Boolean = false,
     val message: String? = null,
     val error: Boolean = false,
@@ -41,6 +44,7 @@ internal enum class SyncOutcome { DONE, RETRY, CONTINUE }
 
 internal class AndroidServerSync(private val context: Context, private val repository: RoomTodoRepository) {
     private val store = ServerCredentialStore(context)
+    private val importQueue = EditableImportQueue(context.noBackupFilesDir.resolve("editable-import"))
     private val gate = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutable = MutableStateFlow(AndroidServerState(origin = store.origin(), lastSync = store.lastVerified()))
@@ -120,6 +124,112 @@ internal class AndroidServerSync(private val context: Context, private val repos
                 throw UserSyncError("The backup was verified. Journal review failed. ${safeMessage(failure)}")
             }
         }
+
+    suspend fun reviewEditableImport(target: EditableImportQueue.Target, backup: JournalSnapshot): EditableImportReview =
+        gate.withLock {
+            val (credential, session, api) = currentSession()
+            requireImportTarget(target, api, session)
+            withContext(Dispatchers.IO) {
+                importQueue.finishIfEmpty()
+                check(importQueue.load() == null) { "Resume the previous record upload first." }
+                val local = backup.editableImportRecords()
+                val remote = api.editableVersions(session, credential.token).groupBy { it.key }
+                val legacy = api.journalEntries(session, credential.token).map { EditableImportKey("journal", it.date.toString()) }.toSet()
+                val serverKeys = remote.keys + legacy
+                val localKeys = local.map { it.key }.toSet()
+                val (overlaps, eligible) = local.partition { it.key in serverKeys }
+                val downloadable = remote.filter { (key, variants) -> key !in localKeys && variants.size == 1 }
+                    .values.map { it.single() }
+                val conflicted = remote.filterValues { it.size > 1 }.keys.toList()
+                EditableImportReview(target, eligible, overlaps.map { it.key }, serverKeys.size, downloadable, conflicted)
+            }
+        }
+
+    suspend fun downloadEditableImport(review: EditableImportReview): List<EditableImportRecord> = gate.withLock {
+        val (credential, session, api) = currentSession()
+        requireImportTarget(review.target, api, session)
+        withContext(Dispatchers.IO) {
+            fun verifyReviewedVersions(current: List<EditableRemoteVersion>) {
+                val versions = current.groupBy { it.key }
+                check(review.downloadable.all { versions[it.key] == listOf(it) }) {
+                    "The server versions changed. Create a fresh backup and review again."
+                }
+            }
+            verifyReviewedVersions(api.editableVersions(session, credential.token))
+            val file = java.io.File.createTempFile("lifeapp-import-", ".zip", context.cacheDir)
+            try {
+                var remaining = BackupArchive.MAX_TOTAL_BYTES
+                val records = review.downloadable.map { version ->
+                    api.downloadEditableVersion(session, credential.token, version, file)
+                    java.util.zip.ZipFile(file).use { zip ->
+                        val entries = zip.entries()
+                        while (entries.hasMoreElements()) {
+                            val size = entries.nextElement().size
+                            require(size in 0..remaining) { "The reviewed records exceed the 64 MiB expanded import limit." }
+                            remaining -= size
+                        }
+                    }
+                    val snapshot = BackupArchive.read(file).snapshot
+                    val record = snapshot.editableImportRecords().single()
+                    require(record.key == version.key && record.snapshot.canonical() == snapshot.canonical())
+                    record
+                }
+                verifyReviewedVersions(api.editableVersions(session, credential.token))
+                records
+            } finally {
+                file.delete()
+            }
+        }
+    }
+
+    suspend fun queueEditableImport(review: EditableImportReview) = gate.withLock {
+        val (_, session, api) = currentSession()
+        requireImportTarget(review.target, api, session)
+        withContext(Dispatchers.IO) { importQueue.enqueue(review.target, review.eligible) }
+        refresh()
+    }
+
+    fun resumeEditableImport() = action {
+        val (credential, session, api) = currentSession()
+        try {
+            val conflicts = withContext(Dispatchers.IO) {
+                val batch = importQueue.load() ?: return@withContext 0
+                requireImportTarget(batch.target, api, session)
+                var rejected = 0
+                for (file in batch.files) {
+                    currentCoroutineContext().ensureActive()
+                    check(file.length() in 1..EditableImportQueue.MAX_ARCHIVE_BYTES)
+                    val digest = BackupArchive.sha256(file.readBytes())
+                    try {
+                        api.uploadEditableImport(session, credential.token, Uuid.parse(file.nameWithoutExtension), file, digest)
+                    } catch (failure: ServerHttpFailure) {
+                        if (failure.code != "CONFLICT_CHANGED") throw failure
+                        rejected++
+                        continue
+                    }
+                    importQueue.acknowledge(file)
+                }
+                importQueue.finishIfEmpty()
+                rejected
+            }
+            if (conflicts == 0) message("Approved record uploads completed. Local records were kept.")
+            else throw UserSyncError("$conflicts uploads need conflict review. Their local copies are still queued.")
+        } finally {
+            refresh()
+        }
+    }
+
+    fun discardEditableImport() = action {
+        withContext(Dispatchers.IO) { importQueue.discard() }
+        refresh()
+        message("Queued upload copies cleared. Your backup and Android records were kept.")
+    }
+
+    private fun requireImportTarget(target: EditableImportQueue.Target, api: ServerApi, session: ServerSession) {
+        if (target.origin != api.endpoint.origin || target.scope != session.scope) {
+            throw UserSyncError("The upload belongs to a different HTTPS origin, dataset or recovery epoch. Local records were kept.")
+        }
+    }
 
     /** Invoked only after the chosen backup document was written and read back. */
     suspend fun bindFromVerifiedBackup(expected: BindingPreview, backedUp: List<Todo>) = gate.withLock {
@@ -255,6 +365,11 @@ internal class AndroidServerSync(private val context: Context, private val repos
         val saved = credential ?: if (load) store.load() else null
         val checkpoint = repository.checkpoint()
         val pinned = repository.boundOrigin()
+        val pendingImport = withContext(Dispatchers.IO) {
+            try { importQueue.load()?.files?.size ?: 0 }
+            catch (_: java.io.IOException) { null }
+            catch (_: IllegalArgumentException) { null }
+        }
         val conflicts = if (checkpoint == null) emptyList() else repository.allConflicts()
         mutable.update { it.copy(
             origin = pinned ?: saved?.endpoint?.origin ?: store.origin(),
@@ -263,6 +378,8 @@ internal class AndroidServerSync(private val context: Context, private val repos
             bound = checkpoint,
             pinnedOrigin = pinned,
             lastSync = store.lastVerified(),
+            pendingImport = pendingImport ?: 0,
+            importQueueUnreadable = pendingImport == null,
             conflicts = conflicts,
         ) }
     }

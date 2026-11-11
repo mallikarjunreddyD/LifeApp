@@ -312,13 +312,14 @@ class PostgresHttpTest {
                 contentType(ContentType.Application.OctetStream)
                 setBody(bytes)
             }.status.value
-        suspend fun commit(id: Uuid, bytes: ByteArray, vararg parents: Uuid) =
+        suspend fun commit(id: Uuid, bytes: ByteArray, vararg parents: Uuid, requireEmpty: Boolean = false) =
             client.post("/v1/editable/versions/$id/commit") {
                 scoped()
                 contentType(ContentType.Application.Json)
                 setBody(buildJsonObject {
                     put("sha256", digest(bytes))
                     put("parents", JsonArray(parents.map { JsonPrimitive(it.toString()) }))
+                    put("requireEmpty", requireEmpty)
                 }.toString())
             }.status.value
         suspend fun list(path: String = "/v1/editable/versions") =
@@ -339,10 +340,12 @@ class PostgresHttpTest {
         assertEquals(204, stage(left, leftBytes))
         assertEquals(404, client.get("/v1/editable/versions/$left") { scoped() }.status.value)
         assertTrue(list().isEmpty())
-        assertEquals(204, commit(left, leftBytes))
-        assertEquals(204, commit(left, leftBytes))
+        assertEquals(204, commit(left, leftBytes, requireEmpty = true))
+        assertEquals(204, commit(left, leftBytes, requireEmpty = true))
         assertEquals(409, commit(left, rightBytes))
         assertEquals(204, stage(right, rightBytes))
+        assertEquals(409, commit(right, rightBytes, requireEmpty = true))
+        assertEquals(setOf(left), list().heads("journal"))
         assertEquals(204, commit(right, rightBytes))
         assertEquals(setOf(left, right), list().heads("journal"))
 

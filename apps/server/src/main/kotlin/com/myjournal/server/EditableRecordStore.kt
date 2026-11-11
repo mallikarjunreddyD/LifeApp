@@ -52,8 +52,8 @@ internal class EditableRecordStore(private val database: Database) {
         }
     }
 
-    fun commit(scope: SyncScope, id: Uuid, sha256: String, parents: Set<Uuid>) {
-        require(parents.size <= 32 && id !in parents)
+    fun commit(scope: SyncScope, id: Uuid, sha256: String, parents: Set<Uuid>, requireEmpty: Boolean = false) {
+        require(parents.size <= 32 && id !in parents && (!requireEmpty || parents.isEmpty()))
         database.transaction {
             lockEpoch(scope, write = true)
             val dataset = scope.dataset.sql()
@@ -79,6 +79,9 @@ internal class EditableRecordStore(private val database: Database) {
                     "SELECT version_id FROM editable_record_heads WHERE dataset_id = ? AND kind = ? AND logical_key = ?",
                     dataset, kind, key,
                 ) { it.uuid(1) }.toSet()
+                if (requireEmpty && heads.isNotEmpty()) {
+                    conflict("CONFLICT_CHANGED", "The server now has a record for this date, month or notebook.")
+                }
                 val knownParents = query(
                     """SELECT root_id FROM editable_record_versions
                         WHERE dataset_id = ? AND kind = ? AND logical_key = ? AND id = ANY(?)""",
