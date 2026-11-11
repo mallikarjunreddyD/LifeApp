@@ -102,7 +102,9 @@ nav button[aria-current=page] { background: var(--active); color: var(--ink); fo
 .workout-report-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media print {
   body:has(.workout-report) { background: white; color: black; }
+  body:has(.workout-report) .shell { min-height: 0; max-width: none; }
   body:has(.workout-report) .shell > :not(main),
+  body:has(.workout-report) main > :not(.workout-report),
   .workout-report-controls { display: none; }
   body:has(.workout-report) main { padding: 0; }
   .workout-report h2, .workout-report h3 { break-after: avoid; }
