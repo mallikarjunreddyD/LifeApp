@@ -108,6 +108,13 @@ export async function journalList(path: string, scope: Scope, cursor: string | n
   return { items: result.items as unknown[], next };
 }
 
+export async function migrateJournal(session: BrowserSession, entryId: string) {
+  const result = object(await json('/v1/journal/entries/' + uuid(entryId) + '/migrate', {
+    method: 'POST', headers: { ...journalHeaders(session.scope), 'X-CSRF-Token': session.csrfToken },
+  }), ['versionId']);
+  return uuid(result.versionId);
+}
+
 export function editableVersions(scope: Scope, after: string, signal: AbortSignal) {
   const query = new URLSearchParams({ after, limit: '50' });
   return json('/v1/editable/versions?' + query, { headers: journalHeaders(scope), signal });

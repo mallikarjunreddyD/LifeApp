@@ -176,7 +176,7 @@ export function App({ store }: { store: LifeStore }) {
       </>}
       {tab === 'Journal' && <section><h1>Journal</h1>
         {online && session ? <div key={session.scope.dataset + '/' + session.scope.epoch}>
-          <Journal scope={session.scope} />
+          <Journal session={session} />
           <EditableRecords session={session} />
         </div> : <p>{online ? 'Sign in to view committed journal pages.' : 'Connect to view committed journal pages.'}</p>}
       </section>}

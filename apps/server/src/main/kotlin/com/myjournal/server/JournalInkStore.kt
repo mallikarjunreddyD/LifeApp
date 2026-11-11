@@ -22,13 +22,6 @@ internal class JournalInkStore(private val database: Database) {
             lockEpoch(scope, write = true)
             val dataset = scope.dataset.sql()
             val epoch = scope.epoch.sql()
-            if (query(
-                    """SELECT 1 FROM editable_record_identities WHERE dataset_id = ?
-                         AND ((kind = 'journal' AND logical_key = ?) OR id IN (?, ?, ?)) LIMIT 1""",
-                    dataset, entry.date.toString(), entry.metadata.id.sql(), page.metadata.id.sql(), strokeId.sql(),
-                ) { true }.isNotEmpty()) {
-                conflict("CONFLICT_CHANGED", "This journal overlaps an editable record version.")
-            }
             val priorEntry = query(
                 """SELECT id, payload = CAST(? AS jsonb) FROM journal_ink_entries
                     WHERE dataset_id = ? AND (id = ? OR local_date = CAST(? AS date) OR page_id = ?)""",
@@ -45,6 +38,13 @@ internal class JournalInkStore(private val database: Database) {
             if (prior != null) {
                 if (prior != Triple(upload, digest, true)) conflict("IDEMPOTENCY_MISMATCH", "The stroke ID already has different content.")
                 return@transaction
+            }
+            if (query(
+                    """SELECT 1 FROM editable_record_identities WHERE dataset_id = ?
+                         AND ((kind = 'journal' AND logical_key = ?) OR id IN (?, ?, ?)) LIMIT 1""",
+                    dataset, entry.date.toString(), entry.metadata.id.sql(), page.metadata.id.sql(), strokeId.sql(),
+                ) { true }.isNotEmpty()) {
+                conflict("CONFLICT_CHANGED", "This journal overlaps an editable record version.")
             }
             val identityCollision = query(
                 """SELECT 1 FROM journal_ink_entries WHERE dataset_id = ?
@@ -86,8 +86,10 @@ internal class JournalInkStore(private val database: Database) {
     fun entries(scope: SyncScope, after: Uuid?, limit: Int) = database.transaction {
         lockEpoch(scope)
         query(
-            """SELECT id, payload FROM journal_ink_entries WHERE dataset_id = ?
-                AND (CAST(? AS uuid) IS NULL OR id > ?) ORDER BY id LIMIT ?""",
+            """SELECT e.id, e.payload FROM journal_ink_entries e WHERE e.dataset_id = ?
+                AND (CAST(? AS uuid) IS NULL OR e.id > ?)
+                AND NOT EXISTS (SELECT 1 FROM legacy_journal_versions m WHERE m.dataset_id = e.dataset_id AND m.entry_id = e.id)
+                ORDER BY e.id LIMIT ?""",
             scope.dataset.sql(), after?.sql(), after?.sql(), limit + 1,
         ) { it.uuid(1) to Json.parseToJsonElement(it.getString(2)).jsonObject }
     }

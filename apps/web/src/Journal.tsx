@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { journalList } from './api.ts';
+import { ApiError, journalList, migrateJournal } from './api.ts';
+import type { BrowserSession } from './api.ts';
 import { downloadStroke, drawStroke, strokeSummary } from './journalInk.ts';
 import { calendarDate, object, uuid } from './protocol.ts';
 import type { Scope } from './protocol.ts';
@@ -7,24 +8,29 @@ import type { Scope } from './protocol.ts';
 function entryOf(value: unknown) {
   const entry = object(value, ['metadata', 'date', 'pages']);
   if (!Array.isArray(entry.pages) || entry.pages.length !== 1) throw new Error('Invalid journal entry.');
+  const entryMeta = object(entry.metadata, ['id', 'createdAt', 'updatedAt', 'schemaVersion', 'revision']);
   const page = object(entry.pages[0], ['metadata', 'entryId', 'order', 'width', 'height', 'paper', 'archived']);
   const metadata = object(page.metadata, ['id', 'createdAt', 'updatedAt', 'schemaVersion', 'revision']);
   if (page.archived !== false || typeof page.width !== 'number' || !Number.isFinite(page.width) || page.width <= 0 ||
       typeof page.height !== 'number' || !Number.isFinite(page.height) || page.height <= 0) {
     throw new Error('Invalid journal page.');
   }
-  return { id: uuid(metadata.id), date: calendarDate(entry.date), width: page.width, height: page.height };
+  return { id: uuid(metadata.id), entryId: uuid(entryMeta.id), date: calendarDate(entry.date), width: page.width, height: page.height };
 }
 
 type Entry = ReturnType<typeof entryOf>;
 
-export function Journal({ scope }: { scope: Scope }) {
-  const { dataset, epoch } = scope;
+export function Journal({ session }: { session: BrowserSession }) {
+  const { dataset, epoch } = session.scope;
   const [cursor, setCursor] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<{ entries: Entry[]; next: string | null } | null>(null);
   const [entry, setEntry] = useState<Entry | null>(null);
   const [failed, setFailed] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [migrationError, setMigrationError] = useState('');
+  const sending = useRef(false);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -42,18 +48,49 @@ export function Journal({ scope }: { scope: Scope }) {
     else setCursor(next);
   }
 
+  async function moveToVersions(selected: Entry) {
+    if (sending.current || !window.confirm('Move this journal entry into server version history? The original ink will be preserved.')) return;
+    sending.current = true;
+    setMigrating(true);
+    setNotice('');
+    setMigrationError('');
+    try {
+      await migrateJournal(session, selected.entryId);
+      load(null);
+      setNotice('Journal moved to Server record versions. Refresh that list if it is already open.');
+    } catch (error) {
+      setMigrationError(error instanceof ApiError && error.status === 413
+        ? 'This journal is too large for a version archive.'
+        : 'Could not confirm the migration. Try again or refresh the journal lists.');
+    } finally {
+      sending.current = false;
+      setMigrating(false);
+    }
+  }
+
   return <>
-    <p>Read-only preview of pages committed to this server. Journal editing remains on Android.</p>
+    <p>Earlier single-page journal imports</p>
+    {notice && <p role="status">{notice}</p>}
+    {migrationError && <p role="alert">{migrationError}</p>}
     {failed ? <p role="alert">Could not load journal entries. Check your connection or sign in again.</p> :
       !result ? <p role="status">Loading journal entries…</p> :
-      result.entries.length === 0 ? <p>No journal pages have been committed to this server.</p> :
+      result.entries.length === 0 ? <p>No earlier journal imports.</p> :
       <ul>{result.entries.map(item => <li key={item.id}>
-        <button aria-pressed={entry?.id === item.id} onClick={() => setEntry(item)}>{item.date}</button>
+        <button disabled={migrating} aria-pressed={entry?.id === item.id} onClick={() => {
+          setNotice('');
+          setMigrationError('');
+          setEntry(item);
+        }}>{item.date}</button>
       </li>)}</ul>}
     {cursor && <button onClick={() => load(null)}>First results</button>}
     {result?.next && <button onClick={() => load(result.next)}>Next results</button>}
     {(failed || result) && <button onClick={() => load(cursor)}>{failed ? 'Retry' : 'Refresh entries'}</button>}
-    {entry && <JournalPage key={entry.id} entry={entry} scope={scope} />}
+    {entry && <>
+      <JournalPage key={entry.id} entry={entry} scope={session.scope} />
+      <button disabled={migrating} onClick={() => void moveToVersions(entry)}>
+        {migrating ? 'Moving journal…' : 'Move to server record versions'}
+      </button>
+    </>}
   </>;
 }
 

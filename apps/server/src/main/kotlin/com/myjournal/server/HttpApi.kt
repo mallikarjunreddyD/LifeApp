@@ -176,6 +176,19 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                 val rows = databaseCall { journalInk.entries(scope, after, limit) }
                 call.json(paged(rows, limit, { it.first }) { it.second })
             }
+            post("/journal/entries/{entryId}/migrate") {
+                val session = call.authenticate(auth).second
+                call.requireMutation(session, origin)
+                call.requireRecordScope(session.scope)
+                val id = validated { Uuid.parse(requireNotNull(call.parameters["entryId"])) }
+                if (!recordTransfers.tryAcquire()) throw ApiFailure(429, "RATE_LIMITED", "Retry the journal migration later.")
+                try {
+                    val version = databaseCall { validated { editable.migrateJournal(session.scope, id) } }
+                    call.json(buildJsonObject { put("versionId", version.toString()) })
+                } finally {
+                    recordTransfers.release()
+                }
+            }
             get("/journal/pages/{pageId}/strokes") {
                 val scope = call.authenticate(auth).second.scope
                 call.requireRecordScope(scope)

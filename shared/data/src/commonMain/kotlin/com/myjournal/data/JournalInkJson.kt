@@ -14,7 +14,10 @@ object JournalInkJson {
         require(it.metadata.schemaVersion == 1 && it.pages.all { page -> page.metadata.schemaVersion == 1 })
     }
 
-    fun stroke(value: JsonObject, bytes: ByteArray): InkStroke = with(value) {
+    fun stroke(value: JsonObject, bytes: ByteArray): InkStroke =
+        readStroke(value, bytes).also { require(value == strokeHeader(it)) }
+
+    fun readStroke(value: JsonObject, bytes: ByteArray): InkStroke = with(value) {
         val metadata = decodeMeta(getValue("metadata").jsonObject)
         val stroke = InkStroke(
             metadata,
@@ -26,7 +29,7 @@ object JournalInkJson {
             StrokePointCodec.decode(bytes),
             getValue("pointFormatVersion").jsonPrimitive.int,
         )
-        require(metadata.schemaVersion == 1 && value == strokeHeader(stroke))
+        require(metadata.schemaVersion == 1)
         stroke
     }
 

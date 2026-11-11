@@ -17,6 +17,7 @@ import com.myjournal.domain.InkStroke
 import com.myjournal.domain.JournalEntry
 import com.myjournal.domain.JournalPage
 import com.myjournal.domain.JournalSnapshot
+import com.myjournal.domain.canonical
 import com.myjournal.domain.newRecordMetadata
 import kotlinx.datetime.LocalDate
 import java.security.MessageDigest
@@ -270,10 +271,75 @@ class PostgresHttpTest {
         assertEquals(200, result.status.value)
         assertEquals(checksum, result.headers["X-Content-SHA256"])
         assertContentEquals(bytes, result.body<ByteArray>())
+        val migratePath = "$entriesUrl/${entry.id}/migrate"
+        suspend fun migrate(bearer: String = token, requested: SyncScope = scope) = client.post(migratePath) {
+            bearerAuth(bearer)
+            header("X-LifeApp-Dataset", requested.dataset.toString())
+            header("X-LifeApp-Epoch", requested.epoch.toString())
+        }
+        assertEquals(401, client.post(migratePath).status.value)
+        assertEquals(404, migrate(otherToken, otherScope).status.value)
+        assertEquals(409, migrate(requested = scope.copy(epoch = Uuid.random())).status.value)
+        fun setStoredDigest(digest: String) = database.transaction {
+            execute("UPDATE journal_ink_strokes SET sha256 = ? WHERE dataset_id = ? AND id = ?",
+                digest, scope.dataset.sql(), stroke.metadata.id.sql())
+        }
+        setStoredDigest("0".repeat(64))
+        try {
+            assertEquals(503, migrate().status.value)
+            assertEquals(1, readJournal(entriesUrl).json().getValue("items").jsonArray.size)
+            assertEquals(0, readJournal("/v1/editable/versions").json().getValue("items").jsonArray.size)
+        } finally { setStoredDigest(checksum) }
+        val migrated = migrate()
+        assertEquals(200, migrated.status.value)
+        val version = migrated.json().getValue("versionId").jsonPrimitive.content
+        assertEquals(version, migrate().json().getValue("versionId").jsonPrimitive.content)
+        assertEquals(0, readJournal(entriesUrl).json().getValue("items").jsonArray.size)
+        val download = readJournal("/v1/editable/versions/$version")
+        assertEquals(200, download.status.value)
+        val archiveBytes = download.body<ByteArray>()
+        val archiveSha = BackupArchive.sha256(archiveBytes)
+        assertEquals(archiveSha, download.headers["X-Content-SHA256"])
+        val archive = kotlin.io.path.createTempFile().toFile()
+        try {
+            archive.writeBytes(archiveBytes)
+            assertEquals(JournalSnapshot(journals = listOf(journal), strokes = listOf(stroke, second)).canonical(),
+                BackupArchive.read(archive).snapshot.canonical())
+            java.util.zip.ZipFile(archive).use { zip ->
+                for (id in listOf(stroke.metadata.id, second.metadata.id)) {
+                    assertContentEquals(bytes, zip.getInputStream(zip.getEntry("ink/$id.ljpt")).use { it.readBytes() })
+                }
+            }
+        } finally { archive.delete() }
+
+        // Existing clients can retry an old receipt or read original bytes after the cutover.
+        assertEquals(204, commit().status.value)
+        assertContentEquals(bytes, readJournal(url).body<ByteArray>())
+        val late = stroke.copy(metadata = newRecordMetadata(), order = 1)
+        val lateUpload = Uuid.random()
+        assertEquals(204, stage(lateUpload).status.value)
+        assertEquals(409, commit(header = JournalInkJson.strokeHeader(late), uploadId = lateUpload).status.value)
+        val next = Uuid.random()
+        assertEquals(204, client.put("/v1/editable/staged/$next") {
+            bearerAuth(token)
+            header("X-LifeApp-Dataset", scope.dataset.toString())
+            header("X-LifeApp-Epoch", scope.epoch.toString())
+            header("X-Content-SHA256", archiveSha)
+            contentType(ContentType.Application.OctetStream)
+            setBody(archiveBytes)
+        }.status.value)
+        assertEquals(204, client.post("/v1/editable/versions/$next/commit") {
+            bearerAuth(token)
+            header("X-LifeApp-Dataset", scope.dataset.toString())
+            header("X-LifeApp-Epoch", scope.epoch.toString())
+            contentType(ContentType.Application.Json)
+            setBody("""{"sha256":"$archiveSha","parents":["$version"]}""")
+        }.status.value)
+        assertEquals(version, migrate().json().getValue("versionId").jsonPrimitive.content)
         val remaining = database.transaction {
             query("SELECT count(*) FROM staged_ink WHERE dataset_id = ?", scope.dataset.sql()) { it.getInt(1) }.single()
         }
-        assertEquals(0, remaining)
+        assertEquals(1, remaining)
     }
 
     @Test fun editableRecordArchivesPreserveVariantsAndOriginalBytes() = testApplication {

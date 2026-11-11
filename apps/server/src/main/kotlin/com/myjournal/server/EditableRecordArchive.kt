@@ -95,8 +95,9 @@ internal data class EditableRecordArchive(
             }
         }
 
-        fun read(bytes: ByteArray): EditableRecordArchive {
-            val snapshot = decode(bytes)
+        fun read(bytes: ByteArray): EditableRecordArchive = fromSnapshot(decode(bytes))
+
+        fun fromSnapshot(snapshot: JournalSnapshot): EditableRecordArchive {
             require(snapshot.metadata.isEmpty() && snapshot.todos.isEmpty() && snapshot.workoutLog.records.isEmpty())
             require(snapshot.journals.size + snapshot.planners.size + snapshot.habits.size + snapshot.notebooks.size == 1)
             val journal = snapshot.journals.singleOrNull()

@@ -105,8 +105,8 @@ version. Earlier versions remain available in order through the scoped
 version feed. The server rejects reuse of a UUID under a different owner
 record, reuse of an immutable stroke with different bytes or metadata, and
 crossing between the old single-page journal import and the new version
-store. Existing single-page journal imports retain their original read path
-and require explicit migration before they can enter the version store.
+store. Earlier single-page journal imports can be moved into the version store
+from the Journal tab.
 
 The browser can preview a committed version from **Journal → Server record
 versions**. It draws vector paths at their logical coordinates and clips
@@ -144,8 +144,7 @@ record identity would collide. Existing records and To-do replay state
 are preserved. The editor caches are reloaded after application.
 
 The transfer is add-only. Android editor changes after transfer remain
-local. Continuous capture and replay, migration of
-the original single-page journal imports, per-date habit operations, and
+local. Continuous capture and replay, per-date habit operations, and
 PWA checkbox editing remain open. Complete cross-device acceptance before
 calling the four modules synchronized.
 
@@ -167,3 +166,22 @@ response, **Retry resolution** reuses the same resolution UUID while
 the review stays open. This updates server history. Android applies
 server-only records through the first transfer workflow. Existing
 Android copies still require the ongoing replay workflow.
+
+
+## Move an earlier journal import into version history
+
+In the online PWA, choose a date under **Earlier single-page journal
+imports** and select **Move to server record versions**. Migration V7
+adds a mapping from the original journal entry to its first archive
+version. The server checks the current dataset and recovery epoch, verifies
+each original stroke checksum, and compares the encoded LJPT bytes to the
+stored bytes. The version, identity registration and mapping commit in one
+transaction. Retrying returns the same version ID.
+
+The original metadata, page and strokes remain stored. The earlier
+journal list omits the migrated entry, and the original stroke download
+and already committed upload retries continue to work. New edits to
+the migrated date go through the versioned API. The archive retains the
+entry, page and stroke UUIDs and original metadata. Entries beyond the
+portable record limits or the 16 MiB archive limit remain in the earlier
+store.
