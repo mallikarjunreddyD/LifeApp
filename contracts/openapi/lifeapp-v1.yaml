@@ -223,7 +223,7 @@ paths:
         '403':
           $ref: '#/components/responses/Http403'
         '408':
-          description: Stroke upload timed out.
+          $ref: '#/components/responses/Http408'
         '409':
           $ref: '#/components/responses/Http409'
         '413':
@@ -1057,6 +1057,12 @@ components:
             type: integer
             minimum: 1
           description: Seconds before retry
+    Http408:
+      description: Stroke upload timed out
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     Http409:
       description: Scope, operation identity, dependency or conflict-head mismatch
       content:
