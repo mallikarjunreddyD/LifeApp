@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { now, today } from './protocol.ts';
 import type { LifeStore } from './store.ts';
+import { WorkoutReport } from './WorkoutReport.tsx';
 import { entryFor, revise } from './workout.ts';
 import type { Entry, Exercise, RecordedSet, Routine, Session, WorkoutRecord } from './workout.ts';
 
@@ -12,6 +13,7 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
   const [records, setRecords] = useState<WorkoutRecord[] | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -98,6 +100,8 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
     }));
   }
 
+  if (reportOpen) return <WorkoutReport sessions={sessions} exercises={exercises} close={() => setReportOpen(false)} />;
+
   return <section>
     <h1>{historyOnly ? 'Workout history' : 'Workouts'}</h1>
     <p>Saved in this browser. Workout changes stay on this device.</p>
@@ -133,6 +137,7 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
     </> : <>
       <p>{weekly.length} completed this week · {weekly.reduce((sum, value) => sum + (value.durationSeconds ?? 0), 0)} seconds</p>
       {!historyOnly && <button disabled={busy} onClick={() => start()}>Start workout</button>}
+      <button disabled={busy} onClick={() => setReportOpen(true)}>Export monthly PDF</button>
       <ul className="record-list">{sessions.map(value => <li key={value.metadata.id}><button disabled={busy}
         onClick={() => { setActive(value.metadata.id); setEditor(null); }}>{value.date} ·
         {value.completed ? ` ${value.durationSeconds ?? 0} seconds` : ' In progress'} · {value.entries.length} exercises</button></li>)}</ul>
