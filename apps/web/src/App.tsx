@@ -5,6 +5,7 @@ import type { BrowserSession } from './api.ts';
 import { sameScope, today } from './protocol.ts';
 import type { Todo } from './protocol.ts';
 import type { LifeStore, LocalView, TaskView } from './store.ts';
+import { Journal } from './Journal.tsx';
 import { Workouts } from './Workouts.tsx';
 import { useWorkerUpdate } from './worker.ts';
 
@@ -172,7 +173,10 @@ export function App({ store }: { store: LifeStore }) {
         {matches && <details><summary>Read-only server records</summary><ReadRecords key={tab}
           kind={tab === 'Workouts' ? 'exercises' : 'workouts'} session={session} online={online} /></details>}
       </>}
-      {tab === 'Journal' && <section><h1>Journal</h1><p>Journal, planner and notebook records are still on Android. Browser viewing will be available after safe server migration is implemented.</p></section>}
+      {tab === 'Journal' && <section><h1>Journal</h1>
+        {online && session ? <Journal key={session.scope.dataset + '/' + session.scope.epoch}
+          scope={session.scope} /> : <p>{online ? 'Sign in to view committed journal pages.' : 'Connect to view committed journal pages.'}</p>}
+      </section>}
     </main>
     <nav aria-label="Main navigation">
       {tabs.map(item => <button key={item} aria-current={tab === item ? 'page' : undefined} onClick={() => setTab(item)}>{item}</button>)}

@@ -16,6 +16,7 @@ import java.security.MessageDigest
 import java.util.HexFormat
 import com.myjournal.data.TodoServerJson
 import com.myjournal.domain.SyncCheckpoint
+import com.myjournal.domain.SyncScope
 import com.myjournal.domain.TodoOperation
 import io.ktor.client.*
 import io.ktor.client.call.body
@@ -189,27 +190,28 @@ class PostgresHttpTest {
         val upload = Uuid.random()
         val url = "/v1/journal/ink/${stroke.metadata.id}"
         suspend fun commit(value: JournalEntry = journal, header: JsonObject = JournalInkJson.strokeHeader(stroke),
-                           epoch: Uuid = scope.epoch) = client.post("/v1/journal/ink/commit") {
+                           epoch: Uuid = scope.epoch, uploadId: Uuid = upload) = client.post("/v1/journal/ink/commit") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
             setBody(buildJsonObject {
                 put("scope", buildJsonObject { put("dataset", scope.dataset.toString()); put("epoch", epoch.toString()) })
                 put("entry", entryJson(value))
                 put("stroke", header)
-                put("uploadId", upload.toString())
+                put("uploadId", uploadId.toString())
                 put("sha256", checksum)
             }.toString())
         }
-        assertEquals(401, client.get(url).status.value)
-        assertEquals(409, commit().status.value)
-        assertEquals(204, client.put("/v1/ink/staged/$upload") {
+        suspend fun stage(uploadId: Uuid) = client.put("/v1/ink/staged/$uploadId") {
             bearerAuth(token)
             header("X-LifeApp-Dataset", scope.dataset.toString())
             header("X-LifeApp-Epoch", scope.epoch.toString())
             header("X-Content-SHA256", checksum)
             contentType(ContentType.Application.OctetStream)
             setBody(bytes)
-        }.status.value)
+        }
+        assertEquals(401, client.get(url).status.value)
+        assertEquals(409, commit().status.value)
+        assertEquals(204, stage(upload).status.value)
         assertEquals(404, client.get(url) { bearerAuth(token) }.status.value)
         assertEquals(409, commit(epoch = Uuid.random()).status.value)
         assertEquals(400, commit(journal.copy(pages = listOf(page.copy(height = 1f)))).status.value)
@@ -224,6 +226,39 @@ class PostgresHttpTest {
         auth.initializeOwner(other, password.toCharArray(), requireEmpty = false)
         val otherToken = client.login(other).token()
         assertEquals(404, client.get(url) { bearerAuth(otherToken) }.status.value)
+        val entriesUrl = "/v1/journal/entries"
+        val strokesUrl = "/v1/journal/pages/${page.metadata.id}/strokes"
+        suspend fun readJournal(path: String, bearer: String = token, requested: SyncScope = scope) = client.get(path) {
+            bearerAuth(bearer)
+            header("X-LifeApp-Dataset", requested.dataset.toString())
+            header("X-LifeApp-Epoch", requested.epoch.toString())
+        }
+        assertEquals(401, client.get(entriesUrl).status.value)
+        assertEquals(400, client.get(entriesUrl) { bearerAuth(token) }.status.value)
+        assertEquals(409, readJournal(entriesUrl, otherToken).status.value)
+        assertEquals(409, readJournal(url, requested = scope.copy(epoch = Uuid.random())).status.value)
+        val otherFields = client.get("/v1/session") { bearerAuth(otherToken) }.json().getValue("scope").jsonObject
+        val otherScope = SyncScope(Uuid.parse(otherFields.getValue("dataset").jsonPrimitive.content),
+            Uuid.parse(otherFields.getValue("epoch").jsonPrimitive.content))
+        assertEquals(404, readJournal(strokesUrl, otherToken, otherScope).status.value)
+        assertEquals(0, readJournal(entriesUrl, otherToken, otherScope).json().getValue("items").jsonArray.size)
+        assertEquals(400, readJournal("$strokesUrl?cursor=${Uuid.random()}").status.value)
+        val listed = readJournal(entriesUrl)
+        assertEquals("no-store", listed.headers["Cache-Control"])
+        assertEquals(entryJson(journal), listed.json().getValue("items").jsonArray.single())
+        val second = stroke.copy(metadata = newRecordMetadata(), order = Long.MAX_VALUE)
+        val secondUpload = Uuid.random()
+        assertEquals(204, stage(secondUpload).status.value)
+        assertEquals(204, commit(header = JournalInkJson.strokeHeader(second), uploadId = secondUpload).status.value)
+        val firstPage = readJournal("$strokesUrl?limit=1").json()
+        val cursor = firstPage.getValue("next").jsonPrimitive.content
+        assertEquals(stroke.metadata.id.toString(), cursor)
+        val listedStroke = firstPage.getValue("items").jsonArray.single().jsonObject
+        assertEquals(checksum, listedStroke.getValue("sha256").jsonPrimitive.content)
+        assertEquals(JournalInkJson.strokeHeader(stroke), listedStroke.getValue("stroke"))
+        val lastPage = readJournal("$strokesUrl?limit=1&cursor=$cursor").json()
+        assertEquals(JsonNull, lastPage.getValue("next"))
+        assertEquals(JournalInkJson.strokeHeader(second), lastPage.getValue("items").jsonArray.single().jsonObject.getValue("stroke"))
         val result = client.get(url) { bearerAuth(token) }
         assertEquals(200, result.status.value)
         assertEquals(checksum, result.headers["X-Content-SHA256"])

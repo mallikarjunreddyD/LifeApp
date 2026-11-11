@@ -21,31 +21,44 @@ export class ApiError extends Error {
   }
 }
 
-async function json(path: string, options: RequestInit = {}, empty = false): Promise<unknown> {
+export async function withRequestTimeout<T>(
+  timeoutMillis: number, signal: AbortSignal | null | undefined, run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  const timeout = setTimeout(abort, timeoutMillis);
   try {
-    const response = await fetch(path, { ...options, credentials: 'same-origin', cache: 'no-store', redirect: 'error',
-      signal: controller.signal });
-    if (!response.ok) {
-      let code = '';
-      // Structured error codes are safe to use. Do not surface raw response text.
-      if (response.headers.get('content-type')?.includes('application/json')) {
-        try {
-          const error = await readJson(response, 16_384) as { code?: unknown };
-          if (typeof error?.code === 'string') code = error.code;
-        } catch { /* Retain the HTTP status. */ }
+    return await run(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
+  }
+}
+
+async function json(path: string, options: RequestInit = {}, empty = false): Promise<unknown> {
+  try {
+    return await withRequestTimeout(15_000, options.signal, async signal => {
+      const response = await fetch(path, { ...options, credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal });
+      if (!response.ok) {
+        let code = '';
+        // Structured error codes are safe to use. Do not surface raw response text.
+        if (response.headers.get('content-type')?.includes('application/json')) {
+          try {
+            const error = await readJson(response, 16_384) as { code?: unknown };
+            if (typeof error?.code === 'string') code = error.code;
+          } catch { /* Retain the HTTP status. */ }
+        }
+        throw new ApiError(response.status, code);
       }
-      throw new ApiError(response.status, code);
-    }
-    if (empty) return undefined;
-    if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Expected a LifeApp JSON response.');
-    return await readJson(response, 8 * 1024 * 1024);
+      if (empty) return undefined;
+      if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Expected a LifeApp JSON response.');
+      return await readJson(response, 8 * 1024 * 1024);
+    });
   } catch (error) {
     if (error instanceof ApiError) throw error;
     throw new Error('Could not read a response from LifeApp. Local changes were kept.', { cause: error });
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -79,6 +92,20 @@ function browserSession(value: unknown): BrowserSession {
     throw new Error('The server did not provide a browser session.');
   }
   return { scope: scopeOf(session.scope), expiresAt: instant(session.expiresAt), csrfToken: session.csrfToken };
+}
+
+export function journalHeaders(scope: Scope) {
+  return { 'X-LifeApp-Dataset': scope.dataset, 'X-LifeApp-Epoch': scope.epoch };
+}
+
+export async function journalList(path: string, scope: Scope, cursor: string | null, signal: AbortSignal) {
+  const query = new URLSearchParams({ limit: '50' });
+  if (cursor) query.set('cursor', cursor);
+  const result = object(await json(path + '?' + query, { headers: journalHeaders(scope), signal }), ['items', 'next']);
+  if (!Array.isArray(result.items) || result.items.length > 50) throw new Error('Invalid journal list.');
+  const next = result.next === null ? null : uuid(result.next);
+  if (next && (next === cursor || result.items.length !== 50)) throw new Error('Invalid journal cursor.');
+  return { items: result.items as unknown[], next };
 }
 
 export const api = {

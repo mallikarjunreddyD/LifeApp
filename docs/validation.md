@@ -309,3 +309,22 @@ Chromium regressions passed.
 
 Production enrollment, signed APK installation on the Xiaomi Pad 7, private
 HTTPS sign-in with the enrolled owner, and public access remain pending.
+
+## Phase 7E read-only journal preview
+
+Local JDK 21 and disposable PostgreSQL passed nine Ktor tests and packaged
+server health, readiness and authorization checks. The journal coverage
+checks scoped entry and stroke discovery, cursor order, cross-account
+isolation, stale-epoch rejection and byte-for-byte download. The OpenAPI
+document and existing contract fixtures passed validation.
+
+Node 22 passed TypeScript checking, lint, four unit tests and the production
+PWA build. All five Chromium tests passed against a disposable HTTPS
+Ktor/PostgreSQL stack. The journal test committed an LJPT fixture, checked a
+pixel on the rendered path, verified that the service worker did not cache
+journal responses, and confirmed the preview was removed on disconnect.
+
+The browser test used a synthetic fixture and an iPhone-sized Chromium
+viewport. Physical iPhone Safari, Xiaomi Pad 7 handwriting and Android-to-PWA
+journal sync remain unverified. Android first sync, editor replay and conflict
+review, and Planner, Habits and Notebook synchronization remain pending.

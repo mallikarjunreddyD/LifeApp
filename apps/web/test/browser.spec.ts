@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -198,4 +199,66 @@ test('workout and original weight unit survive offline reload', async ({ page, c
   expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
   await page.getByLabel('Month', { exact: true }).fill('2001-01');
   await expect(page.getByText('No completed workouts this month.')).toBeVisible();
+});
+
+test('journal preview draws committed LJPT vectors and hides them offline', async ({ context, page }) => {
+  await page.goto('/');
+  await signIn(page);
+  const request = context.request;
+  const login = await request.get('/v1/session');
+  expect(login.status()).toBe(200);
+  const session = await login.json();
+  const headers = { 'X-CSRF-Token': session.csrfToken, Origin: 'https://127.0.0.1:4186' };
+  const entryId = randomUUID();
+  const pageId = randomUUID();
+  const strokeId = randomUUID();
+  const uploadId = randomUUID();
+  const date = '2026-11-09';
+  const time = '2026-11-09T12:00:00Z';
+  const metadata = (id: string) => ({ id, createdAt: time, updatedAt: time, schemaVersion: 1, revision: 1 });
+  const points = Buffer.alloc(52);
+  points.write('LJPT');
+  points.writeUInt32LE(1, 4);
+  points.writeUInt32LE(2, 8);
+  for (const [index, x] of [100, 300].entries()) {
+    const offset = 12 + index * 20;
+    points.writeFloatLE(x, offset);
+    points.writeFloatLE(200, offset + 4);
+    points.writeFloatLE(-1, offset + 8);
+    points.writeBigInt64LE(BigInt(index), offset + 12);
+  }
+  const sha256 = createHash('sha256').update(points).digest('hex');
+  expect((await request.put('/v1/ink/staged/' + uploadId, { data: points, headers: {
+    ...headers, 'X-LifeApp-Dataset': session.scope.dataset, 'X-LifeApp-Epoch': session.scope.epoch,
+    'X-Content-SHA256': sha256, 'Content-Type': 'application/octet-stream',
+  } })).status()).toBe(204);
+
+  // Kotlin's portable format encodes integral Float fields with a decimal point.
+  const commit = JSON.stringify({
+    scope: session.scope, uploadId, sha256,
+    entry: { metadata: metadata(entryId), date, pages: [{
+      metadata: metadata(pageId), entryId, order: 0, width: 1000, height: 1000, paper: 'BLANK', archived: false,
+    }] },
+    stroke: { metadata: metadata(strokeId), surfaceId: pageId, order: 0,
+      brush: 'PEN', colorArgb: 0xff000000, width: 10, pointFormatVersion: 1 },
+  }).replace(/("(?:width|height)":\d+)(?=[,}])/g, '$1.0');
+  expect((await request.post('/v1/journal/ink/commit', {
+    data: commit, headers: { ...headers, 'Content-Type': 'application/json' },
+  })).status()).toBe(204);
+
+  await page.getByRole('button', { name: 'Journal' }).click();
+  await page.getByRole('button', { name: date }).click();
+  const canvas = page.getByRole('img', { name: 'Handwriting for ' + date });
+  await expect(canvas).toBeVisible();
+  const pixel = await canvas.evaluate(element => {
+    const source = element as HTMLCanvasElement;
+    return Array.from(source.getContext('2d')!.getImageData(307, 307, 1, 1).data);
+  });
+  expect(pixel).toEqual([0, 0, 0, 255]);
+  const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
+    (await (await caches.open(name)).keys()).map(item => new URL(item.url).pathname)))).flat());
+  expect(cachedPaths.some(path => path.startsWith('/v1/journal/'))).toBe(false);
+  await context.setOffline(true);
+  await expect(canvas).toHaveCount(0);
+  await expect(page.getByText('Connect to view committed journal pages.')).toBeVisible();
 });
