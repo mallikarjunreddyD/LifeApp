@@ -248,7 +248,7 @@ class ServerSyncIntegrationTest {
             val ledger = MonthlyHabitLedger(newRecordMetadata(), habitMonth)
             val reading = HabitDefinition(newRecordMetadata(), ledger.metadata.id, "Read", 0)
             val habitRepository = RoomHabitRepository(database)
-            habitRepository.apply(HabitLedgerEdit(ledger, definitions = listOf(reading)))
+            habitRepository.apply(HabitLedgerEdit(ledger.copy(habits = listOf(reading)), definitions = listOf(reading)))
             val habitBase = snapshotRepository.capture().editableImportRecords().single { it.key.kind == "habits" }
             BackupArchive.write(fetched, habitBase.snapshot)
             val habitParent = Uuid.random()
