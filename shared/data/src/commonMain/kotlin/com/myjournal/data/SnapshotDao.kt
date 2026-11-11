@@ -4,6 +4,18 @@ import androidx.room.*
 
 @Dao
 interface SnapshotDao {
+    @Query("DELETE FROM ink_strokes WHERE pageId = :id") suspend fun deleteJournalInk(id: String)
+    @Query("DELETE FROM journal_pages WHERE entryId = :id") suspend fun deleteJournalPages(id: String)
+    @Query("DELETE FROM journal_entries WHERE id = :id") suspend fun deleteJournal(id: String)
+    @Query("DELETE FROM planner_ink_strokes WHERE surfaceId = :id") suspend fun deletePlannerInk(id: String)
+    @Query("DELETE FROM planner_pages WHERE id = :id") suspend fun deletePlanner(id: String)
+    @Query("DELETE FROM habit_completions WHERE habitId = :id") suspend fun deleteHabitCompletions(id: String)
+    @Query("DELETE FROM habit_definitions WHERE ledgerId = :id") suspend fun deleteHabits(id: String)
+    @Query("DELETE FROM habit_ledgers WHERE id = :id") suspend fun deleteHabitLedger(id: String)
+    @Query("DELETE FROM notebook_ink_strokes WHERE pageId = :id") suspend fun deleteNotebookInk(id: String)
+    @Query("DELETE FROM notebook_pages WHERE notebookId = :id") suspend fun deleteNotebookPages(id: String)
+    @Query("DELETE FROM notebooks WHERE id = :id") suspend fun deleteNotebook(id: String)
+
     @Query("SELECT * FROM record_metadata ORDER BY id") suspend fun metadata(): List<MetadataRow>
     @Insert suspend fun insertMetadataRow(rows: List<MetadataRow>)
     @Query("DELETE FROM record_metadata") suspend fun clearMetadataRow()

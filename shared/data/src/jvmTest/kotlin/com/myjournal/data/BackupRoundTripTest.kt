@@ -39,6 +39,32 @@ class BackupRoundTripTest {
         }
     }
 
+    @Test fun reviewedReplacementUpdatesEachAggregateAndRejectsAStaleLocalCopy() = runTest {
+        val directory = Files.createTempDirectory("lifeapp-reviewed-replay").toFile()
+        val database = database(File(directory, "app.db"))
+        try {
+            val repository = RoomSnapshotRepository(database)
+            val source = backupFixture()
+            repository.replace(source)
+            val changed = source.copy(
+                journals = source.journals.map { it.copy(metadata = it.metadata.revised(it.metadata.updatedAt)) },
+                planners = source.planners.map { it.copy(metadata = it.metadata.revised(it.metadata.updatedAt)) },
+                habits = source.habits.map { it.copy(metadata = it.metadata.revised(it.metadata.updatedAt)) },
+                notebooks = source.notebooks.map { it.copy(name = "Reviewed notebook", metadata = it.metadata.revised(it.metadata.updatedAt)) },
+            )
+            val updates = changed.editableImportRecords()
+            val expected = source.editableImportRecords().associate { it.key to it.snapshot }
+            repository.applyEditableRecords(updates, expected)
+            assertEquals(SnapshotJson.encode(changed), SnapshotJson.encode(repository.capture()))
+
+            assertFailsWith<IllegalArgumentException> { repository.applyEditableRecords(updates, expected) }
+            assertEquals(SnapshotJson.encode(changed), SnapshotJson.encode(repository.capture()))
+        } finally {
+            database.close()
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun completeArchiveRestoresExactEditableStateAcrossRealDatabaseReopening() = runTest {
         val directory=Files.createTempDirectory("lifeapp-roundtrip").toFile()
         val original=backupFixture()
