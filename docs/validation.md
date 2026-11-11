@@ -381,3 +381,17 @@ versions against Ktor, verifies the selected drawing, checks CSRF
 enforcement, drops the first resolution response, and retries the same
 resolution ID. The browser test uses synthetic data. Applying a resolved
 version over an existing Android copy remains open.
+
+## Phase 7E earlier journal migration
+
+The PostgreSQL tests verify that migration preserves journal and page
+metadata, original LJPT bytes, stroke ordering, prior upload receipts, and
+the original download route. A corrupted checksum leaves the entry in the
+earlier list and creates no version. The tests also cover stale scope,
+cross-account denial, repeated migration, and committing a child version
+after migration. The Chromium test migrates a synthetic legacy journal
+through the PWA and checks a rendered pixel in its versioned preview.
+
+The Compose recovery fixture checks that a restored database retains the
+migration mapping and original LJPT bytes. No production journals were
+migrated for validation.

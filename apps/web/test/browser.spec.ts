@@ -232,10 +232,20 @@ test('journal, planner and notebook previews draw committed vectors and hide the
     })).status()).toBe(204);
     return version;
   }
+  page.once('dialog', dialog => void dialog.accept());
+  await page.getByRole('button', { name: 'Move to server record versions' }).click();
+  await expect(page.getByText('Journal moved to Server record versions.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: date, exact: true })).toHaveCount(0);
+
   const initialPlanner = await commitArchive('planner');
   await commitArchive('notebook');
 
   await page.getByText('Server record versions', { exact: true }).click();
+  await page.getByRole('button', { name: 'Journal · ' + date }).click();
+  const migrated = page.getByRole('img', { name: 'Handwriting for Page 1' });
+  await expect(migrated).toBeVisible();
+  expect(await migrated.evaluate(element => Array.from((element as HTMLCanvasElement).getContext('2d')!
+    .getImageData(307, 307, 1, 1).data))).toEqual([0, 0, 0, 255]);
   await page.getByRole('button', { name: 'Planner · 2026-11' }).click();
   const planner = page.getByRole('img', { name: 'Handwriting for 2026-11', exact: true });
   await expect(planner).toBeVisible();

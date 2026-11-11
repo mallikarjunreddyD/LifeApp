@@ -1,8 +1,10 @@
 """HTTP assertions for the isolated Compose stack, with no credential output."""
 import hashlib
+import io
 import json
 import struct
 import uuid
+import zipfile
 import os
 from pathlib import Path
 import sys
@@ -41,6 +43,8 @@ operation = json.loads(Path("contracts/fixtures/todo-operation.json").read_text(
 session = json.loads(call("/v1/session", method="POST", body={**credentials, "client": "android"})[0])
 auth = {"Authorization": f"Bearer {session['accessToken']}"}
 points = struct.pack("<4sIIfffq", b"LJPT", 1, 1, 0.0, 2.0, -1.0, 0)
+entry_id = "71000000-0000-4000-8000-000000000001"
+migrate_path = f"/v1/journal/entries/{entry_id}/migrate"
 stroke_id = "71000000-0000-4000-8000-000000000003"
 version_id = "72000000-0000-4000-8000-000000000001"
 record_path = f"/v1/editable/versions/{version_id}"
@@ -61,7 +65,6 @@ if sys.argv[1] == "hold":
         time = "2026-11-09T12:00:00Z"
         return {"id": identity, "createdAt": time, "updatedAt": time, "schemaVersion": 1, "revision": 1}
 
-    entry_id = "71000000-0000-4000-8000-000000000001"
     page_id = "71000000-0000-4000-8000-000000000002"
     call("/v1/journal/ink/commit", method="POST", expected=204, headers=auth, body={
         "scope": scope, "uploadId": upload, "sha256": digest,
@@ -72,6 +75,8 @@ if sys.argv[1] == "hold":
         "stroke": {"metadata": metadata(stroke_id), "surfaceId": page_id, "order": 0,
                    "brush": "PEN", "colorArgb": 4278190080, "width": 3.0, "pointFormatVersion": 1},
     })
+    migrated = json.loads(call(migrate_path, method="POST", headers=scope_headers)[0])["versionId"]
+    Path(sys.argv[2] + ".journal-version").write_text(migrated, encoding="utf-8")
     planner = check_output([sys.executable, "contracts/fixtures/editable-archive.py", "planner"])
     planner_digest = hashlib.sha256(planner).hexdigest()
     record_headers = {**scope_headers, "X-Content-SHA256": planner_digest}
@@ -88,6 +93,12 @@ if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):
     call("/v1/session", headers={"Authorization": f"Bearer {token}"}, expected=401)
     restored_ink, ink_headers = call(f"/v1/journal/ink/{stroke_id}", headers=auth)
     assert restored_ink == points and ink_headers["X-Content-SHA256"] == hashlib.sha256(points).hexdigest()
+    migrated = Path(held + ".journal-version").read_text(encoding="utf-8")
+    assert json.loads(call(migrate_path, method="POST", headers=scope_headers)[0])["versionId"] == migrated
+    journal, _ = call(f"/v1/editable/versions/{migrated}", headers=scope_headers)
+    with zipfile.ZipFile(io.BytesIO(journal)) as archive:
+        assert archive.read(f"ink/{stroke_id}.ljpt") == points
+    assert not json.loads(call("/v1/journal/entries", headers=scope_headers)[0])["items"]
     planner, planner_headers = call(record_path, headers=scope_headers)
     assert planner == check_output([sys.executable, "contracts/fixtures/editable-archive.py", "planner"])
     assert planner_headers["X-Content-SHA256"] == hashlib.sha256(planner).hexdigest()

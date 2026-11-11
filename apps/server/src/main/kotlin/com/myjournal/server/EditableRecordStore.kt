@@ -1,6 +1,13 @@
 package com.myjournal.server
 
+import com.myjournal.data.BackupArchive
+import com.myjournal.data.JournalInkJson
+import com.myjournal.data.StrokePointCodec
+import com.myjournal.domain.JournalSnapshot
 import com.myjournal.domain.SyncScope
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.sql.Connection
 import java.util.UUID
@@ -94,35 +101,20 @@ internal class EditableRecordStore(private val database: Database) {
                 }
                 if (query(
                         """WITH incoming AS (SELECT id FROM jsonb_to_recordset(CAST(? AS jsonb)) AS i(id uuid))
-                           SELECT 1 FROM journal_ink_entries WHERE dataset_id = ? AND
-                             ((? = 'journal' AND local_date::text = ?) OR id IN (SELECT id FROM incoming) OR page_id IN (SELECT id FROM incoming))
+                           SELECT 1 FROM journal_ink_entries e WHERE e.dataset_id = ?
+                             AND ((? = 'journal' AND e.local_date::text = ?) OR e.id IN (SELECT id FROM incoming) OR e.page_id IN (SELECT id FROM incoming))
+                             AND NOT EXISTS (SELECT 1 FROM legacy_journal_versions m WHERE m.dataset_id = e.dataset_id AND m.entry_id = e.id)
                            UNION ALL
-                           SELECT 1 FROM journal_ink_strokes WHERE dataset_id = ? AND id IN (SELECT id FROM incoming)
+                           SELECT 1 FROM journal_ink_strokes s WHERE s.dataset_id = ? AND s.id IN (SELECT id FROM incoming)
+                             AND NOT EXISTS (SELECT 1 FROM legacy_journal_versions m JOIN journal_ink_entries e
+                                 ON e.dataset_id = m.dataset_id AND e.id = m.entry_id
+                                 WHERE e.dataset_id = s.dataset_id AND e.page_id = s.page_id)
                            LIMIT 1""",
                         identities, dataset, kind, key, dataset,
                     ) { true }.isNotEmpty()) {
                     conflict("CONFLICT_CHANGED", "This record overlaps an existing journal import.")
                 }
-                execute(
-                    """INSERT INTO editable_record_identities
-                       (dataset_id, id, kind, logical_key, role, parent_id, created_at, immutable_digest)
-                       SELECT ?, id, ?, ?, role, parent_id, created_at, immutable_digest
-                       FROM jsonb_to_recordset(CAST(? AS jsonb))
-                         AS i(id uuid, role text, parent_id uuid, created_at text, immutable_digest text)
-                       ON CONFLICT (dataset_id, id) DO NOTHING""",
-                    dataset, kind, key, identities,
-                )
-                if (query(
-                        """SELECT 1 FROM jsonb_to_recordset(CAST(? AS jsonb))
-                           AS i(id uuid, role text, parent_id uuid, created_at text, immutable_digest text)
-                           JOIN editable_record_identities r ON r.dataset_id = ? AND r.id = i.id
-                           WHERE r.kind <> ? OR r.logical_key <> ? OR r.role <> i.role
-                             OR r.parent_id IS DISTINCT FROM i.parent_id OR r.created_at <> i.created_at
-                             OR r.immutable_digest IS DISTINCT FROM i.immutable_digest LIMIT 1""",
-                        identities, dataset, kind, key,
-                    ) { true }.isNotEmpty()) {
-                    conflict("CONFLICT_CHANGED", "A record identity or immutable stroke already belongs to different content.")
-                }
+                registerIdentities(dataset, kind, key, identities)
                 check(execute(
                     """INSERT INTO editable_record_versions (dataset_id, id, kind, logical_key, root_id, sha256, parents, archive)
                        SELECT dataset_id, id, kind, logical_key, root_id, sha256, ?, archive
@@ -139,6 +131,94 @@ internal class EditableRecordStore(private val database: Database) {
                 parentsSql.free()
             }
         }
+    }
+
+    private fun Connection.registerIdentities(dataset: UUID, kind: String, key: String, identities: String) {
+        execute(
+            """INSERT INTO editable_record_identities
+               (dataset_id, id, kind, logical_key, role, parent_id, created_at, immutable_digest)
+               SELECT ?, id, ?, ?, role, parent_id, created_at, immutable_digest
+               FROM jsonb_to_recordset(CAST(? AS jsonb))
+                 AS i(id uuid, role text, parent_id uuid, created_at text, immutable_digest text)
+               ON CONFLICT (dataset_id, id) DO NOTHING""",
+            dataset, kind, key, identities,
+        )
+        if (query(
+                """SELECT 1 FROM jsonb_to_recordset(CAST(? AS jsonb))
+                   AS i(id uuid, role text, parent_id uuid, created_at text, immutable_digest text)
+                   JOIN editable_record_identities r ON r.dataset_id = ? AND r.id = i.id
+                   WHERE r.kind <> ? OR r.logical_key <> ? OR r.role <> i.role
+                     OR r.parent_id IS DISTINCT FROM i.parent_id OR r.created_at <> i.created_at
+                     OR r.immutable_digest IS DISTINCT FROM i.immutable_digest LIMIT 1""",
+                identities, dataset, kind, key,
+            ) { true }.isNotEmpty()) {
+            conflict("CONFLICT_CHANGED", "A record identity or immutable stroke already belongs to different content.")
+        }
+    }
+
+    fun migrateJournal(scope: SyncScope, entryId: Uuid): Uuid = database.transaction {
+        lockEpoch(scope, write = true)
+        val dataset = scope.dataset.sql()
+        query("SELECT version_id FROM legacy_journal_versions WHERE dataset_id = ? AND entry_id = ?", dataset, entryId.sql()) {
+            it.uuid(1)
+        }.singleOrNull()?.let { return@transaction it }
+
+        val (page, payload) = query(
+            "SELECT page_id, payload FROM journal_ink_entries WHERE dataset_id = ? AND id = ?", dataset, entryId.sql(),
+        ) { it.uuid(1) to it.getString(2) }.singleOrNull()
+            ?: throw ApiFailure(404, "NOT_FOUND", "Journal entry not found.")
+        val entry = JournalInkJson.readEntry(Json.parseToJsonElement(payload).jsonObject)
+        check(entry.metadata.id == entryId && entry.pages.single().metadata.id == page)
+        val key = entry.date.toString()
+        if (heads(dataset, "journal", key).isNotEmpty()) {
+            conflict("CONFLICT_CHANGED", "A versioned record already exists for this journal date.")
+        }
+        val (count, size) = query(
+            "SELECT count(*), coalesce(sum(octet_length(bytes)), 0) FROM journal_ink_strokes WHERE dataset_id = ? AND page_id = ?",
+            dataset, page.sql(),
+        ) { it.getLong(1) to it.getLong(2) }.single()
+        if (count > 49_998 || size > 2_000_000L * 20 + count * 12) {
+            throw ApiFailure(413, "LIMIT_EXCEEDED", "The journal exceeds the portable record limits.")
+        }
+        var pointCount = 0L
+        val strokes = query(
+            """SELECT id, stroke_order, sha256, payload, bytes FROM journal_ink_strokes
+               WHERE dataset_id = ? AND page_id = ? ORDER BY stroke_order""",
+            dataset, page.sql(),
+        ) {
+            val bytes = it.getBytes(5)
+            check(BackupArchive.sha256(bytes) == it.getString(3))
+            pointCount += (bytes.size - 12L) / 20
+            if (pointCount > 2_000_000L) {
+                throw ApiFailure(413, "LIMIT_EXCEEDED", "The journal exceeds the portable point limit.")
+            }
+            val stroke = JournalInkJson.readStroke(Json.parseToJsonElement(it.getString(4)).jsonObject, bytes)
+            check(stroke.metadata.id == it.uuid(1) && stroke.pageId == page && stroke.order == it.getLong(2))
+            check(StrokePointCodec.encode(stroke.points).contentEquals(bytes))
+            stroke
+        }
+        val snapshot = JournalSnapshot(journals = listOf(entry), strokes = strokes)
+        val file = Files.createTempFile("lifeapp-legacy-journal-", ".zip").toFile()
+        val bytes = try {
+            BackupArchive.write(file, snapshot)
+            if (file.length() > MAX_ARCHIVE_BYTES) {
+                throw ApiFailure(413, "LIMIT_EXCEEDED", "The journal archive exceeds 16 MiB.")
+            }
+            file.readBytes()
+        } finally {
+            file.delete()
+        }
+        val archive = EditableRecordArchive.fromSnapshot(snapshot)
+        registerIdentities(dataset, archive.kind, archive.key, archive.identities.toString())
+        val version = Uuid.random()
+        execute(
+            """INSERT INTO editable_record_versions (dataset_id, id, kind, logical_key, root_id, sha256, parents, archive)
+               VALUES (?, ?, 'journal', ?, ?, ?, ARRAY[]::uuid[], ?)""",
+            dataset, version.sql(), key, entryId.sql(), BackupArchive.sha256(bytes), bytes,
+        )
+        execute("INSERT INTO editable_record_heads VALUES (?, 'journal', ?, ?)", dataset, key, version.sql())
+        execute("INSERT INTO legacy_journal_versions VALUES (?, ?, ?)", dataset, entryId.sql(), version.sql())
+        version
     }
 
     data class Variant(val id: Uuid, val sequence: Long)
