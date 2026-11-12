@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { formatExpensePaise, type Expense, type ExpenseLabel } from './expense.ts';
-import { expenseSpending } from './expenseAnalytics.ts';
+import { expenseShare, expenseSpending } from './expenseAnalytics.ts';
 
 export function ExpenseAnalysis({ items, labels, initialMonth }: {
   items: Expense[]; labels: ExpenseLabel[]; initialMonth: string;
@@ -32,8 +32,8 @@ export function ExpenseAnalysis({ items, labels, initialMonth }: {
       {slices?.length ? <>
         <div aria-hidden="true" className="expense-pie" style={{ background: 'conic-gradient(' + slices.join(', ') + ')' }} />
         <ul>{result.categories.map(({ category, amount }) =>
-          <li key={category.metadata.id}>{category.name} · {formatExpensePaise(amount)}</li>)}</ul>
-      </> : <p>No expenses in this period.</p>}
+          <li key={category.metadata.id}>{category.name} · {formatExpensePaise(amount)} · {expenseShare(amount, result.total)}</li>)}</ul>
+      </> : <p>No expenses recorded for this period.</p>}
     </> : <p>Enter a valid {yearly ? 'year' : 'month'}.</p>}
   </section>;
 }

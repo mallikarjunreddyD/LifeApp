@@ -165,7 +165,7 @@ fun ExpenseScreen(
             Button(enabled = !busy, onClick = { navigate("new") }) { Text("Add Expense") }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = { filters = !filters }) { Text("Filter Expenses") }
-                TextButton(onClick = { navigate("analysis") }) { Text("Spending Analysis") }
+                TextButton(onClick = { navigate("analysis") }) { Text("View Spending Analysis") }
                 TextButton(onClick = { navigate("CATEGORY") }) { Text("Manage Categories") }
                 TextButton(onClick = { navigate("PAYMENT") }) { Text("Manage Payment Methods") }
                 TextButton(onClick = { deleted = !deleted }) { Text(if (deleted) "Show History" else "Recently Deleted") }

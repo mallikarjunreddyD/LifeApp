@@ -13,3 +13,8 @@ export function expenseSpending(expenses: readonly Expense[], labels: readonly E
     : a.amount > b.amount ? -1 : 1);
   return { categories, total: categories.reduce((sum, part) => sum + part.amount, 0n) };
 }
+
+export function expenseShare(amount: bigint, total: bigint): string {
+  const tenths = (amount * 1000n + total / 2n) / total;
+  return `${tenths / 10n}.${tenths % 10n}%`;
+}

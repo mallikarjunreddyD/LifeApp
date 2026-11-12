@@ -119,7 +119,7 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
       </section>}
       <button className="primary" disabled={busy} onClick={() => navigate('new')}>Add Expense</button>
       <div className="actions expense-secondary">
-        <button onClick={() => navigate('analysis')}>Spending Analysis</button>
+        <button onClick={() => navigate('analysis')}>View Spending Analysis</button>
         <button onClick={() => navigate('CATEGORY')}>Manage Categories</button>
         <button onClick={() => navigate('PAYMENT')}>Manage Payment Methods</button>
         <button onClick={() => setDeleted(!deleted)}>{deleted ? 'Show History' : 'Recently Deleted'}</button>

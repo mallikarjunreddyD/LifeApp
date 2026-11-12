@@ -14,3 +14,9 @@ fun ExpenseLedger.spending(year: Int, month: Int? = null): ExpenseTotals {
     }.sortedWith(compareByDescending<ExpenseCategoryTotal> { it.amountMinor }.thenBy { it.category.metadata.id.toString() })
     return ExpenseTotals(categories.sumOf { it.amountMinor }, categories)
 }
+
+/** Round to a tenth of a percent, with ties rounded up. */
+fun expenseShare(amountMinor: Long, totalMinor: Long): String {
+    val tenths = (amountMinor * 1000 + totalMinor / 2) / totalMinor
+    return "${tenths / 10}.${tenths % 10}%"
+}

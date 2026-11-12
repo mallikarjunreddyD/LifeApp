@@ -37,6 +37,8 @@ class ExpenseTest {
         assertEquals(1L, ledger.spending(2024, 2).amountMinor)
         assertEquals(listOf(ExpenseCategoryTotal(category, 101)), ledger.spending(2024).categories)
         assertEquals(10L, ledger.spending(2025).amountMinor)
+        assertEquals("33.3%", expenseShare(1, 3))
+        assertEquals("100.0%", expenseShare(101, 101))
         assertTrue(ledger.spending(2024, 12).categories.isEmpty())
     }
 }
