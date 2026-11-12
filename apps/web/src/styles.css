@@ -244,8 +244,24 @@ nav button[aria-current=page] { background: var(--active); color: var(--ink); fo
   overflow-wrap: anywhere;
 }
 
-.expense-card h3 {
-  margin-top: 0;
+.expense-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .25rem .6rem;
+}
+
+.expense-card h3,
+.expense-card p {
+  margin-block: .25rem;
+}
+
+.expense-secondary button {
+  border-color: transparent;
+  background: transparent;
+  font-size: .88rem;
+  min-height: 2.65rem;
 }
 
 .expense-module details > summary {

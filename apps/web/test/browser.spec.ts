@@ -386,7 +386,9 @@ test('expenses create labels, edit, delete and restore across offline reloads', 
   await page.getByRole('button', { name: 'Add Expense' }).click();
   await page.getByLabel('Amount (₹)').fill('1,250.75');
   await page.getByLabel('Expense name').fill('Training shoes');
-  const date = await page.getByLabel('Date', { exact: true }).inputValue();
+  await expect(page.getByLabel('Date', { exact: true })).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+  const date = '2024-02-29';
+  await page.getByLabel('Date', { exact: true }).fill(date);
   await page.getByRole('button', { name: 'Category · Choose' }).click();
   await page.getByLabel('Search Category').fill('Gym');
   await page.getByRole('button', { name: 'Create "Gym"' }).click();
@@ -402,6 +404,8 @@ test('expenses create labels, edit, delete and restore across offline reloads', 
   await expect(page.getByRole('heading', { name: 'Training shoes' })).toBeVisible();
   await page.reload();
   await expenses.click();
+  await page.getByText('Filter Expenses', { exact: true }).click();
+  await page.getByLabel('Month', { exact: true }).fill(date.slice(0, 7));
   await expect(page.getByRole('heading', { name: 'Training shoes' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -411,6 +415,7 @@ test('expenses create labels, edit, delete and restore across offline reloads', 
   await page.getByLabel('Amount (₹)').fill('0.01');
   await page.getByRole('button', { name: 'Save Expense' }).click();
   await expect(page.locator('.expense-summary strong')).toHaveText('₹0.01');
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath('expense-history.png') });
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toContainText('Training shoes · ₹0.01');
@@ -420,7 +425,9 @@ test('expenses create labels, edit, delete and restore across offline reloads', 
   await page.getByRole('button', { name: 'Restore Expense' }).click();
   await page.getByRole('button', { name: 'Show History' }).click();
   await expect(page.locator('.expense-summary strong')).toHaveText('₹0.01');
-  await page.getByText('Filter Expenses', { exact: true }).click();
+  if (!await page.getByLabel('Search expense names').isVisible()) {
+    await page.getByText('Filter Expenses', { exact: true }).click();
+  }
   await page.getByLabel('Search expense names').fill('Other');
   await expect(page.getByRole('heading', { name: 'Training shoes' })).toHaveCount(0);
 });

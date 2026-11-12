@@ -155,7 +155,7 @@ fun ExpenseScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(month)
                     Text(formatExpensePaise(period.sumOf { it.amountMinor }), style = MaterialTheme.typography.headlineMedium)
-                    Text("${period.size} transactions · Saved on this device")
+                    Text("${period.size} ${if (period.size == 1) "transaction" else "transactions"} · Saved on this device")
                 }
             }
             Button(enabled = !busy, onClick = { navigate("new") }) { Text("Add Expense") }

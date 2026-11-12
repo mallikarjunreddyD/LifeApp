@@ -82,10 +82,10 @@ export function Expenses({ store }: { store: LifeStore }) {
       <article className="card expense-summary">
         <p>{month}</p>
         <strong>{formatExpensePaise(period.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</strong>
-        <p>{period.length} transactions · Saved on this device</p>
+        <p>{period.length} {period.length === 1 ? 'transaction' : 'transactions'} · Saved on this device</p>
       </article>
       <button className="primary" disabled={busy} onClick={() => navigate('new')}>Add Expense</button>
-      <div className="actions">
+      <div className="actions expense-secondary">
         <button onClick={() => navigate('CATEGORY')}>Manage Categories</button>
         <button onClick={() => navigate('PAYMENT')}>Manage Payment Methods</button>
         <button onClick={() => setDeleted(!deleted)}>{deleted ? 'Show History' : 'Recently Deleted'}</button>
@@ -105,9 +105,11 @@ export function Expenses({ store }: { store: LifeStore }) {
         {visible.map(item => {
           const label = names.get(item.categoryId);
           return <article id={'expense-' + item.metadata.id} key={item.metadata.id} className="card expense-card">
-            <h3><span aria-hidden="true" style={{ color: label ? '#' + label.color.toString(16).padStart(6, '0') : undefined }}>
-              {label ? expenseIcons[label.icon] : '○'}</span> {item.name}</h3>
-            <strong>{formatExpensePaise(BigInt(item.amountMinor))}</strong>
+            <div className="expense-card-heading">
+              <h3><span aria-hidden="true" style={{ color: label ? '#' + label.color.toString(16).padStart(6, '0') : undefined }}>
+                {label ? expenseIcons[label.icon] : '○'}</span> {item.name}</h3>
+              <strong>{formatExpensePaise(BigInt(item.amountMinor))}</strong>
+            </div>
             <p>{item.date} · {names.get(item.paymentMethodId)?.name}</p>
             <p>{label?.name}</p>
             {item.remarks && <details><summary>Remarks</summary><p>{item.remarks}</p></details>}
