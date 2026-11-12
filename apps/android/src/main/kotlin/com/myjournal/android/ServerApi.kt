@@ -1,6 +1,7 @@
 package com.myjournal.android
 
 import com.myjournal.data.BackupArchive
+import com.myjournal.data.WorkoutSyncVersion
 import com.myjournal.data.JournalInkJson
 import com.myjournal.data.TodoOperationJson
 import com.myjournal.data.TodoServerJson
@@ -69,6 +70,31 @@ internal class ServerApi(
     }
 
     suspend fun session(token: String): ServerSession = request("/v1/session", token = token).objectValue().session()
+
+    suspend fun workoutVersions(session: ServerSession, token: String): List<WorkoutSyncVersion> {
+        val rows = mutableListOf<WorkoutSyncVersion>()
+        var after: Uuid? = null
+        repeat(1_668) {
+            val suffix = after?.let { "&cursor=$it" }.orEmpty()
+            val page = request("/v1/structured/workouts?limit=3$suffix", token = token, journalScope = session.scope).objectValue()
+            val items = page.getValue("items").jsonArray.map { WorkoutSyncVersion.parse(it.jsonObject) }
+            require(items.size <= 3)
+            rows += items
+            after = page.getValue("next").jsonPrimitive.contentOrNull?.let(Uuid::parse)
+            if (after == null) return rows.also { require(it.map { version -> version.record.id }.distinct().size == it.size) }
+            require(items.size == 3 && after == items.last().record.id)
+        }
+        error("The workout inventory exceeds its synchronization limit.")
+    }
+
+    suspend fun workoutHead(session: ServerSession, token: String, id: Uuid) =
+        WorkoutSyncVersion.parse(request("/v1/structured/workouts/$id", token = token, journalScope = session.scope).objectValue())
+
+    suspend fun pushWorkout(session: ServerSession, token: String, entry: WorkoutSyncVersion, parent: Uuid?) =
+        WorkoutSyncVersion.parse(request("/v1/structured/workouts", "POST", token, buildJsonObject {
+            put("entry", entry.json())
+            put("parent", parent?.toString())
+        }, session.scope).objectValue())
 
     suspend fun expenseInventory(session: ServerSession, token: String): Long =
         request("/v1/expenses/inventory", token = token, journalScope = session.scope).objectValue()

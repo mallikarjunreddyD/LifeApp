@@ -131,6 +131,16 @@ class ServerSyncIntegrationTest {
             assertEquals(receipt, transport.submit(originalOp))
             assertTrue(taskId in api.visibleTaskIds(credential.token))
 
+            val workouts = RoomWorkoutRepository(database)
+            val workoutScope = credential.session.scope
+            val exercise = ExerciseDefinition(newRecordMetadata(), "Android bridge press")
+            workouts.saveExercise(exercise)
+            workouts.bindSync(workoutScope, api.endpoint.origin, WorkoutLog(exercises = listOf(exercise)))
+            val exerciseRecord = workouts.syncRecords().single()
+            val firstWorkout = api.pushWorkout(credential.session, credential.token,
+                WorkoutSyncVersion(Uuid.random(), exerciseRecord), parent = null)
+            assertTrue(workouts.applySyncVersion(requireNotNull(workouts.syncBinding()), firstWorkout, exerciseRecord, download = false))
+
             val expenses = RoomExpenseRepository(database)
             expenses.seed()
             val ledger = RoomSnapshotRepository(database).capture().expenseLedger
@@ -170,6 +180,19 @@ class ServerSyncIntegrationTest {
                     val updated = requireNotNull(expenses.syncState()).project().expenses.single()
                     if (updated.amountMinor == 205L) {
                         assertEquals(expense.metadata.id, updated.metadata.id)
+                        break
+                    }
+                    delay(400)
+                }
+            }
+            withTimeout(45_000) {
+                while (true) {
+                    val latest = api.workoutHead(credential.session, credential.token, exercise.metadata.id)
+                    if (latest.version != firstWorkout.version) {
+                        assertTrue(workouts.applySyncVersion(requireNotNull(workouts.syncBinding()), latest, exerciseRecord, download = true))
+                        val updated = WorkoutJson.exercise(workouts.syncRecords().single().value)
+                        assertEquals(exercise.metadata.id, updated.metadata.id)
+                        assertEquals("Browser bridge press", updated.name)
                         break
                     }
                     delay(400)

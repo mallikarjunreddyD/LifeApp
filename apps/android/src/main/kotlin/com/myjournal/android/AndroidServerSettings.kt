@@ -23,10 +23,17 @@ import com.myjournal.domain.TodoOperation
 internal fun AndroidServerSettings(
     sync: AndroidServerSync,
     expenses: AndroidExpenseSync,
+    workouts: AndroidWorkoutSync,
     operations: DataOperations,
     accountPage: Boolean,
 ) {
     val server = sync.state.collectAsState().value
+    val workoutBound by workouts.bound.collectAsState()
+    val workoutStatus by workouts.status.collectAsState()
+    val workoutConflicts by workouts.conflicts.collectAsState()
+    var selectedWorkout by remember { mutableStateOf<WorkoutSyncConflict?>(null) }
+    var reviewHabits by remember { mutableStateOf<String?>(null) }
+    var reviewWorkouts by remember { mutableStateOf<String?>(null) }
     val expenseReview by expenses.review.collectAsState()
     val expenseState by expenses.state.collectAsState(initial = null)
     val expenseStatus by expenses.status.collectAsState()
@@ -39,15 +46,21 @@ internal fun AndroidServerSettings(
     LaunchedEffect(server.origin) {
         if (origin.isBlank() || server.pinnedOrigin != null) origin = server.origin.orEmpty()
     }
+    val currentTarget = server.accountScope?.let { "${server.origin}/${it.dataset}/${it.epoch}" }
     val selectBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         val todoReview = server.preview?.takeIf { server.bound == null && it.allowed }
         val reviewedExpenses = expenseReview?.takeIf { expenseState == null && it.scope == server.accountScope && it.origin == server.origin }
-        if (uri != null && (todoReview != null || reviewedExpenses != null)) {
-            operations.connectSynchronization(uri, sync, expenses, todoReview, reviewedExpenses)
+        val workoutScope = server.accountScope?.takeIf { !workoutBound && reviewWorkouts != null && reviewWorkouts == currentTarget }
+        val habitTarget = if (reviewHabits != null && reviewHabits == currentTarget && server.pendingImport == 0) {
+            val account = server.accountScope
+            val endpoint = server.origin
+            if (account != null && endpoint != null) EditableImportQueue.Target(endpoint, account) else null
+        } else null
+        if (uri != null && (todoReview != null || reviewedExpenses != null || workoutScope != null || habitTarget != null)) {
+            operations.connectSynchronization(uri, sync, expenses, todoReview, reviewedExpenses, workoutScope, server.origin, habitTarget)
         }
     }
     var discardImport by rememberSaveable { mutableStateOf(false) }
-    val currentTarget = server.accountScope?.let { "${server.origin}/${it.dataset}/${it.epoch}" }
     var importTarget by rememberSaveable { mutableStateOf<String?>(null) }
     val selectImportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         val account = server.accountScope
@@ -110,23 +123,33 @@ internal fun AndroidServerSettings(
         return
     }
     Text(server.protectionSummary())
-    Text("Sync now checks connected To-do, Expenses and tracked Habits. Journal, planner and notebook stay on Android.")
+    Text("Sync now checks connected To-do, Expenses, Workouts and tracked Habits. Journal, planner and notebook stay on Android.")
     if (server.username == null) Text("Sign in under Account & Security.")
     else {
-        if (server.bound == null || expenseState == null) {
+        if (server.bound == null || expenseState == null || !workoutBound || !server.automaticEditable) {
             OutlinedButton(enabled = enabled, onClick = {
                 if (server.bound == null) sync.preview()
                 if (expenseState == null) expenses.reviewConnection()
+                if (!workoutBound) reviewWorkouts = currentTarget
+                if (!server.automaticEditable && !server.importQueueUnreadable) reviewHabits = currentTarget
             }) { Text("Review synchronization") }
         }
-        if (server.bound != null || expenseState != null || server.automaticEditable) {
+        if (server.bound != null || expenseState != null || workoutBound || server.automaticEditable) {
             Button(enabled = enabled, onClick = {
                 if (server.bound?.scope == server.accountScope && server.bound != null) sync.syncNow()
                 expenses.schedule()
+                workouts.schedule()
                 operations.syncTrackedOnForeground(sync)
             }) { Text("Sync now") }
         }
         expenseStatus?.let { Text(it) }
+        workoutStatus?.let { Text(it) }
+        for (conflict in workoutConflicts) {
+            val description = conflict.local.value["name"] ?: conflict.local.value["date"]
+            TextButton(enabled = enabled, onClick = { selectedWorkout = conflict }) {
+                Text("Review workout ${description?.toString()?.trim('"').orEmpty()}")
+            }
+        }
         Row {
             Switch(checked = server.automaticEditable, enabled = enabled, onCheckedChange = { operations.setAutomaticEditable(sync, it) })
             Text("Automatically sync reviewed habit months")
@@ -140,6 +163,28 @@ internal fun AndroidServerSettings(
             Text("${server.pendingImport} saved record upload copies")
             OutlinedButton(enabled = enabled, onClick = { operations.resumeEditableUploads(sync) }) { Text("Resume habit uploads") }
         }
+    }
+    selectedWorkout?.let { conflict ->
+        AlertDialog(
+            onDismissRequest = { selectedWorkout = null },
+            title = { Text("Choose a workout copy") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { Text("This device"); Text(conflict.local.value.toString()) }
+                    item { Text("Server copy"); Text(conflict.remote.record.value.toString()) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { workouts.resolve(conflict, keepLocal = true); selectedWorkout = null }) {
+                    Text("Keep this device’s copy")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { workouts.resolve(conflict, keepLocal = false); selectedWorkout = null }) {
+                    Text("Keep server copy")
+                }
+            },
+        )
     }
     if (server.importQueueUnreadable) Text("The record upload queue could not be read.", color = MaterialTheme.colorScheme.error)
     if (server.pendingImport > 0 || server.importQueueUnreadable) {
@@ -157,7 +202,10 @@ internal fun AndroidServerSettings(
     val readyTodo = server.bound == null && server.preview?.allowed == true
     val readyExpenses = expenseState == null && expenseReview?.let { it.scope == server.accountScope && it.origin == server.origin } == true
     val reviewsFinished = (server.bound != null || server.preview != null) && (expenseState != null || readyExpenses)
-    if (server.username != null && reviewsFinished && (readyTodo || readyExpenses)) {
+    val readyWorkouts = !workoutBound && reviewWorkouts != null && reviewWorkouts == currentTarget
+    if (readyWorkouts) Text("Existing workout exercises, routines and saved sessions will be reviewed against the server.")
+    val readyHabits = reviewHabits != null && reviewHabits == currentTarget && server.pendingImport == 0
+    if (server.username != null && reviewsFinished && (readyTodo || readyExpenses || readyWorkouts || readyHabits)) {
         Button(enabled = enabled, onClick = { confirm = true }) { Text("Back up and connect synchronization") }
     }
     if (server.conflicts.isNotEmpty()) {
@@ -222,7 +270,7 @@ internal fun AndroidServerSettings(
         AlertDialog(
             onDismissRequest = { confirm = false },
             title = { Text("Connect synchronization?") },
-            text = { Text("Choose a separate backup file, such as in Downloads. LifeApp verifies the backup before binding. The reviewed local To-do and expense changes can then be sent to this dataset.") },
+            text = { Text("Choose a separate backup file, such as in Downloads. LifeApp verifies the backup before binding. The reviewed structured records can then synchronize with this account.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirm = false

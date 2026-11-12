@@ -63,9 +63,9 @@ internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServe
                         }
                     }
                 }
-                SettingsPage.ACCOUNT -> AndroidServerSettings(serverSync, expenses, operations, accountPage = true)
+                SettingsPage.ACCOUNT -> AndroidServerSettings(serverSync, expenses, (context.applicationContext as JournalApplication).workoutSync, operations, accountPage = true)
                 SettingsPage.SYNC -> {
-                    AndroidServerSettings(serverSync, expenses, operations, accountPage = false)
+                    AndroidServerSettings(serverSync, expenses, (context.applicationContext as JournalApplication).workoutSync, operations, accountPage = false)
                     expenseSync?.let { Text("${it.pending.size} expense changes waiting.") }
                 }
                 SettingsPage.BACKUP -> {

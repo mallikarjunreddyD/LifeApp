@@ -90,6 +90,16 @@ if sys.argv[1] == "hold":
     feed = call("/v1/expenses/pull?after=0", headers=scope_headers)[0]
     Path(sys.argv[2] + ".expenses").write_bytes(feed)
 
+    workout_sync_id = str(uuid.uuid4())
+    workout_sync_entry = {"version": str(uuid.uuid4()), "record": {"kind": "exercise", "value": {
+        "metadata": expense_meta(workout_sync_id), "name": "Synchronized press", "category": None,
+        "equipment": None, "archived": False,
+    }}}
+    pushed = call("/v1/structured/workouts", method="POST", headers=scope_headers,
+                  body={"entry": workout_sync_entry, "parent": None})[0]
+    assert json.loads(pushed) == workout_sync_entry
+    Path(sys.argv[2] + ".workout-sync").write_text(json.dumps(workout_sync_entry))
+
     page_id = "71000000-0000-4000-8000-000000000002"
     call("/v1/journal/ink/commit", method="POST", expected=204, headers=auth, body={
         "scope": scope, "uploadId": upload, "sha256": digest,
@@ -117,6 +127,9 @@ if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):
     feed = call("/v1/expenses/pull?after=0", headers=scope_headers)[0]
     assert json.loads(feed) == json.loads(Path(held + ".expenses").read_bytes())
     assert len(json.loads(feed)["entries"]) == 5
+    workout_sync = json.loads(Path(held + ".workout-sync").read_text())
+    workout_id = workout_sync["record"]["value"]["metadata"]["id"]
+    assert json.loads(call(f"/v1/structured/workouts/{workout_id}", headers=scope_headers)[0]) == workout_sync
     token = Path(held).read_text(encoding="utf-8")
     call("/v1/session", headers={"Authorization": f"Bearer {token}"}, expected=401)
     restored_ink, ink_headers = call(f"/v1/journal/ink/{stroke_id}", headers=auth)

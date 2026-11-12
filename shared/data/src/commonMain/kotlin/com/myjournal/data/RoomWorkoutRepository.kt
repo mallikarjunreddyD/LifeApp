@@ -7,8 +7,7 @@ import androidx.sqlite.execSQL
 import com.myjournal.core.RecordMetadata
 import com.myjournal.domain.*
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.*
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -108,15 +107,53 @@ class RoomWorkoutRepository(private val database: FoundationDatabase) : WorkoutR
 
     internal suspend fun capture() = decodeRows(dao.all())
 
+    suspend fun syncBinding(): WorkoutSyncBinding? = dao.find("workout-sync")?.let {
+        WorkoutSyncBinding.parse(Json.parseToJsonElement(it.payload).jsonObject)
+    }
+
+    suspend fun bindSync(scope: SyncScope, origin: String, reviewed: WorkoutLog) = write {
+        check(syncBinding() == null) { "Workouts are already connected." }
+        check(capture().canonical() == reviewed.canonical()) { "Workouts changed. Review again." }
+        saveBinding(WorkoutSyncBinding(scope, origin))
+    }
+
+    suspend fun syncRecords() = capture().syncRecords()
+
+    suspend fun applySyncVersion(binding: WorkoutSyncBinding, received: WorkoutSyncVersion, expected: WorkoutSyncRecord?, download: Boolean): Boolean = write {
+        val current = requireNotNull(syncBinding())
+        val id = received.record.id
+        check(current.scope == binding.scope && current.origin == binding.origin &&
+            current.versions[id] == binding.versions[id]) { "Workout synchronization changed. Retry." }
+        if (download) {
+            val draft = dao.find("draft")?.let { WorkoutJson.session(Json.parseToJsonElement(it.payload).jsonObject) }
+            if (draft?.metadata?.id == id) return@write false
+            val records = capture().syncRecords()
+            if (records.singleOrNull { it.id == id } != expected) return@write false
+            (records.filterNot { it.id == id } + received.record).workoutLog()
+            dao.save(WorkoutRow(id.toString(), received.record.kind, received.record.value.toString()))
+        }
+        saveBinding(current.copy(versions = current.versions + (id to received)))
+        true
+    }
+
+    private suspend fun saveBinding(binding: WorkoutSyncBinding) =
+        dao.save(WorkoutRow("workout-sync", "sync", binding.json().toString()))
+
     internal suspend fun restore(log: WorkoutLog) {
         log.validate()
+        if (syncBinding() != null) {
+            check(capture().canonical() == log.canonical()) {
+                "This backup changes connected workouts. Current workouts and pending changes were kept."
+            }
+            return
+        }
         dao.clear()
         for (exercise in log.exercises) dao.save(exercise.row())
         for (routine in log.routines) dao.save(routine.row())
         for (session in log.sessions) dao.save(session.row())
     }
 
-    private suspend fun write(block: suspend () -> Unit) = database.useWriterConnection { connection ->
+    private suspend fun <T> write(block: suspend () -> T) = database.useWriterConnection { connection ->
         connection.immediateTransaction { block() }
     }
 
@@ -125,7 +162,7 @@ class RoomWorkoutRepository(private val database: FoundationDatabase) : WorkoutR
         val routines = mutableListOf<WorkoutRoutine>()
         val sessions = mutableListOf<WorkoutSession>()
         for (row in rows) {
-            if (row.id == "draft" || row.id == "history-view") continue
+            if (row.id in setOf("draft", "history-view", "workout-sync")) continue
             val value = Json.parseToJsonElement(row.payload).jsonObject
             val id = when (row.kind) {
                 "exercise" -> WorkoutJson.exercise(value).also(exercises::add).metadata.id

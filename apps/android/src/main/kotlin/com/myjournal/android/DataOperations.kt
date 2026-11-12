@@ -110,8 +110,11 @@ class DataOperations(private val app: JournalApplication, private val repository
         expenses: AndroidExpenseSync,
         todoReview: BindingPreview?,
         expenseReview: ExpenseConnectionReview?,
+        workoutScope: SyncScope?,
+        workoutOrigin: String?,
+        habitTarget: EditableImportQueue.Target?,
     ) = start("Verifying a recovery backup before connecting synchronization…") {
-        require(todoReview != null || expenseReview != null)
+        require(todoReview != null || expenseReview != null || workoutScope != null || habitTarget != null)
         val data = snapshot()
         val file = temp(".zip")
         try {
@@ -121,6 +124,8 @@ class DataOperations(private val app: JournalApplication, private val repository
             }
             if (todoReview != null) todo.bindFromVerifiedBackup(todoReview, data.todos)
             if (expenseReview != null) expenses.bind(expenseReview, data.expenseLedger)
+            if (workoutScope != null) app.workoutSync.bind(workoutScope, requireNotNull(workoutOrigin), data.workoutLog)
+            if (habitTarget != null) importReviewMutable.value = todo.reviewEditableImport(habitTarget, data)
             "Recovery backup verified. Synchronization queued."
         } finally {
             file.delete()
