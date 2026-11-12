@@ -40,6 +40,39 @@ class BackupOperationsTest {
             assertTrue(BackupArchive.read(target).counts.isNotEmpty())
         } finally { instrumentation.removeMonitor(monitor);target.delete() }
     }
+    @Test fun unattendedCaptureProducesRecoverableLocalCiphertextWithoutDrive() = runBlocking {
+        val account = "disposable-backup@example.invalid"
+        val drive = app.getSharedPreferences("drive-backup", android.content.Context.MODE_PRIVATE)
+        val prior = drive.getString("account", null)
+        val preferences = app.getSharedPreferences("automatic-backup", android.content.Context.MODE_PRIVATE)
+        assertFalse(preferences.contains("secret"))
+        val passphrase = "test recovery passphrase"
+        try {
+            drive.edit().putString("account", account).commit()
+            val coordinator = AutomaticAndroidBackup(app)
+            coordinator.enroll(account, passphrase.toCharArray())
+            // Capture has no Drive request or connected WorkManager constraint.
+            assertTrue(coordinator.capture())
+            val reopened = AutomaticAndroidBackup(app)
+            assertNotNull(reopened.state.value.local)
+            assertNull(reopened.state.value.drive)
+            val backup = reopened.localBackups().first()
+            val bytes = backup.file.readBytes()
+            assertEquals(backup.hash, BackupArchive.sha256(bytes))
+            val plain = File.createTempFile("lifeapp-clean-restore", ".zip", app.cacheDir)
+            try {
+                plain.writeBytes(CloudBackupEnvelope.open(bytes, passphrase.toCharArray()))
+                assertNotNull(BackupArchive.read(plain).snapshot)
+            } finally {
+                plain.delete()
+            }
+        } finally {
+            drive.edit().putString("account", prior).commit()
+            preferences.edit().clear().commit()
+            app.noBackupFilesDir.resolve("automatic-backups").deleteRecursively()
+        }
+    }
+
     @Test fun unifiedArchivePreservesArchivedPagesAndLJPTBytes() = runBlocking {
         val root = File.createTempFile("lifeapp-export-test", ".dir", app.cacheDir).apply { check(delete() && mkdir()) }
         try {

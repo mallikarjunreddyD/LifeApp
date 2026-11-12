@@ -181,6 +181,8 @@ fun DriveBackupSettings(operations: DataOperations) {
         else scope.launch {
             try {
                 automatic.enroll(name, secret)
+                automatic.schedule()
+                automatic.captureNow()
                 automaticError = null
             } catch (_: Exception) {
                 automaticError = "Automatic backup could not be enrolled. Check device security and the Google account."

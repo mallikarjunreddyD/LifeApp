@@ -66,8 +66,6 @@ internal class AutomaticAndroidBackup(private val app: JournalApplication) {
                 check(preferences.edit().clear().putString("id", id).putString("account", account)
                     .putString("secret", Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)).commit())
                 mutable.value = readState()
-                schedule()
-                captureNow()
             }
         } finally {
             secret.fill('\u0000')
@@ -134,7 +132,6 @@ internal class AutomaticAndroidBackup(private val app: JournalApplication) {
                     plain.delete()
                 }
             }
-            scheduleUpload()
             true
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -350,7 +347,11 @@ internal data class LocalAutomaticBackup(val file: File, val createdAt: String, 
 class AndroidBackupCaptureWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val backup = (applicationContext as JournalApplication).automaticBackup
-        return if (backup.capture() || runAttemptCount >= 3) Result.success() else Result.retry()
+        if (backup.capture()) {
+            backup.scheduleUpload()
+            return Result.success()
+        }
+        return if (runAttemptCount >= 3) Result.success() else Result.retry()
     }
 }
 

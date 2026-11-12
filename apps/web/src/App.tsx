@@ -31,6 +31,7 @@ export function App({ store }: { store: LifeStore }) {
   const again = useRef(false);
   const failures = useRef(0);
   const retryDeadline = useRef(0);
+  const serverDeadline = useRef(0);
   const [retryAt, setRetryAt] = useState(0);
   const [visible, setVisible] = useState(!document.hidden);
   const scheduleRetry = useCallback((at: number) => {
@@ -44,8 +45,8 @@ export function App({ store }: { store: LifeStore }) {
 
   const refresh = useCallback(async () => setView(await store.view()), [store]);
 
-  const sync = useCallback(async (current: BrowserSession) => {
-    if (!navigator.onLine || Date.now() < retryDeadline.current) return;
+  const sync = useCallback(async (current: BrowserSession, manual = false) => {
+    if (!navigator.onLine || Date.now() < (manual ? serverDeadline.current : retryDeadline.current)) return;
     if (running.current) { again.current = true; return; }
     running.current = true;
     setBusy(true);
@@ -61,6 +62,7 @@ export function App({ store }: { store: LifeStore }) {
       const complete = await synchronize(store, verified);
       setSynced(complete);
       failures.current = 0;
+      serverDeadline.current = 0;
       scheduleRetry(complete ? 0 : Date.now() + 1000);
       setNotice(complete ? 'To-do synchronization complete.' : 'Checking the remaining To-do changes.');
 
@@ -71,7 +73,8 @@ export function App({ store }: { store: LifeStore }) {
       } else if (failure instanceof ApiError ? failure.status === 429 || failure.status >= 500
         : failure instanceof Error && failure.cause !== undefined) {
         const delay = Math.min(300_000, 5000 * 2 ** Math.min(failures.current++, 6)) + Math.random() * 1500;
-        scheduleRetry(Math.max(Date.now() + delay, failure instanceof ApiError ? failure.retryAfter ?? 0 : 0));
+        serverDeadline.current = failure instanceof ApiError ? failure.retryAfter ?? 0 : 0;
+        scheduleRetry(Math.max(Date.now() + delay, serverDeadline.current));
       }
       setError(message(failure));
     } finally {
@@ -165,6 +168,7 @@ export function App({ store }: { store: LifeStore }) {
       const current = await api.login(username, password, secondFactor);
       setSession(current);
       failures.current = 0;
+      serverDeadline.current = 0;
       scheduleRetry(0);
       setSynced(false);
       if (sameScope(scope, current.scope)) await sync(current);
@@ -213,7 +217,7 @@ export function App({ store }: { store: LifeStore }) {
         onLogin={login} onBind={bind} onLogout={logout} status={status} onExport={async () => {
           if (session && matches && navigator.onLine) await sync(session);
           downloadExport(await browserExport(store));
-        }} onConflicts={() => setTab('To-do')} onSync={() => session && void sync(session)} />}
+        }} onConflicts={() => setTab('To-do')} onSync={() => session && void sync(session, true)} />}
       {(tab === 'Workouts' || tab === 'History') && <>
         <Workouts key={tab} store={store} historyOnly={tab === 'History'} />
         {matches && <details><summary>Read-only server records</summary><ReadRecords key={tab}
