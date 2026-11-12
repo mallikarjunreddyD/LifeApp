@@ -1,6 +1,11 @@
 package com.myjournal.server
 
 import com.myjournal.data.BackupArchive
+import com.myjournal.data.ExpenseSyncJson
+import com.myjournal.domain.ExpenseOperation
+import com.myjournal.domain.ExpenseRecord
+import com.myjournal.domain.ExpenseMutation
+import com.myjournal.domain.resolvedFrom
 import com.myjournal.data.JournalInkJson
 import com.myjournal.data.SnapshotJson
 import com.myjournal.data.StrokePointCodec
@@ -346,6 +351,51 @@ class PostgresHttpTest {
             query("SELECT count(*) FROM staged_ink WHERE dataset_id = ?", scope.dataset.sql()) { it.getInt(1) }.single()
         }
         assertEquals(1, remaining)
+    }
+
+    @Test fun expenseFeedRetainsConflictsAndRetriesAcrossTheAuthenticatedScope() = testApplication {
+        application { lifeApp(database, auth, origin) }
+        val token = client.login(user).token()
+        fun HttpRequestBuilder.expenseScope(requested: SyncScope = scope) {
+            bearerAuth(token)
+            header("X-LifeApp-Dataset", requested.dataset.toString())
+            header("X-LifeApp-Epoch", requested.epoch.toString())
+        }
+        suspend fun push(operation: ExpenseOperation) = client.post("/v1/expenses/push") {
+            expenseScope()
+            contentType(ContentType.Application.Json)
+            setBody(ExpenseSyncJson.operation(operation).toString())
+        }
+        assertEquals(401, client.get("/v1/expenses/pull?after=0").status.value)
+        assertEquals(409, client.get("/v1/expenses/pull?after=0") {
+            expenseScope(scope.copy(dataset = Uuid.random()))
+        }.status.value)
+        val category = expenseDefaults().first()
+        val payment = expenseDefaults().first { it.kind == ExpenseLabelKind.PAYMENT }
+        for (label in listOf(category, payment)) assertEquals(200,
+            push(ExpenseOperation(Uuid.random(), emptySet(), ExpenseMutation.PUT, ExpenseRecord.Label(label))).status.value)
+        val expense = Expense(newRecordMetadata(), LocalDate(2024, 2, 29), "Lunch", 125075, category.metadata.id, payment.metadata.id)
+        val root = ExpenseOperation(Uuid.random(), emptySet(), ExpenseMutation.PUT, ExpenseRecord.Item(expense))
+        val first = push(root).json()
+        assertEquals(first, push(root).json())
+        val edited = expense.copy(metadata = expense.metadata.revised(expense.metadata.updatedAt), amountMinor = 1)
+        val edit = ExpenseOperation(Uuid.random(), setOf(root.id), ExpenseMutation.PUT, ExpenseRecord.Item(edited))
+        val removal = ExpenseOperation(Uuid.random(), setOf(root.id), ExpenseMutation.DELETE,
+            ExpenseRecord.Item(edited.copy(deleted = true)))
+        assertEquals(200, push(edit).status.value)
+        assertEquals(200, push(removal).status.value)
+        val resolution = ExpenseOperation(Uuid.random(), setOf(edit.id, removal.id), ExpenseMutation.RESOLVE,
+            removal.record.resolvedFrom(listOf(edit, removal)))
+        assertEquals(200, push(resolution).status.value)
+        assertEquals(409, push(resolution.copy(id = Uuid.random())).status.value)
+        val restore = ExpenseOperation(Uuid.random(), setOf(resolution.id), ExpenseMutation.RESTORE,
+            ExpenseRecord.Item((resolution.record as ExpenseRecord.Item).value.let {
+                it.copy(metadata = it.metadata.revised(it.metadata.updatedAt), deleted = false)
+            }))
+        assertEquals(200, push(restore).status.value)
+        val page = client.get("/v1/expenses/pull?after=0") { expenseScope() }.json()
+        assertEquals(7, page.getValue("entries").jsonArray.size)
+        assertEquals(restore, ExpenseSyncJson.committed(page.getValue("entries").jsonArray.last().jsonObject).operation)
     }
 
     @Test fun editableRecordArchivesPreserveVariantsAndOriginalBytes() = testApplication {

@@ -1,4 +1,6 @@
-import { instant, object, pageOf, receiptOf, scopeOf, uuid } from './protocol.ts';
+import { decodeExpenseCommit } from './expenseSync.ts';
+import type { ExpenseOperation } from './expenseSync.ts';
+import { instant, object, pageOf, receiptOf, scopeOf, sequence, uuid } from './protocol.ts';
 import type { Checkpoint, Operation, Scope } from './protocol.ts';
 import type { LifeStore } from './store.ts';
 
@@ -160,6 +162,24 @@ export const api = {
     }));
   },
   async session() { return browserSession(await json('/v1/session')); },
+  async expenseInventory(session: BrowserSession) {
+    const value = object(await json('/v1/expenses/inventory', { headers: journalHeaders(session.scope) }), ['count']);
+    return sequence(value.count);
+  },
+  async pullExpenses(session: BrowserSession, cursor: string) {
+    const value = object(await json('/v1/expenses/pull?after=' + sequence(cursor),
+      { headers: journalHeaders(session.scope) }), ['entries', 'hasMore']);
+    if (!Array.isArray(value.entries) || value.entries.length > 32 || typeof value.hasMore !== 'boolean' ||
+        (!value.entries.length && value.hasMore)) throw new Error('Invalid expense page.');
+    return { entries: value.entries.map(decodeExpenseCommit), hasMore: value.hasMore };
+  },
+  async pushExpense(session: BrowserSession, operation: ExpenseOperation) {
+    return decodeExpenseCommit(await json('/v1/expenses/push', {
+      method: 'POST',
+      headers: { ...journalHeaders(session.scope), 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify(operation),
+    }));
+  },
   async backupStatus() {
     const value = object(await json('/v1/backups/status'), ['state', 'lastVerifiedAt']);
     if (value.state !== 'never' && value.state !== 'running' && value.state !== 'verified' && value.state !== 'failed') {

@@ -8,6 +8,7 @@ import com.myjournal.core.RecordMetadata
 import com.myjournal.domain.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -24,6 +25,9 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM local_expense_records ORDER BY id")
     suspend fun all(): List<ExpenseRow>
+
+    @Query("SELECT * FROM local_expense_records WHERE id = 'sync'")
+    suspend fun sync(): ExpenseRow?
 
     @Upsert
     suspend fun save(row: ExpenseRow)
@@ -43,11 +47,11 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
 class RoomExpenseRepository(private val database: FoundationDatabase) : ExpenseRepository {
     private val dao = database.expenses()
 
-    override fun observe() = dao.observe().map(::decode).flowOn(Dispatchers.Default)
+    override fun observe() = dao.observe().map(::decode).distinctUntilChanged().flowOn(Dispatchers.Default)
 
     override suspend fun seed() = write {
         val ledger = capture()
-        if (ledger.records.isEmpty()) expenseDefaults().forEach { dao.save(it.row()) }
+        if (ledger.records.isEmpty() && syncState() == null) expenseDefaults().forEach { dao.save(it.row()) }
     }
 
     override suspend fun saveExpense(expense: Expense, previousRevision: Long?) = write {
@@ -64,6 +68,7 @@ class RoomExpenseRepository(private val database: FoundationDatabase) : ExpenseR
             }
         }
         ledger.copy(expenses = ledger.expenses.filterNot { it.metadata.id == expense.metadata.id } + expense).validate()
+        queue(ExpenseRecord.Item(expense), ExpenseMutation.PUT)
         dao.save(expense.row())
     }
 
@@ -77,6 +82,7 @@ class RoomExpenseRepository(private val database: FoundationDatabase) : ExpenseR
                 expenseNameKey(it.name) == expenseNameKey(label.name) }) { "This name already exists. Check archived items." }
         }
         ledger.copy(labels = ledger.labels.filterNot { it.metadata.id == label.metadata.id } + label).validate()
+        queue(ExpenseRecord.Label(label), ExpenseMutation.PUT)
         dao.save(label.row())
     }
 
@@ -85,14 +91,86 @@ class RoomExpenseRepository(private val database: FoundationDatabase) : ExpenseR
         if (current.deleted != deleted) {
             check(current.metadata.revision == previousRevision) { "This expense changed. Reopen it before continuing." }
             val metadata = current.metadata.revised(maxOf(current.metadata.updatedAt, Clock.System.now()))
-            dao.save(current.copy(metadata = metadata, deleted = deleted).row())
+            val record = current.copy(metadata = metadata, deleted = deleted)
+            queue(ExpenseRecord.Item(record), if (deleted) ExpenseMutation.DELETE else ExpenseMutation.RESTORE)
+            dao.save(record.row())
         }
     }
+
+    fun observeSync() = dao.observe().map { rows ->
+        rows.firstOrNull { it.id == "sync" }?.let(::state)
+    }.distinctUntilChanged().flowOn(Dispatchers.Default)
+
+    suspend fun syncState(): ExpenseSyncState? = dao.sync()?.let(::state)
+
+    suspend fun bind(scope: SyncScope, origin: String, backedUp: ExpenseLedger) = write {
+        check(syncState() == null) { "Expenses are already connected." }
+        val local = capture()
+        check(local.canonical() == backedUp.canonical()) { "Expenses changed since backup. Review again." }
+        val operations = local.syncRecords().map { record ->
+            ExpenseOperation(Uuid.random(), emptySet(), if (record.deleted) ExpenseMutation.DELETE else ExpenseMutation.PUT, record)
+        }
+        saveState(ExpenseSyncState(scope, origin, pending = operations))
+    }
+
+    suspend fun acknowledge(scope: SyncScope, receipt: CommittedExpense) = write {
+        val state = requireNotNull(syncState())
+        check(state.scope == scope)
+        val next = state.acknowledge(receipt)
+        if (receipt.sequence <= state.cursor) saveProjection(next) else saveState(next)
+    }
+
+    suspend fun replay(scope: SyncScope, cursor: Long, entries: List<CommittedExpense>) = write {
+        val state = requireNotNull(syncState())
+        check(state.scope == scope && state.cursor == cursor)
+        val next = state.replay(entries)
+        saveProjection(next)
+    }
+
+    suspend fun rejectResolution(scope: SyncScope, id: Uuid) = write {
+        val state = requireNotNull(syncState())
+        check(state.scope == scope)
+        val rejected = state.pending.single { it.id == id }
+        check(rejected.mutation in setOf(ExpenseMutation.RESOLVE, ExpenseMutation.RESTORE))
+        check(state.pending.none { id in it.parents })
+        saveProjection(state.copy(pending = state.pending - rejected, acknowledged = state.acknowledged - id))
+    }
+
+    suspend fun resolve(id: Uuid, selected: Uuid, reviewed: Set<Uuid>) = write {
+        val state = requireNotNull(syncState())
+        val versions = state.effectiveHeads()[id].orEmpty()
+        check(versions.map { it.id }.toSet() == reviewed && versions.size >= 2) { "Expense versions changed." }
+        val chosen = versions.single { it.id == selected }
+        saveProjection(state.copy(pending = state.pending + ExpenseOperation(Uuid.random(), reviewed,
+            ExpenseMutation.RESOLVE, chosen.record.resolvedFrom(versions))))
+    }
+
+    private suspend fun queue(record: ExpenseRecord, mutation: ExpenseMutation) {
+        syncState()?.let { saveState(it.append(record, mutation)) }
+    }
+
+    private suspend fun saveProjection(state: ExpenseSyncState) {
+        val ledger = state.project()
+        ledger.labels.forEach { dao.save(it.row()) }
+        ledger.expenses.forEach { dao.save(it.row()) }
+        saveState(state)
+    }
+
+    private suspend fun saveState(value: ExpenseSyncState) =
+        dao.save(ExpenseRow("sync", "sync", ExpenseSyncJson.state(value).toString()))
+
+    private fun state(row: ExpenseRow) = ExpenseSyncJson.state(Json.parseToJsonElement(row.payload).jsonObject)
 
     internal suspend fun capture() = decode(dao.all())
 
     internal suspend fun restore(ledger: ExpenseLedger) {
         ledger.validate()
+        if (syncState() != null) {
+            check(capture().canonical() == ledger.canonical()) {
+                "This backup changes connected expenses. Current expenses and pending changes were kept."
+            }
+            return
+        }
         dao.clear()
         ledger.labels.forEach { dao.save(it.row()) }
         ledger.expenses.forEach { dao.save(it.row()) }
@@ -115,6 +193,7 @@ class RoomExpenseRepository(private val database: FoundationDatabase) : ExpenseR
         val expenses = mutableListOf<Expense>()
         val labels = mutableListOf<ExpenseLabel>()
         for (row in rows) {
+            if (row.id == "sync") continue
             val json = Json.parseToJsonElement(row.payload).jsonObject
             val id = when (row.kind) {
                 "expense" -> json.expense().also(expenses::add).metadata.id

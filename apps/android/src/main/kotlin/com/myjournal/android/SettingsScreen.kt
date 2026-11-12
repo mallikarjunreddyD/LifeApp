@@ -29,6 +29,7 @@ internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServe
     var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
     var diagnostics by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val expenseSync by (context.applicationContext as JournalApplication).expenseSync.state.collectAsState(initial = null)
     val packageInfo = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0) }
     BackHandler(page != null && !state.busy) { page = null }
     var confirm by remember { mutableStateOf(false) }
@@ -62,7 +63,10 @@ internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServe
                     }
                 }
                 SettingsPage.ACCOUNT -> AndroidServerSettings(serverSync, operations, accountPage = true)
-                SettingsPage.SYNC -> AndroidServerSettings(serverSync, operations, accountPage = false)
+                SettingsPage.SYNC -> {
+                    AndroidServerSettings(serverSync, operations, accountPage = false)
+                    expenseSync?.let { Text("${it.pending.size} expense changes waiting.") }
+                }
                 SettingsPage.BACKUP -> {
                     state.localBackupVerifiedAt?.let { Text("Last verified local backup: ${readableBackupTime(it)}") }
                     Text("Local recovery files are unencrypted. Choose a private destination.")

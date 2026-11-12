@@ -70,6 +70,20 @@ internal class ServerApi(
 
     suspend fun session(token: String): ServerSession = request("/v1/session", token = token).objectValue().session()
 
+    suspend fun expenseInventory(session: ServerSession, token: String): Long =
+        request("/v1/expenses/inventory", token = token, journalScope = session.scope).objectValue()
+            .getValue("count").jsonPrimitive.content.toLong()
+
+    suspend fun pushExpense(session: ServerSession, token: String, operation: com.myjournal.domain.ExpenseOperation) =
+        com.myjournal.data.ExpenseSyncJson.committed(request("/v1/expenses/push", "POST", token,
+            com.myjournal.data.ExpenseSyncJson.operation(operation), session.scope).objectValue())
+
+    suspend fun pullExpenses(session: ServerSession, token: String, after: Long) =
+        request("/v1/expenses/pull?after=$after", token = token, journalScope = session.scope).objectValue().let { page ->
+            page.getValue("entries").jsonArray.map { com.myjournal.data.ExpenseSyncJson.committed(it.jsonObject) } to
+                page.getValue("hasMore").jsonPrimitive.boolean
+        }
+
     suspend fun backupStatus(token: String): Pair<String, String?> {
         val result = request("/v1/backups/status", token = token).objectValue()
         val state = result.getValue("state").jsonPrimitive.content

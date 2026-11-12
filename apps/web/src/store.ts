@@ -1,3 +1,5 @@
+import { applyExpenseOperation, competingExpenseHeads, deleted, effectiveExpenseHeads, newExpenseOperation, recordOf, sameOperation as sameExpenseOperation } from './expenseSync.ts';
+import type { ExpenseCommit, ExpenseMutation, ExpenseSyncState } from './expenseSync.ts';
 import { checkExpenseRecord, expenseDefaults, expenseNameKey } from './expense.ts';
 import type { ExpenseRecord } from './expense.ts';
 import { checkWorkoutRecords, revise } from './workout.ts';
@@ -124,13 +126,127 @@ export class LifeStore {
 
   async seedExpenses(): Promise<void> {
     await this.use('readwrite', async tx => {
-      if (await result(tx.expenses.count()) !== 0) return;
+      if (await result(tx.expenses.count()) !== 0 || await result(tx.settings.get('expense-sync'))) return;
       for (const label of expenseDefaults()) await result(tx.expenses.add({ kind: 'label', value: label }));
     });
   }
 
   async expenseRecords(): Promise<ExpenseRecord[]> {
     return this.use('readonly', async tx => await result(tx.expenses.getAll()) as ExpenseRecord[]);
+  }
+
+  async expenseSyncState(): Promise<ExpenseSyncState | null> {
+    return this.use('readonly', async tx => (await result(tx.settings.get('expense-sync'))) ?? null);
+  }
+
+  async bindExpenses(scope: Scope, reviewed: ExpenseRecord[]): Promise<void> {
+    await this.use('readwrite', async tx => {
+      if (await result(tx.settings.get('expense-sync'))) throw new Error('Expenses are already connected.');
+      const records = await result(tx.expenses.getAll()) as ExpenseRecord[];
+      if (JSON.stringify(records) !== JSON.stringify(reviewed)) throw new Error('Expenses changed. Review again.');
+      const ordered = [...records.filter(record => record.kind === 'label'), ...records.filter(record => record.kind === 'expense')];
+      const pending = ordered.map(record => newExpenseOperation(record, record.kind === 'expense' && record.value.deleted ? 'DELETE' : 'PUT'));
+      await result(tx.settings.put({ scope, cursor: '0', heads: [], pending, acknowledged: [] } satisfies ExpenseSyncState, 'expense-sync'));
+    });
+  }
+
+  async acknowledgeExpense(scope: Scope, receipt: ExpenseCommit): Promise<void> {
+    await this.use('readwrite', async tx => {
+      const state = await this.requireExpenseScope(tx, scope);
+      const queued = state.pending.find(item => item.id === receipt.operation.id);
+      if (!queued || !sameExpenseOperation(queued, receipt.operation)) throw new Error('Expense receipt did not match.');
+      if (BigInt(receipt.sequence) <= BigInt(state.cursor)) {
+        state.pending = state.pending.filter(item => item.id !== queued.id);
+        await this.projectExpenses(tx, state);
+      } else if (!state.acknowledged.includes(queued.id)) {
+        state.acknowledged.push(queued.id);
+        await result(tx.settings.put(state, 'expense-sync'));
+      }
+    });
+  }
+
+  async replayExpenses(scope: Scope, cursor: string, entries: ExpenseCommit[]): Promise<void> {
+    await this.use('readwrite', async tx => {
+      const state = await this.requireExpenseScope(tx, scope);
+      if (cursor !== state.cursor) throw new Error('Expense checkpoint changed.');
+      for (const commit of entries) {
+        if (commit.sequence !== nextSequence(state.cursor)) throw new Error('Expense feed has a gap.');
+        const queued = state.pending.find(item => item.id === commit.operation.id);
+        if (queued && !sameExpenseOperation(queued, commit.operation)) throw new Error('Expense operation identity changed.');
+        state.heads = applyExpenseOperation(state.heads, commit.operation);
+        if (state.acknowledged.includes(commit.operation.id)) {
+          state.pending = state.pending.filter(item => item.id !== commit.operation.id);
+          state.acknowledged = state.acknowledged.filter(id => id !== commit.operation.id);
+        }
+        state.cursor = commit.sequence;
+      }
+      await this.projectExpenses(tx, state);
+    });
+  }
+
+  async resolveExpense(scope: Scope, selected: string, reviewed: string[]): Promise<void> {
+    await this.use('readwrite', async tx => {
+      const state = await this.requireExpenseScope(tx, scope);
+      const versions = competingExpenseHeads(state).find(heads => heads.some(item => item.id === selected));
+      if (!versions || versions.length !== reviewed.length || !versions.every(item => reviewed.includes(item.id))) {
+        throw new Error('Expense versions changed. Review again.');
+      }
+      const chosen = recordOf(versions.find(item => item.id === selected)!);
+      const revision = versions.reduce((max, item) => BigInt(item.record.metadata.revision) > BigInt(max)
+        ? item.record.metadata.revision : max, '0');
+      const updatedAt = versions.reduce((max, item) => instantKey(item.record.metadata.updatedAt) > instantKey(max)
+        ? item.record.metadata.updatedAt : max, chosen.value.metadata.updatedAt);
+      const metadata = revise({ ...chosen.value.metadata, revision, updatedAt });
+      const resolved: ExpenseRecord = chosen.kind === 'expense'
+        ? { kind: 'expense', value: { ...chosen.value, metadata } }
+        : { kind: 'label', value: { ...chosen.value, metadata } };
+      state.pending.push(newExpenseOperation(resolved, 'RESOLVE', reviewed));
+      await this.projectExpenses(tx, state);
+    });
+  }
+
+  async rejectExpenseResolution(scope: Scope, id: string): Promise<void> {
+    await this.use('readwrite', async tx => {
+      const state = await this.requireExpenseScope(tx, scope);
+      const rejected = state.pending.find(item => item.id === id);
+      if (!rejected || !['RESTORE', 'RESOLVE'].includes(rejected.mutation) || state.pending.some(item => item.parents.includes(id))) {
+        throw new Error('Could not reopen the expense review.');
+      }
+      state.pending = state.pending.filter(item => item.id !== id);
+      state.acknowledged = state.acknowledged.filter(item => item !== id);
+      await this.projectExpenses(tx, state);
+    });
+  }
+
+  private async requireExpenseScope(tx: Transaction, scope: Scope): Promise<ExpenseSyncState> {
+    const state = await result(tx.settings.get('expense-sync')) as ExpenseSyncState | undefined;
+    if (!state || !sameScope(state.scope, scope)) throw new Error('Review your expense connection. Local changes were kept.');
+    return state;
+  }
+
+  private async queueExpense(tx: Transaction, record: ExpenseRecord, mutation: ExpenseMutation) {
+    const state = await result(tx.settings.get('expense-sync')) as ExpenseSyncState | undefined;
+    if (!state) return;
+    const versions = effectiveExpenseHeads(state).find(heads => heads[0]?.record.metadata.id === record.value.metadata.id) ?? [];
+    if (competingExpenseHeads(state).some(heads => heads[0]?.record.metadata.id === record.value.metadata.id) ||
+        versions.some(head => state.pending.some(item => item.id === head.id && ['RESOLVE', 'RESTORE'].includes(item.mutation)))) {
+      throw new Error('Review competing expense versions before editing.');
+    }
+    state.pending.push(newExpenseOperation(record, mutation, versions.map(head => head.id)));
+    await result(tx.settings.put(state, 'expense-sync'));
+  }
+
+  private async projectExpenses(tx: Transaction, state: ExpenseSyncState) {
+    const records = effectiveExpenseHeads(state).map(versions => recordOf([...versions].sort((a, b) =>
+      Number(deleted(b)) - Number(deleted(a)) || b.id.localeCompare(a.id))[0]!));
+    const labels = new Map(records.flatMap(record => record.kind === 'label' ? [[record.value.metadata.id, record.value.kind] as const] : []));
+    for (const record of records) {
+      if (record.kind === 'expense' && (labels.get(record.value.categoryId) !== 'CATEGORY' || labels.get(record.value.paymentMethodId) !== 'PAYMENT')) {
+        throw new Error('An expense refers to an unavailable label.');
+      }
+      await result(tx.expenses.put(record));
+    }
+    await result(tx.settings.put(state, 'expense-sync'));
   }
 
   async saveExpense(record: ExpenseRecord, expected: string | null): Promise<void> {
@@ -161,6 +277,7 @@ export class LifeStore {
           throw new Error('Choose an available category and payment method.');
         }
       }
+      await this.queueExpense(tx, record, 'PUT');
       await result(tx.expenses.put(record));
     });
   }
@@ -171,9 +288,11 @@ export class LifeStore {
       if (prior?.kind !== 'expense') throw new Error('Expense is unavailable.');
       if (prior.value.deleted === deleted) return;
       if (prior.value.metadata.revision !== expected) throw new Error('This expense changed. Reopen it before continuing.');
-      await result(tx.expenses.put({ kind: 'expense', value: {
+      const record = { kind: 'expense', value: {
         ...prior.value, metadata: revise(prior.value.metadata), deleted,
-      } }));
+      } } satisfies ExpenseRecord;
+      await this.queueExpense(tx, record, deleted ? 'DELETE' : 'RESTORE');
+      await result(tx.expenses.put(record));
     });
   }
 
