@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { today } from './protocol.ts';
 import type { LifeStore } from './store.ts';
 import { WorkoutReport } from './WorkoutReport.tsx';
@@ -32,6 +32,12 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<Session | null>(null);
+  const historyScroll = useRef(0);
+  const editing = draft !== null;
+
+  useEffect(() => {
+    window.scrollTo(0, editing ? 0 : historyScroll.current);
+  }, [editing]);
 
   useEffect(() => {
     let current = true;
@@ -59,6 +65,7 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
   }
 
   function keepDraft(next: Draft | null) {
+    if (!draft && next) historyScroll.current = window.scrollY;
     setDraft(next);
     void store.saveWorkoutDraft(next).catch(() => setError('Could not save the draft on this device.'));
   }
@@ -80,7 +87,7 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
   const session = draft?.session;
   const selectedRoutine = routines.find(value => value.metadata.id === session?.routineId);
   const summary = (value: Session) => [
-    `${value.entries.length} exercises`,
+    `${value.entries.length} ${value.entries.length === 1 ? 'exercise' : 'exercises'}`,
     value.durationSeconds !== null && `${+(value.durationSeconds / 60).toFixed(1)} min`,
     value.averageHeartRateBpm !== undefined && `${value.averageHeartRateBpm} BPM`,
     value.caloriesKcal !== null && `${value.caloriesKcal} kcal`,

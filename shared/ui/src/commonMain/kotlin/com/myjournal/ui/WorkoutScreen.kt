@@ -3,6 +3,7 @@ package com.myjournal.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -44,6 +45,8 @@ fun WorkoutScreen(
     var date by rememberSaveable { mutableStateOf("") }
     var routineFilter by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val historyPosition = rememberLazyListState()
+    val draftPosition = key(draft?.session?.metadata?.id) { rememberLazyListState() }
 
     LaunchedEffect(repository) {
         try {
@@ -127,6 +130,7 @@ fun WorkoutScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().imePadding().testTag("workout-logbook"),
+        state = if (current == null) historyPosition else draftPosition,
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
