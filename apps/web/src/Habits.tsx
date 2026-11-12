@@ -297,4 +297,3 @@ function RecordPreview({ scope: { dataset, epoch }, id, onReady, editor }: {
     {preview.habits.length === 0 && <p>This month has no habit definitions.</p>}
   </section>;
 }
-
