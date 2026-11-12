@@ -164,10 +164,10 @@ export const api = {
   async session() { return browserSession(await json('/v1/session')); },
   async expenseInventory(session: BrowserSession) {
     const value = object(await json('/v1/expenses/inventory', { headers: journalHeaders(session.scope) }), ['count']);
-    return sequence(value.count);
+    return sequence(value.count, false);
   },
   async pullExpenses(session: BrowserSession, cursor: string) {
-    const value = object(await json('/v1/expenses/pull?after=' + sequence(cursor),
+    const value = object(await json('/v1/expenses/pull?after=' + sequence(cursor, false),
       { headers: journalHeaders(session.scope) }), ['entries', 'hasMore']);
     if (!Array.isArray(value.entries) || value.entries.length > 32 || typeof value.hasMore !== 'boolean' ||
         (!value.entries.length && value.hasMore)) throw new Error('Invalid expense page.');
