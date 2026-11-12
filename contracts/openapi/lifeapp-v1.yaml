@@ -1156,9 +1156,9 @@ paths:
                     type: [string, 'null']
                     format: uuid
         '401':
-          description: Sign-in required.
+          $ref: '#/components/responses/Http401'
         '409':
-          description: Dataset or recovery epoch differs from the session.
+          $ref: '#/components/responses/Http409'
     post:
       operationId: commitStructuredWorkout
       description: Commit a workout against its reviewed current version. Retrying the same request identity returns its original receipt.
@@ -1186,11 +1186,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/StructuredWorkoutVersion'
         '401':
-          description: Sign-in required.
+          $ref: '#/components/responses/Http401'
         '403':
-          description: Browser origin or CSRF validation failed.
+          $ref: '#/components/responses/Http403'
         '409':
-          description: Scope, idempotency identity, or expected parent changed.
+          $ref: '#/components/responses/Http409'
   /v1/structured/workouts/{id}:
     get:
       operationId: readStructuredWorkout
@@ -1209,7 +1209,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StructuredWorkoutVersion'
         '404':
-          description: Workout is unavailable in the authenticated dataset.
+          $ref: '#/components/responses/Http404'
   /v1/expenses/inventory:
     get:
       operationId: expenseInventory
@@ -2001,6 +2001,8 @@ components:
           - MISSING_DEPENDENCY
           - IDEMPOTENCY_MISMATCH
           - CONFLICT_CHANGED
+          - WORKOUT_CHANGED
+          - WORKOUT_NOT_FOUND
           - UNSUPPORTED_VERSION
           - LIMIT_EXCEEDED
           - CURSOR_EXPIRED
