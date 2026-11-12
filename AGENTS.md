@@ -135,5 +135,7 @@ Keystore when cached. Never activate production timers or pruning from a PR.
 
 Use integer INR paise and a decimal string in portable JSON. Preserve label
 references and expense tombstones. Update backup and restore compatibility
-with every persistent schema change. Keep expense writes local until scoped
-replay, receipts and conflict review pass.
+with every persistent schema change. Scope operations to the authenticated dataset and epoch. Commit projection and
+outbox together. Preserve competing heads and clear pending operations only after
+a matching receipt and replay. Schema 11 includes expense sync state and omits
+credentials. Use disposable data for recovery checks.

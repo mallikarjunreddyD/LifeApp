@@ -160,6 +160,12 @@ test('exact INR and offline expense CRUD survive reopening', async () => {
     assert.equal(deleted.metadata.revision, '2');
     assert.equal(deleted.amountMinor, '125075');
     assert.deepEqual(saved.find(item => !item.deleted), other);
+    const { expenseCsv } = await import('../src/export.ts');
+    const labels = records.flatMap(record => record.kind === 'label' ? [record.value] : []);
+    const csv = expenseCsv([deleted, { ...other, name: '=HYPERLINK()', remarks: 'a, "quote"' }], [...labels, category]);
+    assert.match(csv, /"'=HYPERLINK\(\)",1250\.75,INR/);
+    assert.ok(csv.includes('"a, ""quote"""'));
+    assert.ok(!csv.includes(deleted.metadata.id));
     const { expenseSpending } = await import('../src/expenseAnalytics.ts');
     const archived = { ...category, name: 'Renamed', archived: true };
     const spending = [...saved, { ...other, date: '2024-01-01', amountMinor: '1' }, { ...other, date: '2025-01-01' }];

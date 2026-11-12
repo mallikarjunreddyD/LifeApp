@@ -38,6 +38,14 @@ CHECKPOINT_V2 = CHECKPOINT.replace(
         'devices', (SELECT count(*) FROM devices)""",
 )
 
+CHECKPOINT_V3 = CHECKPOINT_V2.replace(
+    "'devices', (SELECT count(*) FROM devices)",
+    """'devices', (SELECT count(*) FROM devices),
+        'expenseOperations', (SELECT count(*) FROM expense_operations),
+        'expenseHeads', (SELECT count(*) FROM expense_heads)""",
+)
+CHECKPOINTS = {1: CHECKPOINT, 2: CHECKPOINT_V2, 3: CHECKPOINT_V3}
+
 
 def compose(project, release, *args):
     result = ["docker", "compose", "-p", project, "-f", str(DEPLOY / "compose.yaml")]
@@ -77,10 +85,13 @@ def capture(args, work):
     dump = work / "database.dump"
     with subprocess.Popen(psql(args), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as session:
         session.stdin.write("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSELECT pg_export_snapshot();\n")
-        session.stdin.write(CHECKPOINT_V2 + "\n")
+        session.stdin.write("SELECT to_regclass('public.expense_operations') IS NOT NULL;\n")
         session.stdin.flush()
         snapshot = session.stdout.readline().strip()
         validate(re.fullmatch(r"[A-F0-9-]+", snapshot), "Could not acquire a PostgreSQL snapshot.")
+        version = 3 if session.stdout.readline().strip() == "t" else 2
+        session.stdin.write(CHECKPOINTS[version] + "\n")
+        session.stdin.flush()
         checkpoint = json.loads(session.stdout.readline())
         with dump.open("wb") as output:
             run(db_command(args, "pg_dump", "-U", "lifeapp_admin", "-d", "lifeapp", "--format=custom",
@@ -91,7 +102,7 @@ def capture(args, work):
         run(db_command(args, "pg_restore", "--list"), stdin=source, stdout=subprocess.DEVNULL)
     manifest = {
         "format": "LifeAppServerBackup",
-        "version": 2,
+        "version": version,
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "commit": args.commit,
         "checkpoint": checkpoint,
@@ -124,7 +135,7 @@ def restore(args, work):
                  all(entry.isfile() for entry in entries), "Unexpected archive contents.")
         validate(entries[0].size <= 65_536, "Manifest is too large.")
         manifest = json.load(bundle.extractfile(entries[0]))
-        validate(manifest["format"] == "LifeAppServerBackup" and manifest["version"] in (1, 2),
+        validate(manifest["format"] == "LifeAppServerBackup" and manifest["version"] in CHECKPOINTS,
                  "Unsupported backup format.")
         dump = work / "database.dump"
         with dump.open("wb") as target:
@@ -137,7 +148,7 @@ def restore(args, work):
     with dump.open("rb") as source:
         run(db_command(args, "pg_restore", "-U", "lifeapp_admin", "--role=lifeapp", "-d", "lifeapp",
                        "--single-transaction", "--no-owner", "--no-privileges"), stdin=source)
-    inventory = CHECKPOINT_V2 if manifest["version"] == 2 else CHECKPOINT
+    inventory = CHECKPOINTS[manifest["version"]]
     checkpoint = json.loads(run(psql(args, "-c", inventory), capture_output=True, text=True).stdout)
     validate(checkpoint == manifest["checkpoint"], "Restored dataset identities or counts differ from the manifest.")
     with (DEPLOY / "restore/new-epoch.sql").open("rb") as sql:

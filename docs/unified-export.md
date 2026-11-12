@@ -19,5 +19,9 @@ unencrypted exports private. Android caps the outer package at 128 MiB
 and reports omitted readable representations. Browser exports are
 limited to 64 MiB. Monthly Workout PDF remains available from History.
 
-Phase 8A Android expenses are present in the included recovery archive.
-Standalone expense CSV and JSON files on both clients are planned for 8D.
+Both clients include expenses/expenses.json, expenses/categories.json,
+expenses/payment-methods.json and expenses/expenses.csv. JSON preserves deleted
+expenses, archived labels and integer paise as decimal strings. CSV includes
+active expenses, exact two-decimal rupee amounts and current label names.
+Spreadsheet formula prefixes are escaped. Android's nested recovery ZIP
+also preserves connected expense state, including pending operations.

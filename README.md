@@ -170,5 +170,5 @@ Settings organizes account, synchronization, backup and recovery controls by
 category. See [Phase 7G acceptance](docs/phase-7g-acceptance.md) for backup setup
 and device checks.
 
-The [Expense Tracker](docs/phase-8-expense-tracker.md) starts with offline
-entry, reusable labels and monthly history on Android and the PWA.
+The [Expense Tracker](docs/phase-8-expense-tracker.md) supports offline entry and reusable labels on Android and the PWA, with optional
+authenticated synchronization, spending analysis and unified export.
