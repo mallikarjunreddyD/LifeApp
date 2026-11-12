@@ -14,25 +14,70 @@ async function add(page: Page, title: string) {
 }
 
 async function signIn(page: Page) {
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Account & Security' }).click();
   await page.getByLabel('Username').fill('browser-test-owner');
   await page.getByLabel('Password').fill('disposable browser test password');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('Signed in to this server.')).toBeVisible();
+  await expect(page.getByText('Recovery epoch', { exact: true })).toHaveCount(0);
 }
 
 async function bind(page: Page) {
+  await page.getByRole('button', { name: 'Back to Settings' }).click();
+  await page.getByRole('button', { name: 'Synchronization' }).click();
   page.once('dialog', dialog => void dialog.accept());
-  await page.getByRole('button', { name: 'Use this dataset' }).click();
+  await page.getByRole('button', { name: 'Connect To-do' }).click();
   await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled();
 }
 
 async function sync(page: Page) {
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Synchronization' }).click();
   await page.getByRole('button', { name: 'Sync now' }).click();
   await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled();
   await page.getByRole('button', { name: 'To-do' }).click();
 }
+
+test('Settings separates account controls and advanced diagnostics', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Backup & Recovery' })).toBeVisible();
+  await expect(page.getByLabel('Username')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Account & Security' }).click();
+  await expect(page.getByLabel('Username')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Settings' }).click();
+  await page.getByRole('button', { name: 'About LifeApp' }).click();
+  await expect(page.getByText('Recovery epoch', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Advanced diagnostics' }).click();
+  await expect(page.getByText('Server origin', { exact: true })).toBeVisible();
+});
+
+test('offline Download My Data verifies hashes and describes local coverage', async ({ page, context }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await context.setOffline(true);
+  await add(page, 'Exported offline task');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Backup & Recovery' }).click();
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download My Data' }).click();
+  const download = await downloading;
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  expect(download.suggestedFilename()).toBe('LifeApp-MyData.zip');
+  const unpack = (entry: string) => execFileSync('unzip', ['-p', path!, entry]);
+  const manifest = JSON.parse(unpack('manifest.json').toString());
+  expect(manifest.completeAcrossDevices).toBe(false);
+  expect(manifest.knownQueuedChanges).toBe(1);
+  expect(manifest.recordCounts.todos).toBe(1);
+  for (const file of manifest.files) {
+    const bytes = unpack(file.path);
+    expect(bytes.length).toBe(file.bytes);
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(file.sha256);
+  }
+  expect(unpack('data/todos.json').toString()).toContain('Exported offline task');
+});
 
 test('iPhone-sized offline shell reopens queued changes and survives worker update', async ({ context, page }) => {
   await page.goto('/');
@@ -81,6 +126,7 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
   const other = await browser.newContext({ ignoreHTTPSErrors: true });
   try {
     const second = await other.newPage();
+    await page.clock.install();
     await page.goto('/');
     await signIn(page);
     await bind(page);
@@ -95,7 +141,7 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
     await expect(second.getByText('Cross-device task', { exact: true })).toBeVisible();
     await add(second, 'Created on second browser');
     await expect(second.getByText('0 pending')).toBeVisible();
-    await sync(page);
+    await page.clock.fastForward(5 * 60 * 1000);
     await expect(page.getByText('Created on second browser', { exact: true })).toBeVisible();
 
     await context.setOffline(true);
@@ -135,9 +181,11 @@ test('lost acknowledgment and expired browser session retain the operation', asy
   await expect(page.getByText('1 pending')).toBeVisible();
   await page.unroute('**/v1/sync/push');
   await context.clearCookies();
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Synchronization' }).click();
   await page.getByRole('button', { name: 'Sync now' }).click();
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in again' })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Settings' }).click();
   await expect(page.getByText('1 pending')).toBeVisible();
   await signIn(page);
   await expect(page.getByText('0 pending')).toBeVisible();

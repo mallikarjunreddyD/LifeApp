@@ -192,3 +192,9 @@ tombstones. Android Room and PWA IndexedDB keep their existing record
 stores. Revision checks and deletion run in local transactions. Android
 portable backups carry deleted records and preserve original identities.
 The server's existing workout endpoints remain read-only.
+
+Phase 7G keeps categorized Settings, automatic synchronization and
+independent recovery as separate concerns. Android uses WorkManager for
+deferred sync and encrypted backups. The PWA runs foreground sync and exports
+only its committed local records. PostgreSQL snapshots use separate operator
+credentials and managed retention.

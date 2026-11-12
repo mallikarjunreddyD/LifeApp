@@ -26,7 +26,11 @@ class JournalApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         // A process restart has no in-flight operation; discard abandoned private staging files.
-        cacheDir.listFiles()?.filter { it.isFile && it.name.startsWith("lifeapp-") }?.forEach { it.delete() }
+        cacheDir.listFiles()?.filter { it.name.startsWith("lifeapp-") }?.forEach { entry ->
+            if (entry.isFile) entry.delete()
+            else if (entry.name.endsWith(".export")) entry.deleteRecursively()
+        }
+        automaticBackup.schedule()
     }
     private val database by lazy { openJournalDatabase(this) }
     val workouts by lazy { com.myjournal.data.RoomWorkoutRepository(database) }
@@ -42,6 +46,7 @@ class JournalApplication : Application() {
     private val generationMutable = MutableStateFlow(0)
     val generation = generationMutable.asStateFlow()
     internal val snapshots by lazy { RoomSnapshotRepository(database) }
+    internal val automaticBackup by lazy { AutomaticAndroidBackup(this) }
     val operations by lazy { DataOperations(this, snapshots) }
     fun rebuildEditors() {
         currentSession?.cancel(); currentSession = EditorSession(database)

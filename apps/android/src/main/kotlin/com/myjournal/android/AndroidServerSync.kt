@@ -36,6 +36,7 @@ internal data class AndroidServerState(
     val editableStatus: String? = null,
     val importQueueUnreadable: Boolean = false,
     val working: Boolean = false,
+    val online: Boolean? = null,
     val message: String? = null,
     val error: Boolean = false,
     val preview: BindingPreview? = null,
@@ -65,6 +66,10 @@ internal class AndroidServerSync(
             catch (failure: Exception) { report(failure) }
             repository.observePendingCount().collect { count -> mutable.update { it.copy(pending = count) } }
         }
+    }
+
+    fun networkChanged(online: Boolean) {
+        mutable.update { it.copy(online = online) }
     }
 
     fun onForeground() {
@@ -272,11 +277,15 @@ internal class AndroidServerSync(
     }
 
     suspend fun applyReviewedDownloads(
-        review: EditableImportReview, apply: suspend (List<EditableImportRecord>) -> Unit,
+        review: EditableImportReview, capture: (suspend () -> JournalSnapshot)? = null,
+        apply: suspend (List<EditableImportRecord>) -> Unit,
     ): Int = gate.withLock {
         val (credential, session, api) = currentSession()
         requireImportTarget(review.target, api, session)
-        applyTrackedDownloads(review, credential, session, api, apply)
+        val count = applyTrackedDownloads(review, credential, session, api, apply)
+        if (capture != null) enableReviewedEditable(credential, session, api, capture)
+        refresh(credential)
+        count
     }
 
     private suspend fun applyTrackedDownloads(
@@ -307,12 +316,14 @@ internal class AndroidServerSync(
         refresh()
     }
 
-    fun resumeEditableImport() = action {
+    fun resumeEditableImport(capture: (suspend () -> JournalSnapshot)? = null) = action {
         val (credential, session, api) = currentSession()
         try {
             val conflicts = sendEditableQueue(credential, session, api)
-            if (conflicts == 0) message("Approved record uploads completed. Local records were kept.")
-            else throw UserSyncError("$conflicts uploads need conflict review. Their local copies are still queued.")
+            if (conflicts == 0) {
+                if (capture != null) enableReviewedEditable(credential, session, api, capture)
+                message("Approved record uploads completed. Local records were kept.")
+            } else throw UserSyncError("$conflicts uploads need conflict review. Their local copies are still queued.")
         } finally {
             refresh()
         }
@@ -357,23 +368,48 @@ internal class AndroidServerSync(
     fun setAutomaticEditable(enabled: Boolean, capture: suspend () -> JournalSnapshot) = action {
         if (enabled) {
             val (credential, session, api) = currentSession()
-            val target = EditableImportQueue.Target(api.endpoint.origin, session.scope)
-            val local = capture().editableImportRecords().map { it.key }
-            withContext(Dispatchers.IO) {
-                val known = editableBaselines.load(target)
-                if (known.isEmpty()) throw UserSyncError("Confirm a shared record through the backup-verified transfer first.")
-                val remote = api.editableVersions(session, credential.token).map { it.key }
-                val legacy = api.journalEntries(session, credential.token).map { EditableImportKey("journal", it.date.toString()) }
-                editableBaselines.excludeExisting(target, (local + remote + legacy).toSet() - known.keys)
-            }
-            store.setEditableEnabled(target)
-            ensureEditableWork()
+            enableReviewedEditable(credential, session, api, capture, manual = true)
+            store.setEditablePaused(EditableImportQueue.Target(api.endpoint.origin, session.scope), false)
         } else {
+            val credential = store.load() ?: throw UserSyncError("Sign in to change the record sync preference.")
+            store.setEditablePaused(EditableImportQueue.Target(credential.endpoint.origin, credential.session.scope), true)
             store.setEditableEnabled(null)
             WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_WORK)
+            WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_UPLOAD)
         }
         refresh()
         message(if (enabled) "Automatic sync enabled for tracked and new records." else "Automatic record sync paused.")
+    }
+
+    private suspend fun enableReviewedEditable(
+        credential: ServerCredential, session: ServerSession, api: ServerApi,
+        capture: suspend () -> JournalSnapshot, manual: Boolean = false,
+    ) {
+        val target = EditableImportQueue.Target(api.endpoint.origin, session.scope)
+        if (store.editableEnabled(target) || (!manual && store.editablePaused(target))) return
+        val known = withContext(Dispatchers.IO) { editableBaselines.load(target) }
+        if (known.isEmpty()) {
+            if (manual) throw UserSyncError("Confirm a shared record through the backup-verified transfer first.")
+            return
+        }
+        val local = capture().editableImportRecords().map { it.key }
+        withContext(Dispatchers.IO) {
+            val remote = api.editableVersions(session, credential.token).map { it.key }
+            val legacy = api.journalEntries(session, credential.token).map { EditableImportKey("journal", it.date.toString()) }
+            editableBaselines.excludeExisting(target, (local + remote + legacy).toSet() - known.keys)
+        }
+        store.setEditableEnabled(target)
+        ensureEditableWork()
+    }
+
+    fun scheduleEditableUpload() {
+        if (!mutable.value.automaticEditable) return
+        val request = OneTimeWorkRequestBuilder<EditableSyncWorker>()
+            .setInitialDelay(2, TimeUnit.SECONDS)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(EDITABLE_UPLOAD, ExistingWorkPolicy.KEEP, request)
     }
 
     private fun ensureEditableWork() {
@@ -439,7 +475,7 @@ internal class AndroidServerSync(
 
     private fun requireImportTarget(target: EditableImportQueue.Target, api: ServerApi, session: ServerSession) {
         if (target.origin != api.endpoint.origin || target.scope != session.scope) {
-            throw UserSyncError("The upload belongs to a different HTTPS origin, dataset or recovery epoch. Local records were kept.")
+            throw UserSyncError("Review your connection before retrying this upload. Your local records were kept.")
         }
     }
 
@@ -473,6 +509,7 @@ internal class AndroidServerSync(
         store.setEditableEnabled(null)
         WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(WORK)
+        WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_UPLOAD)
         val credential = runCatching { store.load() }.getOrNull()
         store.clear()
         mutable.update { it.copy(preview = null) }
@@ -484,6 +521,11 @@ internal class AndroidServerSync(
           catch (_: IOException) { false }
         message(if (revoked) "Disconnected. Local records, queued tasks and the dataset binding were kept."
             else "Disconnected locally. The server could not revoke the session and it will expire.")
+    }
+
+    suspend fun verifiedBackupStatus(): Pair<String, String?> = gate.withLock {
+        val (credential, _, api) = currentSession()
+        api.backupStatus(credential.token)
     }
 
     fun syncNow() = action {
@@ -514,7 +556,7 @@ internal class AndroidServerSync(
             }
             val (credential, session, api) = currentSession()
             if (session.scope != checkpoint.scope || repository.boundOrigin() != api.endpoint.origin) {
-                throw UserSyncError("The server origin, dataset or recovery epoch changed. Local records were kept.")
+                throw UserSyncError("Review your connection before syncing again. Your local records were kept.")
             }
             val transport = api.transport(session, credential.token, repository::retainRejectedResolution)
             val coordinator = TodoSyncCoordinator(repository, transport, uploadLimit = 10)
@@ -533,7 +575,7 @@ internal class AndroidServerSync(
                     store.saveLastVerified(Clock.System.now().toString())
                     store.saveRetryAt(0)
                     refresh(credential)
-                    message("To-do synchronized · ${active.size} active tasks · commit ${progress.checkpoint.sequence}.")
+                    message("To-do synchronization complete.")
                     return SyncOutcome.DONE
                 }
             }
@@ -649,6 +691,7 @@ internal class AndroidServerSync(
 
     companion object {
         private const val WORK = "lifeapp-todo-server-sync"
+        private const val EDITABLE_UPLOAD = "lifeapp-editable-upload"
         private const val EDITABLE_WORK = "lifeapp-editable-server-sync"
     }
 }

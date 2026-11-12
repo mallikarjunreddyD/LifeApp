@@ -165,21 +165,30 @@ export class LifeStore {
     });
   }
 
+  private async readLocalView(tx: Transaction): Promise<LocalView> {
+    const state = await tx.state();
+    const rows = await result(tx.tasks.getAll()) as Projection[];
+    const tasks = await Promise.all(rows.map(async row => {
+      const heads = await Promise.all(row.heads.map(head => tx.operation(head)));
+      return {
+        record: row.record,
+        head: row.heads.length === 1 ? row.heads[0]! : null,
+        conflicts: heads.length > 1 ? heads.map(head => head!.operation) : [],
+        resolving: heads.length === 1 && !!heads[0]?.queue && heads[0].operation.parents.length > 1,
+      };
+    }));
+    return { tasks, checkpoint: state.checkpoint, lastSync: state.lastSync, pending: await result(tx.operations.index('queue').count()) };
+  }
+
   async view(): Promise<LocalView> {
-    return this.use('readonly', async tx => {
-      const state = await tx.state();
-      const rows = await result(tx.tasks.getAll()) as Projection[];
-      const tasks = await Promise.all(rows.map(async row => {
-        const heads = await Promise.all(row.heads.map(head => tx.operation(head)));
-        return {
-          record: row.record,
-          head: row.heads.length === 1 ? row.heads[0]! : null,
-          conflicts: heads.length > 1 ? heads.map(head => head!.operation) : [],
-          resolving: heads.length === 1 && !!heads[0]?.queue && heads[0].operation.parents.length > 1,
-        };
-      }));
-      return { tasks, checkpoint: state.checkpoint, lastSync: state.lastSync, pending: await result(tx.operations.index('queue').count()) };
-    });
+    return this.use('readonly', tx => this.readLocalView(tx));
+  }
+
+  async workoutExportSnapshot(): Promise<{ view: LocalView; workouts: WorkoutRecord[] }> {
+    return this.use('readonly', async tx => ({
+      view: await this.readLocalView(tx),
+      workouts: await result(tx.workouts.getAll()) as WorkoutRecord[],
+    }));
   }
 
   async bind(scope: Scope): Promise<void> {

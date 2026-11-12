@@ -2,6 +2,10 @@ package com.myjournal.android
 
 import android.os.Bundle
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import com.myjournal.domain.AppSection
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,6 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -24,6 +32,8 @@ import com.myjournal.ui.JournalApp
 
 class MainActivity : ComponentActivity() {
     private lateinit var model: JournalViewModel
+    private var activeSync: Job? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -48,6 +58,15 @@ class MainActivity : ComponentActivity() {
             val planner by model.planner.state.collectAsState()
             val habits by model.habits.state.collectAsState()
             val notebook by model.notebooks.state.collectAsState()
+            val editablePending = journal.pending + planner.pending + habits.pending + notebook.pending
+            var previousPending by remember { mutableIntStateOf(editablePending) }
+            LaunchedEffect(editablePending) {
+                if (previousPending > 0 && editablePending == 0 &&
+                    listOf(journal.error, planner.error, habits.error, notebook.error).all { it == null }) {
+                    applicationState.serverSync.scheduleEditableUpload()
+                }
+                previousPending = editablePending
+            }
             BackHandler(enabled = routes.size > 1 || routes.last().section == com.myjournal.domain.AppSection.NOTEBOOK && notebook.notebook != null) {
                 if (routes.last().section == com.myjournal.domain.AppSection.NOTEBOOK && notebook.notebook != null) model.openNotebook(null) else model.back()
             }
@@ -95,8 +114,52 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         val app = application as JournalApplication
+        observeSyncConnectivity(app)
         app.serverSync.onForeground()
         app.operations.syncTrackedOnForeground(app.serverSync)
+        activeSync = lifecycleScope.launch {
+            while (true) {
+                delay(5 * 60 * 1000L)
+                app.serverSync.schedule()
+                app.serverSync.scheduleEditableUpload()
+            }
+        }
+    }
+
+    private fun observeSyncConnectivity(app: JournalApplication) {
+        val connectivity = getSystemService(ConnectivityManager::class.java) ?: return
+        fun connected() = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        var online = connected()
+        app.serverSync.networkChanged(online)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            private fun update() = runOnUiThread {
+                if (networkCallback !== this) return@runOnUiThread
+                val available = connected()
+                if (available && !online) {
+                    app.serverSync.schedule()
+                    app.serverSync.scheduleEditableUpload()
+                }
+                online = available
+                app.serverSync.networkChanged(available)
+            }
+
+            override fun onAvailable(network: Network) = update()
+            override fun onLost(network: Network) = update()
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) = update()
+        }
+        networkCallback = callback
+        connectivity.registerNetworkCallback(
+            NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(), callback,
+        )
+    }
+
+    override fun onStop() {
+        activeSync?.cancel()
+        activeSync = null
+        networkCallback?.let { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(it) }
+        networkCallback = null
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {

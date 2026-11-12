@@ -1,0 +1,14 @@
+[Unit]
+Description=Retry pending encrypted LifeApp backups
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=lifeapp-ops
+SupplementaryGroups=docker
+EnvironmentFile=/srv/lifeapp/backup.env
+ExecStart=/usr/bin/python3 /srv/lifeapp/backup/automatic-server-backup.py retry
+UMask=0077
+NoNewPrivileges=true
+TimeoutStartSec=45min

@@ -78,3 +78,7 @@ requires a configured OAuth project and authenticated Android device.
 
 - [Google authorization on Android](https://developers.google.com/identity/authorization/android)
 - [Google Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
+
+For Phase 7G automatic enrollment, authorization and recovery, see
+[Automatic backup](automatic-backup.md). Existing manual files retain their
+original passphrases and remain outside managed pruning.

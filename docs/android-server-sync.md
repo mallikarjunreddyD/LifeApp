@@ -36,3 +36,6 @@ LIFEAPP_ANDROID_BRIDGE=1 apps/web/scripts/test-browser.sh
 
 The harness runs a disposable PostgreSQL database and Ktor server, and creates
 a temporary TLS certificate trusted only by the Android test transport.
+
+See [Automatic sync](automatic-sync.md) for the Phase 7G foreground,
+committed-edit and deferred sync triggers.

@@ -105,3 +105,6 @@ tombstones. Its sections and LJPT encoding match schema 8. Readers support
 schemas 4 through 9. New workouts with schema 9 fields are written as schema
 9 so older clients can reject the archive before restoring it. Deleted
 sessions remain in the backup to support recovery and restore.
+
+Download My Data wraps the same portable recovery archive in an outer export
+ZIP. The inner archive is the restore input. See [Unified export](unified-export.md).

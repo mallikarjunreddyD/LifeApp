@@ -83,6 +83,15 @@ internal class ServerCredentialStore(context: Context) {
         check(edit.commit()) { "Could not save the record synchronization preference." }
     }
 
+    fun editablePaused(target: EditableImportQueue.Target) =
+        prefs.getString("editable-sync-paused", null) == editableTarget(target)
+
+    suspend fun setEditablePaused(target: EditableImportQueue.Target, paused: Boolean) = withContext(Dispatchers.IO) {
+        val edit = prefs.edit()
+        if (paused) edit.putString("editable-sync-paused", editableTarget(target)) else edit.remove("editable-sync-paused")
+        check(edit.commit()) { "Could not save the record synchronization preference." }
+    }
+
     private fun editableTarget(target: EditableImportQueue.Target) =
         listOf(target.origin, target.scope.dataset.toString(), target.scope.epoch.toString()).joinToString("|")
 

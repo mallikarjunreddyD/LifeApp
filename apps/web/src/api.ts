@@ -7,17 +7,19 @@ export interface BrowserSession { scope: Scope; expiresAt: string; csrfToken: st
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string) {
+  readonly retryAfter: number | null;
+  constructor(status: number, code: string, retryAfter: number | null = null) {
     const message = status === 401 ? 'Sign in again to synchronize.' :
       status === 403 ? 'The server declined this request.' :
       status === 429 ? 'Too many requests. Wait before trying again.' :
-      status === 410 || code === 'SCOPE_MISMATCH' ? 'The server dataset or cursor changed. Local changes were kept.' :
+      status === 410 || code === 'SCOPE_MISMATCH' ? 'Review your connection before syncing again. Your local changes were kept.' :
       code === 'CONFLICT_CHANGED' ? 'The server conflict changed. Review the current versions.' :
       status >= 500 ? 'The server is unavailable. Local changes were kept.' :
       'The server did not accept this request. Local changes were kept.';
     super(message);
     this.status = status;
     this.code = code;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -50,7 +52,9 @@ async function json(path: string, options: RequestInit = {}, empty = false): Pro
             if (typeof error?.code === 'string') code = error.code;
           } catch { /* Retain the HTTP status. */ }
         }
-        throw new ApiError(response.status, code);
+        const retry = response.headers.get('Retry-After');
+        const deadline = retry === null ? NaN : /^\d+$/.test(retry) ? Date.now() + Number(retry) * 1000 : Date.parse(retry);
+        throw new ApiError(response.status, code, Number.isFinite(deadline) ? deadline : null);
       }
       if (empty) return undefined;
       if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Expected a LifeApp JSON response.');
@@ -156,6 +160,13 @@ export const api = {
     }));
   },
   async session() { return browserSession(await json('/v1/session')); },
+  async backupStatus() {
+    const value = object(await json('/v1/backups/status'), ['state', 'lastVerifiedAt']);
+    if (value.state !== 'never' && value.state !== 'running' && value.state !== 'verified' && value.state !== 'failed') {
+      throw new Error('Invalid backup status.');
+    }
+    return { state: value.state, lastVerifiedAt: value.lastVerifiedAt === null ? null : instant(value.lastVerifiedAt) };
+  },
   async logout(session: BrowserSession) {
     await json('/v1/session', { method: 'DELETE', headers: { 'X-CSRF-Token': session.csrfToken } }, true);
   },

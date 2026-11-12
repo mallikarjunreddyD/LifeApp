@@ -40,3 +40,7 @@ Separate native iOS and Windows apps are outside the release plan.
 Phase 7F adds the Android and PWA [workout logbook](phase-7f-workout-logbook-ux.md),
 history views, recoverable local deletion and updated monthly reports.
 Live workout transport and tombstone replay remain future work.
+
+Phase 7G introduces categorized Settings, automatic sync triggers, scheduled
+encrypted recovery and a unified local data export. Live backup scheduling
+and independent recovery must pass [operational acceptance](phase-7g-acceptance.md).

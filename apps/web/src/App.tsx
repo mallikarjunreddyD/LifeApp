@@ -9,9 +9,12 @@ import { EditableRecords } from './EditableRecords.tsx';
 import { Journal } from './Journal.tsx';
 import { Workouts } from './Workouts.tsx';
 import { useWorkerUpdate } from './worker.ts';
+import packageInfo from '../package.json';
+import { browserExport, downloadExport } from './export.ts';
 
 type Tab = 'To-do' | 'Workouts' | 'History' | 'Journal' | 'Settings';
 const tabs: Tab[] = ['To-do', 'Workouts', 'History', 'Journal', 'Settings'];
+const ACTIVE_SYNC_INTERVAL = 5 * 60 * 1000;
 const blank: LocalView = { tasks: [], pending: 0, checkpoint: null, lastSync: null };
 
 export function App({ store }: { store: LifeStore }) {
@@ -25,6 +28,16 @@ export function App({ store }: { store: LifeStore }) {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const running = useRef(false);
+  const again = useRef(false);
+  const failures = useRef(0);
+  const retryDeadline = useRef(0);
+  const serverDeadline = useRef(0);
+  const [retryAt, setRetryAt] = useState(0);
+  const [visible, setVisible] = useState(!document.hidden);
+  const scheduleRetry = useCallback((at: number) => {
+    retryDeadline.current = at;
+    setRetryAt(at);
+  }, []);
   const channel = useRef<BroadcastChannel | null>(null);
   const worker = useWorkerUpdate();
   const scope = view.checkpoint?.scope ?? null;
@@ -32,8 +45,9 @@ export function App({ store }: { store: LifeStore }) {
 
   const refresh = useCallback(async () => setView(await store.view()), [store]);
 
-  const sync = useCallback(async (current: BrowserSession) => {
-    if (running.current) return;
+  const sync = useCallback(async (current: BrowserSession, manual = false) => {
+    if (!navigator.onLine || Date.now() < (manual ? serverDeadline.current : retryDeadline.current)) return;
+    if (running.current) { again.current = true; return; }
     running.current = true;
     setBusy(true);
     setSynced(false);
@@ -43,21 +57,35 @@ export function App({ store }: { store: LifeStore }) {
       const verified = await api.session();
       setSession(verified);
       if (!sameScope(current.scope, verified.scope)) {
-        throw new Error('The signed-in dataset or recovery epoch changed. Local changes were kept.');
+        throw new Error('Review your connection before syncing again. Your local changes were kept.');
       }
       const complete = await synchronize(store, verified);
       setSynced(complete);
-      setNotice(complete ? 'Synchronization complete.' : 'More changes are available. Use Sync now to continue.');
+      failures.current = 0;
+      serverDeadline.current = 0;
+      scheduleRetry(complete ? 0 : Date.now() + 1000);
+      setNotice(complete ? 'To-do synchronization complete.' : 'Checking the remaining To-do changes.');
+
     } catch (failure) {
-      if (failure instanceof ApiError && failure.status === 401) setSession(null);
+      if (failure instanceof ApiError && failure.status === 401) {
+        setSession(null);
+        scheduleRetry(0);
+      } else if (failure instanceof ApiError ? failure.status === 429 || failure.status >= 500
+        : failure instanceof Error && failure.cause !== undefined) {
+        const delay = Math.min(300_000, 5000 * 2 ** Math.min(failures.current++, 6)) + Math.random() * 1500;
+        serverDeadline.current = failure instanceof ApiError ? failure.retryAfter ?? 0 : 0;
+        scheduleRetry(Math.max(Date.now() + delay, serverDeadline.current));
+      }
       setError(message(failure));
     } finally {
+      if (again.current && !retryDeadline.current) scheduleRetry(Date.now() + 1000);
+      again.current = false;
+      try { await refresh(); } catch (failure) { setError(message(failure)); }
       running.current = false;
       setBusy(false);
-      try { await refresh(); } catch (failure) { setError(message(failure)); }
       channel.current?.postMessage('refresh');
     }
-  }, [refresh, store]);
+  }, [refresh, scheduleRetry, store]);
 
   useEffect(() => {
     let active = true;
@@ -92,16 +120,30 @@ export function App({ store }: { store: LifeStore }) {
       if (navigator.onLine) void hydrate();
       else setSynced(false);
     };
+    const visibility = () => {
+      setVisible(!document.hidden);
+      if (!document.hidden) void hydrate();
+    };
+    document.addEventListener('visibilitychange', visibility);
     window.addEventListener('online', network);
     window.addEventListener('offline', network);
     return () => {
       active = false;
       bus?.close();
       channel.current = null;
+      document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('online', network);
       window.removeEventListener('offline', network);
     };
   }, [refresh, store, sync]);
+
+  useEffect(() => {
+    if (!session || !matches || !visible || !online) return;
+    const timeout = window.setTimeout(() => void sync(session), retryAt
+      ? Math.min(2_147_483_647, Math.max(0, retryAt - Date.now()))
+      : ACTIVE_SYNC_INTERVAL);
+    return () => window.clearTimeout(timeout);
+  }, [matches, online, retryAt, session, sync, visible]);
 
   async function change(action: () => Promise<void>) {
     setError('');
@@ -125,6 +167,9 @@ export function App({ store }: { store: LifeStore }) {
     try {
       const current = await api.login(username, password, secondFactor);
       setSession(current);
+      failures.current = 0;
+      serverDeadline.current = 0;
+      scheduleRetry(0);
       setSynced(false);
       if (sameScope(scope, current.scope)) await sync(current);
     } catch (failure) { setError(message(failure)); }
@@ -132,7 +177,7 @@ export function App({ store }: { store: LifeStore }) {
   }
 
   async function bind() {
-    if (!session || !window.confirm('Bind this browser to the displayed dataset and recovery epoch? Queued tasks will upload to this account.')) return;
+    if (!session || !window.confirm('Connect this browser to your signed-in account? Queued To-do changes will upload to this account.')) return;
     try {
       await store.bind(session.scope);
       await refresh();
@@ -146,6 +191,7 @@ export function App({ store }: { store: LifeStore }) {
     try {
       await api.logout(session);
       setSession(null);
+      scheduleRetry(0);
       setSynced(false);
       setNotice('Signed out. Local tasks and queued changes are still on this browser.');
     } catch (failure) {
@@ -156,7 +202,7 @@ export function App({ store }: { store: LifeStore }) {
 
   const status = !online ? 'Offline' : busy ? 'Working…' : view.pending > 0 ? 'Pending sync' :
     view.tasks.some(task => task.conflicts.length > 0) ? 'Conflict needs review' :
-    !session ? 'Signed out' : !matches ? 'Dataset confirmation needed' : synced ? 'Synced' : 'Ready to sync';
+    !session ? 'Signed out' : !matches ? 'Review connection' : synced ? 'To-do up to date' : 'Ready to sync';
 
   return <div className="shell">
     <header className="masthead">
@@ -168,7 +214,10 @@ export function App({ store }: { store: LifeStore }) {
     <main>
       {tab === 'To-do' && (loaded ? <Todos view={view} change={change} store={store} /> : <p role="status">Loading local tasks…</p>)}
       {tab === 'Settings' && <Settings view={view} session={session} busy={busy} online={online}
-        onLogin={login} onBind={bind} onLogout={logout} onSync={() => session && void sync(session)} />}
+        onLogin={login} onBind={bind} onLogout={logout} status={status} onExport={async () => {
+          if (session && matches && navigator.onLine) await sync(session);
+          downloadExport(await browserExport(store));
+        }} onConflicts={() => setTab('To-do')} onSync={() => session && void sync(session, true)} />}
       {(tab === 'Workouts' || tab === 'History') && <>
         <Workouts key={tab} store={store} historyOnly={tab === 'History'} />
         {matches && <details><summary>Read-only server records</summary><ReadRecords key={tab}
@@ -258,11 +307,29 @@ function Conflict({ task, change, store }: { task: TaskView; change: (write: () 
   </article>;
 }
 
-function Settings({ view, session, busy, online, onLogin, onBind, onLogout, onSync }: {
-  view: LocalView; session: BrowserSession | null; busy: boolean; online: boolean;
+const settingsPages = ['Account & Security', 'Synchronization', 'Backup & Recovery', 'Appearance', 'About LifeApp'] as const;
+
+function Settings({ view, session, busy, online, status, onLogin, onBind, onLogout, onSync, onConflicts, onExport }: {
+  view: LocalView; session: BrowserSession | null; busy: boolean; online: boolean; status: string;
   onLogin: (username: string, password: string, secondFactor?: string) => Promise<void>; onBind: () => Promise<void>;
-  onLogout: () => Promise<void>; onSync: () => void;
+  onLogout: () => Promise<void>; onSync: () => void; onConflicts: () => void; onExport: () => Promise<void>;
 }) {
+  const [page, setPage] = useState<typeof settingsPages[number] | null>(null);
+  const [diagnostics, setDiagnostics] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState('');
+  async function exportData() {
+    setExporting(true);
+    setExportMessage('');
+    try {
+      await onExport();
+      setExportMessage('Verified browser export. Your browser handles the download.');
+    } catch (failure) {
+      setExportMessage(message(failure));
+    } finally {
+      setExporting(false);
+    }
+  }
   const match = session && sameScope(view.checkpoint?.scope ?? null, session.scope);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -275,11 +342,16 @@ function Settings({ view, session, busy, online, onLogin, onBind, onLogout, onSy
     if (factor instanceof HTMLInputElement) factor.value = '';
     await onLogin(String(fields.get('username') ?? ''), password, String(fields.get('secondFactor') ?? '').trim() || undefined);
   }
-  return <section>
-    <h1>Settings</h1>
-    <article className="card"><h2>Server synchronization</h2>
-      <p>Offline edits stay in this browser. Keep important records backed up on another device.</p>
-      {view.lastSync && <p>Last successful sync <time dateTime={view.lastSync}>{new Date(view.lastSync).toLocaleString()}</time></p>}
+  return <section className="settings">
+    {page && <button onClick={() => { setPage(null); setDiagnostics(false); }}>Back to Settings</button>}
+    <h1>{page ?? 'Settings'}</h1>
+    {!page && <>
+      <p>{online ? status : 'Offline — changes saved on this device.'}</p>
+      {view.pending > 0 && <p>{view.pending} To-do changes waiting to sync.</p>}
+      <div className="settings-categories">{settingsPages.map(category =>
+        <button key={category} onClick={() => setPage(category)}>{category}</button>)}</div>
+    </>}
+    {page === 'Account & Security' && <article className="card">
       {!session ? <form onSubmit={submit}>
         <label>Username<input required name="username" autoComplete="username" maxLength={254} /></label>
         <label>Password<input required name="password" type="password" autoComplete="current-password" maxLength={1024} /></label>
@@ -288,14 +360,61 @@ function Settings({ view, session, busy, online, onLogin, onBind, onLogout, onSy
         <button className="primary" disabled={busy || !online}>Sign in</button>
       </form> : <>
         <p>Signed in to this server.</p>
-        <dl><dt>Dataset</dt><dd>{session.scope.dataset}</dd><dt>Recovery epoch</dt><dd>{session.scope.epoch}</dd></dl>
-        {!view.checkpoint && <button className="primary" disabled={busy || !online} onClick={() => void onBind()}>Use this dataset</button>}
-        {view.checkpoint && !match && <p role="alert">This browser is bound to a different dataset or recovery epoch. Local changes are preserved.</p>}
-        <div className="actions"><button disabled={!match || !online || busy} onClick={onSync}>Sync now</button>
-          <button disabled={!online || busy} onClick={() => void onLogout()}>Sign out</button></div>
+        <p>Use your authenticator or recovery code when signing in.</p>
+        <button disabled={!online || busy} onClick={() => void onLogout()}>Sign out</button>
       </>}
-    </article>
+    </article>}
+    {page === 'Synchronization' && <article className="card">
+      <p>{online ? status : 'Offline — changes saved on this device.'}</p>
+      <p>Automatic To-do sync {match ? 'enabled' : 'awaiting connection review'}.</p>
+      <p>To-do syncs after connection review. Journal records are available from the server when online. Workouts stay in this browser.</p>
+      {view.lastSync && <p>Last successful To-do sync <time dateTime={view.lastSync}>{new Date(view.lastSync).toLocaleString()}</time></p>}
+      <p>{view.pending} pending To-do changes</p>
+      {view.tasks.some(task => task.conflicts.length > 0) && <button onClick={onConflicts}>Review conflicts</button>}
+      {!session ? <button onClick={() => setPage('Account & Security')}>Sign in again</button> : <>
+        {!view.checkpoint && <button className="primary" disabled={busy || !online} onClick={() => void onBind()}>Connect To-do</button>}
+        {view.checkpoint && !match && <p role="alert">Reconnect to the original account or contact the server operator for recovery. Local changes were kept.</p>}
+        <button disabled={!match || !online || busy} onClick={onSync}>Sync now</button>
+      </>}
+    </article>}
+    {page === 'Backup & Recovery' && <article className="card">
+      <ServerBackupStatus key={session?.scope.dataset} account={session?.scope.dataset ?? null} online={online} />
+      <button disabled={exporting} onClick={() => void exportData()}>Download My Data</button>
+      <p>Includes the To-do and workout data stored in this browser. Restore Android recovery copies from the Android app.</p>
+      {exportMessage && <p role="status">{exportMessage}</p>}
+    </article>}
+    {page === 'Appearance' && <p>LifeApp uses a light paper theme.</p>}
+    {page === 'About LifeApp' && <article className="card">
+      <p>Web version {packageInfo.version}</p>
+      <a href="https://github.com/mallikarjunreddyD/LifeApp">LifeApp support and source</a>
+      <p><button onClick={() => setDiagnostics(!diagnostics)}>Advanced diagnostics</button></p>
+      {diagnostics && <dl>
+        <dt>Server origin</dt><dd>{location.origin}</dd>
+        {session && <><dt>Dataset</dt><dd>{session.scope.dataset}</dd><dt>Recovery epoch</dt><dd>{session.scope.epoch}</dd></>}
+        {view.checkpoint && <><dt>Checkpoint</dt><dd>{view.checkpoint.sequence}</dd></>}
+      </dl>}
+    </article>}
   </section>;
+}
+
+function ServerBackupStatus({ account, online }: { account: string | null; online: boolean }) {
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof api.backupStatus>> | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  useEffect(() => {
+    if (!account || !online) return;
+    let active = true;
+    void api.backupStatus().then(value => { if (active) setStatus(value); })
+      .catch(() => { if (active) setUnavailable(true); });
+    return () => { active = false; };
+  }, [account, online]);
+  if (!account || !online) return <p>Sign in online to check server backups.</p>;
+  if (unavailable) return <p>Server backup status is unavailable.</p>;
+  if (!status) return <p>Checking server backups…</p>;
+  return <>
+    {status.lastVerifiedAt ? <p>Last verified server Drive backup <time dateTime={status.lastVerifiedAt}>
+      {new Date(status.lastVerifiedAt).toLocaleString()}</time></p> : <p>No verified server Drive backup reported.</p>}
+    {status.state === 'failed' && <p>The latest server backup attempt needs attention.</p>}
+  </>;
 }
 
 function ReadRecords({ kind, session, online }: { kind: 'exercises' | 'workouts'; session: BrowserSession | null; online: boolean }) {

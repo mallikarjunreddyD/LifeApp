@@ -255,3 +255,8 @@ If the local record changed, it keeps that copy and retries on a later
 pass. Android applies downloads while the app is open so it can safely
 reload the editor caches. Signing out or restoring a local backup pauses automatic work and keeps
 queued copies. A changed recovery epoch requires a fresh review.
+
+Phase 7G schedules tracked uploads after committed Android edits and
+approximately every five minutes while active. Completing a reviewed
+transfer can enable automatic records sync for that verified scope.
+Manual review and explicit pause remain available.

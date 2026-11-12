@@ -16,7 +16,7 @@ data class JournalInventoryPreview(val origin: String, val scope: SyncScope, val
 
 data class OperationState(val busy: Boolean = false, val message: String? = null, val error: Boolean = false,
     val preview: RestorePreview? = null, val pdfSnapshot: JournalSnapshot? = null, val driveVersions: List<CloudBackupVersion>? = null,
-    val journalInventory: JournalInventoryPreview? = null)
+    val journalInventory: JournalInventoryPreview? = null, val localBackupVerifiedAt: String? = null)
 
 internal data class EditableImportReview(
     val target: EditableImportQueue.Target,
@@ -33,7 +33,10 @@ internal data class EditableImportReview(
 /** Application-owned operations survive Activity recreation. The UI is locked while busy. */
 class DataOperations(private val app: JournalApplication, private val repository: RoomSnapshotRepository) {
     private val scope = CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
-    private val mutable = MutableStateFlow(OperationState())
+    private val protection = app.getSharedPreferences("backup-verification", android.content.Context.MODE_PRIVATE)
+    private val mutable = MutableStateFlow(OperationState(
+        localBackupVerifiedAt = protection.getString("localVerifiedAt", null),
+    ))
     val state = mutable.asStateFlow()
     private val importReviewMutable = MutableStateFlow<EditableImportReview?>(null)
     internal val importReview = importReviewMutable.asStateFlow()
@@ -55,6 +58,8 @@ class DataOperations(private val app: JournalApplication, private val repository
         }
         return repository.capture()
     }
+    internal suspend fun committedBackupSnapshot() = snapshot()
+
     private fun temp(suffix: String) = File.createTempFile("lifeapp-",suffix,app.cacheDir)
     fun export(uri: Uri, format: String) = start("Waiting for saves and preparing $format…") {
         val data=snapshot()
@@ -70,9 +75,36 @@ class DataOperations(private val app: JournalApplication, private val repository
                 require(file.length()<=BackupArchive.MAX_ARCHIVE_BYTES) { "Export exceeds 64 MiB" }
                 writeVerified(file,uri)
             }
-            if(format=="backup") "Backup created and verified. All committed records included." else "Export created and verified."
+            if (format == "backup") {
+                val verifiedAt = Clock.System.now().toString()
+                protection.edit().putString("localVerifiedAt", verifiedAt).apply()
+                mutable.value = mutable.value.copy(localBackupVerifiedAt = verifiedAt)
+                "Local backup created and verified."
+            } else "Export created and verified."
         } finally { file.delete() }
     }
+    internal fun downloadMyData(uri: Uri, sync: AndroidServerSync) = start("Preparing a portable copy of Android data…") {
+        val network = app.getSystemService(android.net.ConnectivityManager::class.java)
+        val online = network?.getNetworkCapabilities(network.activeNetwork)
+            ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        if (online && sync.state.value.username != null) withTimeoutOrNull(15_000) { sync.work(uploadOnly = false) }
+        val data = snapshot()
+        val pending = sync.state.value.let { it.pending + it.pendingImport }
+        val workspace = withContext(Dispatchers.IO) { temp(".export").apply { check(delete() && mkdir()) } }
+        try {
+            val omitted = withContext(Dispatchers.IO) {
+                val output = workspace.resolve("LifeApp-MyData.zip")
+                val omissions = UnifiedDataExport.write(output, workspace, data, pending)
+                writeVerified(output, uri)
+                omissions
+            }
+            if (omitted.isEmpty()) "Verified export of committed Android data."
+            else "Verified export of Android data. Some readable copies exceeded limits; see the manifest."
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { workspace.deleteRecursively() }
+        }
+    }
+
     internal fun bindServer(uri: Uri, sync: AndroidServerSync, preview: BindingPreview) =
         start("Creating a verified local backup before server binding…") {
             val data = snapshot()
@@ -133,17 +165,19 @@ class DataOperations(private val app: JournalApplication, private val repository
             check(importReviewMutable.value === review)
             sync.queueEditableImport(review)
             importReviewMutable.value = null
-            sync.resumeEditableImport()
+            sync.resumeEditableImport(::snapshot)
             "Approved uploads queued."
         }
 
     internal fun applyEditableDownload(sync: AndroidServerSync, review: EditableImportReview) =
         start("Downloading and validating reviewed records…") {
             check(importReviewMutable.value === review && review.downloadable.isNotEmpty())
-            val count = sync.applyReviewedDownloads(review) { applyRecordBatch(it, review.replaceExpected) }
+            val count = sync.applyReviewedDownloads(review, ::snapshot) { applyRecordBatch(it, review.replaceExpected) }
             importReviewMutable.value = null
             "Applied $count reviewed server records."
         }
+
+    internal fun resumeEditableUploads(sync: AndroidServerSync) = sync.resumeEditableImport(::snapshot)
 
     internal fun setAutomaticEditable(sync: AndroidServerSync, enabled: Boolean) {
         sync.setAutomaticEditable(enabled, ::snapshot)
@@ -216,26 +250,59 @@ class DataOperations(private val app: JournalApplication, private val repository
         }
     }
 
-    fun inspectDriveBackup(storage: CloudBackupStorage, version: CloudBackupVersion, passphrase: CharArray) {
+    fun inspectDriveBackup(storage: CloudBackupStorage, version: CloudBackupVersion, passphrase: CharArray) =
+        inspectEncryptedBackup(passphrase) { storage.download(version.id) }
+
+    internal fun inspectAutomaticBackup(version: LocalAutomaticBackup, passphrase: CharArray) =
+        inspectEncryptedBackup(passphrase) {
+            version.file.inputStream().use {
+                BackupArchive.boundedRead(it, CloudBackupEnvelope.MAX_ENVELOPE_BYTES.toLong())
+            }.also { check(BackupArchive.sha256(it) == version.hash) { "Local backup checksum did not match." } }
+        }
+
+    internal fun inspectEncryptedFile(uri: Uri, passphrase: CharArray) =
+        inspectEncryptedBackup(passphrase, uri) {
+            requireNotNull(app.contentResolver.openInputStream(uri)).use {
+                BackupArchive.boundedRead(it, CloudBackupEnvelope.MAX_ENVELOPE_BYTES.toLong())
+            }
+        }
+
+    internal fun saveAutomaticBackupCopy(uri: Uri, version: LocalAutomaticBackup) =
+        start("Saving an encrypted recovery copy…") {
+            withContext(Dispatchers.IO) {
+                check(version.file.length() in 1..CloudBackupEnvelope.MAX_ENVELOPE_BYTES.toLong())
+                val bytes = version.file.inputStream().use { BackupArchive.boundedRead(it, version.size) }
+                check(BackupArchive.sha256(bytes) == version.hash) { "Local backup checksum did not match." }
+                val copy = temp(".bin")
+                try {
+                    copy.writeBytes(bytes)
+                    writeVerified(copy, uri)
+                } finally {
+                    copy.delete()
+                }
+            }
+            "Encrypted recovery copy saved and verified."
+        }
+
+    private fun inspectEncryptedBackup(passphrase: CharArray, uri: Uri? = null, read: suspend () -> ByteArray) {
         if (mutable.value.busy) { passphrase.fill('\u0000'); return }
-        start("Downloading and validating encrypted backup…") {
+        start("Validating encrypted backup…") {
             try {
                 mutable.value.preview?.file?.delete()
                 mutable.value = mutable.value.copy(preview = null, pdfSnapshot = null)
                 snapshot()
-                val envelope = storage.download(version.id)
                 val file = temp(".zip")
                 try {
                     val backup = withContext(Dispatchers.IO) {
-                        val archive = try { CloudBackupEnvelope.open(envelope, passphrase) }
+                        val archive = try { CloudBackupEnvelope.open(read(), passphrase) }
                         catch (_: javax.crypto.AEADBadTagException) { error("Wrong passphrase or damaged encrypted backup.") }
                         try { file.writeBytes(archive) } finally { archive.fill(0) }
                         BackupArchive.read(file)
                     }
                     mutable.value = mutable.value.copy(
-                        preview = RestorePreview(file, backup, repository.capture().populated, null),
+                        preview = RestorePreview(file, backup, repository.capture().populated, uri),
                     )
-                    "Drive backup validated. Review its contents before confirming restore."
+                    "Encrypted backup validated. Review its contents before confirming restore."
                 } catch (failure: Throwable) {
                     file.delete()
                     throw failure

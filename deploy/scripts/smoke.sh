@@ -69,6 +69,54 @@ if [[ ${LIFEAPP_SMOKE_RESTORE:-0} == 1 ]]; then
   cmp "$work/recovery/trusted.sha256" "$work/archives/verified.sha256"
   test "$("${compose[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -Atc "SELECT state FROM backup_jobs ORDER BY started_at DESC LIMIT 1")" = failed
   echo 'Verified an independent download and preserved the trusted digest after an upload failure.'
+  export LIFEAPP_BACKUP_MANAGED_ID=6413fe1e-019d-4974-a990-41c1cf63d10c
+  managed="automatic-server-$LIFEAPP_BACKUP_MANAGED_ID"
+  for generation in 1 2 3; do
+    LIFEAPP_BACKUP_PRUNE=1 python3 -B deploy/backup/automatic-server-backup.py capture
+    sleep 1
+  done
+  mapfile -t kept < <(rclone --config "$LIFEAPP_BACKUP_RCLONE_CONFIG" lsf --files-only "$LIFEAPP_BACKUP_DRIVE_REMOTE/$managed" | sort)
+  test "${#kept[@]}" = 2
+  test "$(find "$work/archives/$managed" -maxdepth 1 -name '*.tar.age' | wc -l)" = 2
+  # Interrupt the next upload without changing the managed destination.
+  fail_bin="$work/interrupted-rclone"
+  mkdir "$fail_bin"
+  cat > "$fail_bin/rclone" <<'SH'
+#!/usr/bin/env bash
+if [[ ${5:-} == copyto ]]; then exit 1; fi
+exec "$LIFEAPP_DRILL_REAL_RCLONE" "$@"
+SH
+  chmod 700 "$fail_bin/rclone"
+  if PATH="$fail_bin:$PATH" LIFEAPP_DRILL_REAL_RCLONE="$(command -v rclone)" LIFEAPP_BACKUP_PRUNE=1       python3 -B deploy/backup/automatic-server-backup.py capture; then
+    echo 'Expected the interrupted managed upload to fail.' >&2
+    exit 1
+  fi
+  mapfile -t after_failure < <(rclone --config "$LIFEAPP_BACKUP_RCLONE_CONFIG" lsf --files-only "$LIFEAPP_BACKUP_DRIVE_REMOTE/$managed" | sort)
+  test "${kept[*]}" = "${after_failure[*]}"
+  test "$(find "$work/archives/$managed" -maxdepth 1 -name '*.tar.age' | wc -l)" = 3
+  pending=$(python3 - "$work/archives/$managed" <<'PYCODE'
+import json
+from pathlib import Path
+import sys
+entries = list(Path(sys.argv[1]).glob("server-*.json"))
+pending = [(path, json.loads(path.read_text())) for path in entries]
+path, value = next((path, value) for path, value in pending if not value["uploaded"])
+assert value["attempts"] == 1 and value["retryAt"] > 0
+value["retryAt"] = 0
+path.write_text(json.dumps(value))
+print(value["name"])
+PYCODE
+)
+  LIFEAPP_BACKUP_PRUNE=1 python3 -B deploy/backup/automatic-server-backup.py retry
+  mapfile -t kept < <(rclone --config "$LIFEAPP_BACKUP_RCLONE_CONFIG" lsf --files-only "$LIFEAPP_BACKUP_DRIVE_REMOTE/$managed" | sort)
+  test "${#kept[@]}" = 2
+  test "${kept[1]}" = "$pending"
+  test "$(find "$work/archives/$managed" -maxdepth 1 -name '*.tar.age' | wc -l)" = 2
+  name=${kept[1]}
+  digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$work/archives/$managed/$name.json")
+  printf '%s  %s\n' "$digest" "$name" > "$work/recovery/automatic.sha256"
+  (cd "$work/recovery" && "$download" "${LIFEAPP_DRILL_DOWNLOAD_RCLONE_CONFIG:-$LIFEAPP_BACKUP_RCLONE_CONFIG}"     "$LIFEAPP_BACKUP_DRIVE_REMOTE/$managed" automatic.sha256 "$name")
+  echo 'Automatic capture retained two verified local and remote generations.'
   restore=(docker compose -p "$restore_project" -f deploy/compose.yaml)
   "${restore[@]}" up -d --wait --wait-timeout 90 db
   python3 deploy/backup/database-backup.py --project "$restore_project" restore \

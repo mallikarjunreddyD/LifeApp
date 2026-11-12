@@ -121,3 +121,12 @@ and never cache private API responses in the service worker.
 For Android server sync changes, run the normal Android emulator suite and
 `LIFEAPP_ANDROID_BRIDGE=1 apps/web/scripts/test-browser.sh` with a disposable
 API 36 emulator. Keep test TLS credentials and server data temporary.
+
+## Phase 7G protection
+
+Keep sync, automatic backups and data export independent. Preserve reviewed
+binding and outbox receipts. For managed retention, verify both survivors
+before destructive remote cleanup and keep manual copies outside scope.
+Use a disposable dataset and rclone destination for backup tests. Keep
+Android recovery credentials independently recoverable and protected by
+Keystore when cached. Never activate production timers or pruning from a PR.
