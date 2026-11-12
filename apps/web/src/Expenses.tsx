@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { LifeStore } from './store.ts';
 import { expenseDecimal, expenseIcons, expenseNameKey, formatExpensePaise, parseExpensePaise } from './expense.ts';
 import type { Expense, ExpenseLabel, ExpenseRecord, Icon, LabelKind } from './expense.ts';
@@ -19,6 +19,15 @@ export function Expenses({ store }: { store: LifeStore }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const reveal = useRef<string | null>(null);
+  useEffect(() => {
+    if (page !== 'history' || !reveal.current) return;
+    const card = document.getElementById('expense-' + reveal.current);
+    if (card) {
+      card.scrollIntoView({ block: 'nearest' });
+      reveal.current = null;
+    }
+  }, [page, records]);
 
   useEffect(() => {
     let live = true;
@@ -95,7 +104,7 @@ export function Expenses({ store }: { store: LifeStore }) {
       <div className="expense-history">
         {visible.map(item => {
           const label = names.get(item.categoryId);
-          return <article key={item.metadata.id} className="card expense-card">
+          return <article id={'expense-' + item.metadata.id} key={item.metadata.id} className="card expense-card">
             <h3><span aria-hidden="true" style={{ color: label ? '#' + label.color.toString(16).padStart(6, '0') : undefined }}>
               {label ? expenseIcons[label.icon] : '○'}</span> {item.name}</h3>
             <strong>{formatExpensePaise(BigInt(item.amountMinor))}</strong>
@@ -125,6 +134,7 @@ export function Expenses({ store }: { store: LifeStore }) {
           setCategory('');
           setPayment('');
           setDeleted(false);
+          reveal.current = value.metadata.id;
           setPage('history');
         })} />)}
   </section>;

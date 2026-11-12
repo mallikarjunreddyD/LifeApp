@@ -3,6 +3,7 @@ package com.myjournal.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -24,9 +25,15 @@ import kotlin.uuid.Uuid
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ExpenseScreen(repository: ExpenseRepository, today: LocalDate) {
+fun ExpenseScreen(
+    repository: ExpenseRepository,
+    today: LocalDate,
+    backHandler: @Composable (Boolean, () -> Unit) -> Unit = { _, _ -> },
+) {
     var ledger by remember { mutableStateOf<ExpenseLedger?>(null) }
     var screen by rememberSaveable { mutableStateOf("history") }
+    var revealId by rememberSaveable { mutableStateOf<String?>(null) }
+    val historyPosition = rememberLazyListState()
     var month by rememberSaveable { mutableStateOf(JournalMonth.from(today).toString()) }
     var monthInput by rememberSaveable { mutableStateOf(month) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -82,6 +89,7 @@ fun ExpenseScreen(repository: ExpenseRepository, today: LocalDate) {
         notice = null
         screen = value
     }
+    backHandler(screen != "history" && !busy) { navigate("history") }
     if (screen != "history") {
         Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -115,6 +123,7 @@ fun ExpenseScreen(repository: ExpenseRepository, today: LocalDate) {
                             payment = ""
                             deleted = false
                             screen = "history"
+                            revealId = expense.metadata.id.toString()
                         }
                     })
                 }
@@ -128,7 +137,15 @@ fun ExpenseScreen(repository: ExpenseRepository, today: LocalDate) {
         (category.isEmpty() || it.categoryId.toString() == category) &&
         (payment.isEmpty() || it.paymentMethodId.toString() == payment) }
 
-    LazyColumn(Modifier.fillMaxSize().imePadding().testTag("expense-history"), contentPadding = PaddingValues(20.dp),
+    LaunchedEffect(revealId, visible) {
+        val id = revealId ?: return@LaunchedEffect
+        val index = visible.indexOfFirst { it.metadata.id.toString() == id }
+        if (index >= 0) {
+            historyPosition.scrollToItem(if (index == 0) 0 else index + 1)
+            revealId = null
+        }
+    }
+    LazyColumn(Modifier.fillMaxSize().imePadding().testTag("expense-history"), state = historyPosition, contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("Expenses", style = MaterialTheme.typography.headlineMedium)

@@ -85,7 +85,11 @@ class MainActivity : ComponentActivity() {
             JournalApp(dailyJournal = { DailyJournalScreen(model) },
                 monthlyPlanner = { MonthlyPlannerScreen(model) }, habitTracker = { HabitTrackerScreen(model) },
                 notebook = { NotebookScreen(model) }, settings = { SettingsScreen(applicationState.operations, applicationState.serverSync) },
-                expenses = { com.myjournal.ui.ExpenseScreen(applicationState.expenses, today()) },
+                expenses = {
+                    com.myjournal.ui.ExpenseScreen(applicationState.expenses, today()) { enabled, back ->
+                        BackHandler(enabled, onBack = back)
+                    }
+                },
                 workouts = {
                     com.myjournal.ui.WorkoutScreen(
                         applicationState.workouts,

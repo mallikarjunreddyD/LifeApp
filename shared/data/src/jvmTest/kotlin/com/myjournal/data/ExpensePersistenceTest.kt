@@ -20,9 +20,13 @@ class ExpensePersistenceTest {
         fun open(file: File) = Room.databaseBuilder<FoundationDatabase>(file.path)
             .setDriver(BundledSQLiteDriver()).setQueryCoroutineContext(Dispatchers.IO)
             .addMigrations(MIGRATION_9_10).build()
+        suspend fun inDatabase(path: File, action: suspend (FoundationDatabase) -> Unit) {
+            val database = open(path)
+            try { action(database) } finally { database.close() }
+        }
         try {
             val workout = ExerciseDefinition(newRecordMetadata(), "Existing exercise")
-            open(file).use { RoomWorkoutRepository(it).saveExercise(workout) }
+            inDatabase(file) { RoomWorkoutRepository(it).saveExercise(workout) }
             val identity = Json.parseToJsonElement(
                 File("schemas/com.myjournal.data.FoundationDatabase/9.json").readText(),
             ).jsonObject.getValue("database").jsonObject.getValue("identityHash").jsonPrimitive.content
@@ -34,7 +38,7 @@ class ExpensePersistenceTest {
             val archive = root.resolve("recovery.zip")
             val oldArchive = root.resolve("pre-expense.zip")
             BackupArchive.write(oldArchive, JournalSnapshot(workoutLog = WorkoutLog(exercises = listOf(workout))))
-            open(file).use { database ->
+            inDatabase(file) { database ->
                 val snapshots = RoomSnapshotRepository(database)
                 assertEquals(workout, snapshots.capture().workoutLog.exercises.single())
                 val expenses = RoomExpenseRepository(database)
@@ -65,7 +69,7 @@ class ExpensePersistenceTest {
                 assertEquals(snapshot.canonical(), restored.canonical())
                 assertTrue(restored.expenseLedger.expenses.single { it.metadata.id == record.metadata.id }.deleted)
             }
-            open(file).use { database ->
+            inDatabase(file) { database ->
                 val expenses = RoomExpenseRepository(database)
                 val snapshot = RoomSnapshotRepository(database)
                 val prior = expenses.observe().first().expenses.single { it.deleted }
@@ -75,7 +79,7 @@ class ExpensePersistenceTest {
                 assertTrue(expenses.observe().first().expenses.isEmpty())
                 assertEquals(workout, snapshot.capture().workoutLog.exercises.single())
             }
-            open(root.resolve("receiver.db")).use { database ->
+            inDatabase(root.resolve("receiver.db")) { database ->
                 val snapshots = RoomSnapshotRepository(database)
                 val expected = BackupArchive.read(archive).snapshot
                 snapshots.replace(expected)
