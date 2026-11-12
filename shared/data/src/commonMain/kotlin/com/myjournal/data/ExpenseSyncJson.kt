@@ -33,7 +33,7 @@ object ExpenseSyncJson {
             })
     }
 
-    private fun wireRecord(record: JsonObject): JsonObject {
+    internal fun wireRecord(record: JsonObject): JsonObject {
         val meta = record.getValue("metadata").jsonObject
         return JsonObject(record + ("metadata" to JsonObject(meta + ("revision" to
             JsonPrimitive(meta.getValue("revision").jsonPrimitive.content)))))

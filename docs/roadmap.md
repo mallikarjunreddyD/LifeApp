@@ -46,5 +46,5 @@ encrypted recovery and a unified local data export. Live backup scheduling
 and independent recovery must pass [operational acceptance](phase-7g-acceptance.md).
 
 Phase 8A introduces the offline [Expense Tracker](phase-8-expense-tracker.md).
-The subsequent milestones add synchronization, spending charts and unified
-export and recovery acceptance.
+8B adds authenticated synchronization, 8C adds spending charts, and 8D adds
+unified export and recovery coverage. See [Phase 8 acceptance](phase-8-acceptance.md).

@@ -111,8 +111,10 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
             const record = recordOf(version);
             return <p key={version.id}><button onClick={() => void sync.resolve(version.id, heads.map(head => head.id))}>
               Keep {record.value.name}{record.kind === 'expense'
-                ? ` · ${formatExpensePaise(BigInt(record.value.amountMinor))} · ${record.value.date}${record.value.deleted ? ' · Deleted' : ''}`
-                : record.value.archived ? ' · Archived' : ''}
+                ? ' · ' + [formatExpensePaise(BigInt(record.value.amountMinor)), record.value.date,
+                  names.get(record.value.categoryId)?.name, names.get(record.value.paymentMethodId)?.name,
+                  record.value.remarks, record.value.deleted ? 'Deleted' : ''].filter(Boolean).join(' · ')
+                : ` · ${expenseIcons[record.value.icon]} · #${record.value.color.toString(16).padStart(6, '0')}${record.value.archived ? ' · Archived' : ''}`}
             </button></p>;
           })}
         </article>)}

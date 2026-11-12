@@ -123,8 +123,7 @@ class RoomExpenseRepository(private val database: FoundationDatabase) : ExpenseR
     suspend fun replay(scope: SyncScope, cursor: Long, entries: List<CommittedExpense>) = write {
         val state = requireNotNull(syncState())
         check(state.scope == scope && state.cursor == cursor)
-        val next = state.replay(entries)
-        saveProjection(next)
+        if (entries.isNotEmpty()) saveProjection(state.replay(entries))
     }
 
     suspend fun rejectResolution(scope: SyncScope, id: Uuid) = write {
@@ -163,7 +162,7 @@ class RoomExpenseRepository(private val database: FoundationDatabase) : ExpenseR
 
     internal suspend fun capture() = decode(dao.all())
 
-    internal suspend fun restore(ledger: ExpenseLedger) {
+    internal suspend fun restore(ledger: ExpenseLedger, backupSync: ExpenseSyncState?) {
         ledger.validate()
         if (syncState() != null) {
             check(capture().canonical() == ledger.canonical()) {
@@ -174,6 +173,7 @@ class RoomExpenseRepository(private val database: FoundationDatabase) : ExpenseR
         dao.clear()
         ledger.labels.forEach { dao.save(it.row()) }
         ledger.expenses.forEach { dao.save(it.row()) }
+        backupSync?.let { saveState(it) }
     }
 
     private suspend fun write(action: suspend () -> Unit) {

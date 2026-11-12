@@ -37,6 +37,18 @@ class ExpenseUiTest {
         rule.waitUntil(15_000) { rule.onAllNodesWithText("Recent Expenses").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("expense-history").performScrollToNode(hasText("Expense fixture"))
         capture("expense-history")
+        rule.onNodeWithTag("expense-history").performScrollToNode(hasText("View Spending Analysis"))
+        rule.onNodeWithText("View Spending Analysis").performClick()
+        rule.onNodeWithText("Total expenditure").assertIsDisplayed()
+        rule.onNodeWithText("₹1,250.75").assertIsDisplayed()
+        rule.onNodeWithText("Yearly").performClick()
+        rule.onNodeWithText("₹1,250.75").assertIsDisplayed()
+        rule.onNodeWithText("Fixture gym").performScrollTo().assertIsDisplayed()
+        capture("expense-analytics")
+        rule.onNodeWithText("Year (YYYY)").performScrollTo().performTextReplacement("1900")
+        rule.onNodeWithText("No expenses recorded for this period.").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Back to Expenses").performScrollTo().performClick()
+        rule.onNodeWithTag("expense-history").performScrollToNode(hasText("Expense fixture"))
         rule.onNodeWithText("Delete", substring = false).performClick()
         rule.onNodeWithText("Confirm Delete").performClick()
         rule.waitUntil(15_000) { runBlocking { repository.observe().first().expenses.single { it.metadata.id == expense.metadata.id }.deleted } }

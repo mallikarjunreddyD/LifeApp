@@ -1,13 +1,14 @@
 # Phase 8 expense tracker
 
-Phase 8A adds Expenses to Android and the PWA. Open Expenses, choose Add
-Expense, enter the rupee amount, name and date, then choose a category and
-payment method. Search for a new label and choose Create to save and select
-it immediately. Save returns to the recorded month. History offers category,
-payment and name filters. The monthly summary excludes deleted expenses.
+Open **Expenses → Add Expense** on Android or the PWA. Enter an amount and name,
+choose a category and payment method, and save. The date defaults to the device's
+calendar date. Create reusable labels from the entry form or manage them from
+history. Use **Recently Deleted** to restore an expense.
 
-Phase 8B is reserved for authenticated synchronization, receipts, durable
-outboxes and conflict review. Phase 8C adds on-demand monthly and yearly
-category charts. Phase 8D adds CSV and JSON to Download My Data and validates
-server backup and production acceptance. Each milestone uses the preceding
-reviewed, merged milestone.
+- **8A** adds offline entry, reusable labels, monthly history and filters.
+- **8B** adds optional [authenticated synchronization](expense-sync.md) and conflict review.
+- **8C** adds [monthly and yearly spending analysis](expense-analytics.md).
+- **8D** extends [portable recovery](backup-format.md) and [Download My Data](unified-export.md)
+  with expenses and validates PostgreSQL recovery.
+
+See [Phase 8 acceptance](phase-8-acceptance.md) for physical testing and rollout.

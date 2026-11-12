@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.json.*
 import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class ExpensePersistenceTest {
     @Test fun versionNineUpgradeAndPortableRestorePreserveRecordsAndTombstones() = runTest {
@@ -86,5 +87,53 @@ class ExpensePersistenceTest {
                 assertEquals(expected.canonical(), snapshots.capture().canonical())
             }
         } finally { root.deleteRecursively() }
+    }
+
+    @Test fun connectedArchivePreservesOutboxAndRejectsReplacingNewerConnectedRecords() = runTest {
+        val root = Files.createTempDirectory("expense-connected-archive").toFile()
+        fun open(name: String) = Room.databaseBuilder<FoundationDatabase>(root.resolve(name).path)
+            .setDriver(BundledSQLiteDriver()).setQueryCoroutineContext(Dispatchers.IO).build()
+        suspend fun inDatabase(name: String, action: suspend (FoundationDatabase) -> Unit) {
+            val database = open(name)
+            try { action(database) } finally { database.close() }
+        }
+        try {
+            val archive = root.resolve("connected.zip")
+            inDatabase("source.db") { db ->
+                val expenses = RoomExpenseRepository(db)
+                val snapshots = RoomSnapshotRepository(db)
+                expenses.seed()
+                val ledger = snapshots.capture().expenseLedger
+                expenses.bind(SyncScope(Uuid.random(), Uuid.random()), "https://life.example", ledger)
+                val record = Expense(newRecordMetadata(), LocalDate(2026, 11, 1), "=HYPERLINK()", 103,
+                    ledger.labels.first { it.kind == ExpenseLabelKind.CATEGORY }.metadata.id,
+                    ledger.labels.first { it.kind == ExpenseLabelKind.PAYMENT }.metadata.id, "a, \"quote\"")
+                expenses.saveExpense(record, null)
+                val before = snapshots.capture()
+                assertEquals(11, before.dataSchemaVersion)
+                assertEquals(18, before.expenseSync?.pending?.size)
+                val csv = ExpenseExport.csv(before.expenseLedger)
+                assertContains(csv, "\"'=HYPERLINK()\",1.03,INR")
+                assertContains(csv, "\"a, \"\"quote\"\"\"")
+                assertContains(ExpenseExport.json(before.expenseLedger).getValue("expenses.json").toString(), "\"amountMinor\":\"103\"")
+                BackupArchive.write(archive, before)
+                val recovered = BackupArchive.read(archive).snapshot
+                assertEquals(before.canonical(), recovered.canonical())
+                expenses.setDeleted(record.metadata.id, true, 1)
+                assertFailsWith<IllegalStateException> { snapshots.replace(recovered) }
+                val current = snapshots.capture()
+                assertTrue(current.expenseLedger.expenses.single().deleted)
+                assertEquals(19, current.expenseSync?.pending?.size)
+                assertFalse(ExpenseExport.csv(current.expenseLedger).contains(record.name))
+            }
+            inDatabase("receiver.db") { db ->
+                val snapshots = RoomSnapshotRepository(db)
+                val recovered = BackupArchive.read(archive).snapshot
+                snapshots.replace(recovered)
+                assertEquals(recovered.canonical(), snapshots.capture().canonical())
+            }
+        } finally {
+            root.deleteRecursively()
+        }
     }
 }

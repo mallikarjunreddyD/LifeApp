@@ -19,7 +19,7 @@ export function ExpenseAnalysis({ items, labels, initialMonth }: {
     return color + ' ' + Number(start * 1_000_000n / result.total) / 10_000 + '% ' +
       Number(running * 1_000_000n / result.total) / 10_000 + '%';
   });
-  return <section className="card">
+  return <section className="card expense-analysis">
     <div className="actions">
       <button aria-pressed={!yearly} onClick={() => setYearly(false)}>Monthly</button>
       <button aria-pressed={yearly} onClick={() => setYearly(true)}>Yearly</button>
@@ -29,11 +29,14 @@ export function ExpenseAnalysis({ items, labels, initialMonth }: {
     {result ? <>
       <h2>Total expenditure</h2>
       <p><strong>{formatExpensePaise(result.total)}</strong></p>
-      {slices?.length ? <>
+      {slices?.length ? <div className="expense-breakdown">
         <div aria-hidden="true" className="expense-pie" style={{ background: 'conic-gradient(' + slices.join(', ') + ')' }} />
         <ul>{result.categories.map(({ category, amount }) =>
-          <li key={category.metadata.id}>{category.name} · {formatExpensePaise(amount)} · {expenseShare(amount, result.total)}</li>)}</ul>
-      </> : <p>No expenses recorded for this period.</p>}
+          <li key={category.metadata.id}>
+            <span aria-hidden="true" className="expense-swatch" style={{ backgroundColor: '#' + category.color.toString(16).padStart(6, '0') }} />
+            {category.name} · {formatExpensePaise(amount)} · {expenseShare(amount, result.total)}
+          </li>)}</ul>
+      </div> : <p>No expenses recorded for this period.</p>}
     </> : <p>Enter a valid {yearly ? 'year' : 'month'}.</p>}
   </section>;
 }

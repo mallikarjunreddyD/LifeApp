@@ -24,5 +24,7 @@ persisted deadline with bounded exponential delay. Backup & Recovery
 reads the authenticated server status endpoint. That status reflects
 reported verification, and it does not establish that a timer is enabled.
 
-Android full snapshots include the local Phase 8A expense ledger. Existing
-enrollment, encryption and restore safeguards apply to schema 10.
+Android full snapshots include expense records, heads, checkpoint and pending
+operations. PostgreSQL manifest version 3 checks expense operation and head
+counts from the same snapshot as the dump. Readers also accept versions 1 and 2.
+The existing backup schedule, retention and encryption safeguards apply.

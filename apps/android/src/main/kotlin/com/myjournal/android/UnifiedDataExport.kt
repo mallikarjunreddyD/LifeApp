@@ -1,6 +1,7 @@
 package com.myjournal.android
 
 import com.myjournal.data.BackupArchive
+import com.myjournal.data.ExpenseExport
 import com.myjournal.data.MarkdownExport
 import com.myjournal.domain.JournalMonth
 import com.myjournal.domain.JournalSnapshot
@@ -34,7 +35,7 @@ internal object UnifiedDataExport {
             fun append(path: String, source: File, required: Boolean = false) {
                 val length = source.length()
                 if (length <= 0 || length > MAX_BYTES - size - 1024 * 1024) {
-                    check(!required) { "The portable recovery archive exceeds the export limit." }
+                    check(!required) { "Required export files exceed the export limit." }
                     omitted += "$path exceeds the export size limit."
                     return
                 }
@@ -57,6 +58,13 @@ internal object UnifiedDataExport {
                     "Store this unencrypted export privately.\n",
             )
             append("README.txt", scratch, required = true)
+
+            for ((name, content) in ExpenseExport.json(snapshot.expenseLedger)) {
+                scratch.writeText(content.toString())
+                append("expenses/$name", scratch, required = true)
+            }
+            scratch.writeText(ExpenseExport.csv(snapshot.expenseLedger))
+            append("expenses/expenses.csv", scratch, required = true)
 
             suspend fun pdf(name: String, pages: List<com.myjournal.domain.ExportPage>) {
                 if (pages.isEmpty()) return
@@ -94,8 +102,8 @@ internal object UnifiedDataExport {
                 put("createdAt", Clock.System.now().toString())
                 put("source", "android-local")
                 put("completeAcrossDevices", false)
-                put("knownQueuedChanges", waiting)
-                put("coverage", "Committed Android records only. Remote and unsynchronized records are not included.")
+                put("knownQueuedChanges", waiting + (snapshot.expenseSync?.pending?.size ?: 0))
+                put("coverage", "Committed Android records, including queued local expenses. Changes on other devices may be missing.")
                 put("recordCounts", buildJsonObject { snapshot.counts().forEach { (name, count) -> put(name, count) } })
                 put("files", buildJsonArray {
                     for ((path, file) in included) add(buildJsonObject {

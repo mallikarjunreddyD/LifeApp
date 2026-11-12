@@ -24,6 +24,7 @@ object SnapshotJson {
             put("notebookPages", JsonArray(snapshot.notebookPages.map { encodeBookPage(it) }))
             put("todos", JsonArray(snapshot.todos.map(::encodeTodo)))
             if (snapshot.dataSchemaVersion >= 10) put("expenses", snapshot.expenseLedger.expenseJson())
+            snapshot.expenseSync?.let { put("expenseSync", ExpenseSyncJson.state(it)) }
             if (snapshot.dataSchemaVersion >= 7) put("workouts", snapshot.workoutLog.workoutJson())
             put("strokes", JsonArray(snapshot.strokes.map { stroke -> buildJsonObject {
                 put("metadata", encodeMeta(stroke.metadata)); put("surfaceId", stroke.pageId.toString())
@@ -38,7 +39,7 @@ object SnapshotJson {
         checkJsonSizeAndDepth(text)
         val root = json.parseToJsonElement(text).jsonObject
         require(root.getValue("format").jsonPrimitive.content == "LifeAppRecords")
-        require(root.getValue("formatVersion").jsonPrimitive.int == 1 && root.getValue("dataSchemaVersion").jsonPrimitive.int in 4..10) { "Unsupported record format/schema" }
+        require(root.getValue("formatVersion").jsonPrimitive.int == 1 && root.getValue("dataSchemaVersion").jsonPrimitive.int in 4..11) { "Unsupported record format/schema" }
         val dataVersion = root.getValue("dataSchemaVersion").jsonPrimitive.int
         require(expectedDataSchemaVersion == null || expectedDataSchemaVersion == dataVersion) { "Manifest and record schema disagree" }
         root.getValue("journals").jsonArray.forEach { entry -> entry.jsonObject.getValue("pages").jsonArray.forEach { page ->
@@ -48,6 +49,7 @@ object SnapshotJson {
         } }
         require(dataVersion >= 6 || "todos" !in root) { "Unexpected To-do section" }
         require(("expenses" in root) == (dataVersion >= 10)) { "Invalid expense section" }
+        require(("expenseSync" in root) == (dataVersion >= 11)) { "Invalid expense sync section" }
         require(("workouts" in root) == (dataVersion >= 7)) { "Invalid workout section" }
         return with(root) { JournalSnapshot(
             getValue("metadata").jsonArray.map { decodeMeta(it.jsonObject) },
@@ -71,6 +73,7 @@ object SnapshotJson {
             if (dataVersion >= 6) getValue("todos").jsonArray.map { decodeTodo(it.jsonObject) } else emptyList(),
             if (dataVersion >= 7) decodeWorkoutLog(getValue("workouts").jsonObject) else WorkoutLog(),
             if (dataVersion >= 10) getValue("expenses").jsonObject.expenseLedger() else ExpenseLedger(),
+            if (dataVersion >= 11) ExpenseSyncJson.state(getValue("expenseSync").jsonObject) else null,
         ).also { it.validate() } }
     }
 }

@@ -169,6 +169,7 @@ export class LifeStore {
     await this.use('readwrite', async tx => {
       const state = await this.requireExpenseScope(tx, scope);
       if (cursor !== state.cursor) throw new Error('Expense checkpoint changed.');
+      if (!entries.length) return;
       for (const commit of entries) {
         if (commit.sequence !== nextSequence(state.cursor)) throw new Error('Expense feed has a gap.');
         const queued = state.pending.find(item => item.id === commit.operation.id);
@@ -363,10 +364,12 @@ export class LifeStore {
     return this.use('readonly', tx => this.readLocalView(tx));
   }
 
-  async workoutExportSnapshot(): Promise<{ view: LocalView; workouts: WorkoutRecord[] }> {
+  async exportSnapshot() {
     return this.use('readonly', async tx => ({
       view: await this.readLocalView(tx),
       workouts: await result(tx.workouts.getAll()) as WorkoutRecord[],
+      expenses: await result(tx.expenses.getAll()) as ExpenseRecord[],
+      expensePending: ((await result(tx.settings.get('expense-sync'))) as ExpenseSyncState | undefined)?.pending.length ?? 0,
     }));
   }
 
