@@ -160,6 +160,14 @@ test('exact INR and offline expense CRUD survive reopening', async () => {
     assert.equal(deleted.metadata.revision, '2');
     assert.equal(deleted.amountMinor, '125075');
     assert.deepEqual(saved.find(item => !item.deleted), other);
+    const { expenseSpending } = await import('../src/expenseAnalytics.ts');
+    const archived = { ...category, name: 'Renamed', archived: true };
+    const spending = [...saved, { ...other, date: '2024-01-01', amountMinor: '1' }, { ...other, date: '2025-01-01' }];
+    assert.equal(expenseSpending(spending, [archived], '2024-02').total, 125075n);
+    assert.deepEqual(expenseSpending(spending, [archived], '2024'), {
+      total: 125076n, categories: [{ category: archived, amount: 125076n }],
+    });
+    assert.equal(expenseSpending(spending, [archived], '2024-12').total, 0n);
     await assert.rejects(reopened.saveExpense({ kind: 'expense', value: { ...value, metadata: revise(value.metadata) } }, '1'));
     await reopened.setExpenseDeleted(value.metadata.id, false, '2');
     assert.ok((await reopened.expenseRecords()).every(record => record.kind !== 'expense' || !record.value.deleted));
