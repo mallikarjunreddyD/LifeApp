@@ -169,6 +169,7 @@ export class LifeStore {
     await this.use('readwrite', async tx => {
       const state = await this.requireExpenseScope(tx, scope);
       if (cursor !== state.cursor) throw new Error('Expense checkpoint changed.');
+      if (!entries.length) return;
       for (const commit of entries) {
         if (commit.sequence !== nextSequence(state.cursor)) throw new Error('Expense feed has a gap.');
         const queued = state.pending.find(item => item.id === commit.operation.id);

@@ -123,8 +123,7 @@ class RoomExpenseRepository(private val database: FoundationDatabase) : ExpenseR
     suspend fun replay(scope: SyncScope, cursor: Long, entries: List<CommittedExpense>) = write {
         val state = requireNotNull(syncState())
         check(state.scope == scope && state.cursor == cursor)
-        val next = state.replay(entries)
-        saveProjection(next)
+        if (entries.isNotEmpty()) saveProjection(state.replay(entries))
     }
 
     suspend fun rejectResolution(scope: SyncScope, id: Uuid) = write {

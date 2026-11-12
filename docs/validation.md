@@ -486,3 +486,21 @@ Room version 9 upgrade, IndexedDB version 2 upgrade, tombstones and
 portable schema 10 restore. The Android and mobile Chromium suites exercise
 inline label creation and recoverable deletion. Physical-device testing,
 expense synchronization and the Phase 8D consolidated export remain open.
+
+## Phase 8B–8D expenses
+
+Local checks passed for 102 JVM tests across core, domain and Room data,
+Android debug and instrumentation APK assembly, Android lint, seven web
+unit tests, and eight Playwright scenarios against disposable PostgreSQL.
+The browser scenarios cover offline expense entry, cross-client replay and
+deletion, monthly/yearly analytics, and ZIP manifest hashes. The first
+cross-client run found that the PWA rejected zero-valued inventory counts
+and initial cursors. The decoder now accepts zero for those fields and
+continues to require positive receipt sequences.
+
+The Phase 8D Android server bridge exercises Room expense upload and PWA
+edits over HTTPS. The deployment smoke test compares the expense operation
+feed before and after isolated encrypted PostgreSQL recovery. These checks
+run in GitHub Actions. Physical Xiaomi Pad 7, iPhone Safari and Windows
+desktop acceptance, persistent-key in-place update, and production rollout
+are tracked in [Phase 8 acceptance](phase-8-acceptance.md).
