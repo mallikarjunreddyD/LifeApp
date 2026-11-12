@@ -145,8 +145,12 @@ class ServerSyncIntegrationTest {
                 state.pending.filterNot { it.id in state.acknowledged }.forEach { operation ->
                     expenses.acknowledge(expenseScope, api.pushExpense(credential.session, credential.token, operation))
                 }
-                val (entries, _) = api.pullExpenses(credential.session, credential.token, state.cursor)
-                expenses.replay(expenseScope, state.cursor, entries)
+                var cursor = state.cursor
+                do {
+                    val (entries, more) = api.pullExpenses(credential.session, credential.token, cursor)
+                    expenses.replay(expenseScope, cursor, entries)
+                    cursor = requireNotNull(expenses.syncState()).cursor
+                } while (more)
             }
             syncExpenses()
             assertTrue(requireNotNull(expenses.syncState()).pending.isEmpty())

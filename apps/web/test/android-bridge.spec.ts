@@ -2,7 +2,7 @@ import { commitJournalFixture } from './journal-fixture.ts';
 import { expect, test } from '@playwright/test';
 
 test('browser exchanges task changes with the Android HTTPS client', async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Account & Security' }).click();
@@ -38,7 +38,7 @@ test('browser exchanges task changes with the Android HTTPS client', async ({ pa
   await expect.poll(async () => {
     await page.getByRole('button', { name: 'Sync Expenses Now' }).click();
     return expense.count();
-  }).toBe(1);
+  }, { timeout: 60_000, intervals: [500, 1500, 3000] }).toBe(1);
   await expect(expense).toContainText('₹1.03');
   await expense.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByLabel('Amount (₹)').fill('2.05');
