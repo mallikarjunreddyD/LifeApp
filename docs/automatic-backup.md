@@ -23,3 +23,6 @@ encryption. Failed uploads retain their ciphertext and retry using a
 persisted deadline with bounded exponential delay. Backup & Recovery
 reads the authenticated server status endpoint. That status reflects
 reported verification, and it does not establish that a timer is enabled.
+
+Android full snapshots include the local Phase 8A expense ledger. Existing
+enrollment, encryption and restore safeguards apply to schema 10.

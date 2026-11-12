@@ -33,6 +33,7 @@ class JournalApplication : Application() {
         automaticBackup.schedule()
     }
     private val database by lazy { openJournalDatabase(this) }
+    val expenses by lazy { RoomExpenseRepository(database) }
     val workouts by lazy { com.myjournal.data.RoomWorkoutRepository(database) }
     val todos by lazy { RoomTodoRepository(database) }
     internal val serverSync by lazy { AndroidServerSync(this, todos) }

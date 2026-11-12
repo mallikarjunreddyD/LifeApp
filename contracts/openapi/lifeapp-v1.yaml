@@ -496,6 +496,7 @@ paths:
     put:
       operationId: stageEditableRecord
       description: Validate and stage an archive containing a single journal entry, planner, habit ledger, or notebook and its children.
+        Expenses remain device-local in Phase 8A.
       parameters:
       - $ref: '#/components/parameters/EditableVersion'
       - $ref: '#/components/parameters/EditableDataset'

@@ -478,3 +478,11 @@ two survive at both destinations, and restores the newest verified copy.
 
 Live Google Drive authorization, scheduled production execution, and
 independent recovery on physical Android and iPhone remain operator checks.
+
+## Phase 8A expense foundation
+
+The expense fixtures cover exact paise, local dates, references, revisions,
+Room version 9 upgrade, IndexedDB version 2 upgrade, tombstones and
+portable schema 10 restore. The Android and mobile Chromium suites exercise
+inline label creation and recoverable deletion. Physical-device testing,
+expense synchronization and the Phase 8D consolidated export remain open.

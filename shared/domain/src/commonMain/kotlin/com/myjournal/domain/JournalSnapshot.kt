@@ -7,11 +7,13 @@ import kotlin.uuid.Uuid
 data class JournalSnapshot(val metadata: List<RecordMetadata> = emptyList(), val journals: List<JournalEntry> = emptyList(),
     val planners: List<MonthlyPlanner> = emptyList(), val habits: List<MonthlyHabitLedger> = emptyList(),
     val notebooks: List<Notebook> = emptyList(), val notebookPages: List<NotebookPage> = emptyList(),
-    val strokes: List<InkStroke> = emptyList(), val todos: List<Todo> = emptyList(), val workoutLog: WorkoutLog = WorkoutLog()) {
+    val strokes: List<InkStroke> = emptyList(), val todos: List<Todo> = emptyList(), val workoutLog: WorkoutLog = WorkoutLog(),
+    val expenseLedger: ExpenseLedger = ExpenseLedger()) {
     val records get() = metadata + journals.flatMap { listOf(it.metadata) + it.pages.map { p -> p.metadata } } +
         planners.map { it.metadata } + habits.flatMap { listOf(it.metadata) + it.habits.map { h -> h.metadata } + it.completions.map { c -> c.metadata } } +
-        notebooks.map { it.metadata } + notebookPages.map { it.metadata } + strokes.map { it.metadata } + todos.map { it.metadata } + workoutLog.records
+        notebooks.map { it.metadata } + notebookPages.map { it.metadata } + strokes.map { it.metadata } + todos.map { it.metadata } + workoutLog.records + expenseLedger.records
     val dataSchemaVersion get() = when {
+        expenseLedger.records.isNotEmpty() -> 10
         workoutLog.exercises.any { it.description != null } || workoutLog.sessions.any { session ->
             session.logged || session.deleted || session.routineId != null || session.entries.any { it.remarks != null }
         } -> 9
@@ -23,6 +25,11 @@ data class JournalSnapshot(val metadata: List<RecordMetadata> = emptyList(), val
         "journalPages" to journals.sumOf { it.pages.size }, "planners" to planners.size, "habitLedgers" to habits.size,
         "habitDefinitions" to habits.sumOf { it.habits.size }, "habitCompletions" to habits.sumOf { it.completions.size },
         "notebooks" to notebooks.size, "notebookPages" to notebookPages.size, "strokes" to strokes.size, "todos" to todos.size).apply {
+        if (dataSchemaVersion >= 10) {
+            put("expenses", expenseLedger.expenses.size)
+            put("expenseCategories", expenseLedger.labels.count { it.kind == ExpenseLabelKind.CATEGORY })
+            put("paymentMethods", expenseLedger.labels.count { it.kind == ExpenseLabelKind.PAYMENT })
+        }
         if (dataSchemaVersion >= 7) {
             put("exerciseDefinitions", workoutLog.exercises.size)
             put("workoutRoutines", workoutLog.routines.size)
@@ -33,6 +40,7 @@ data class JournalSnapshot(val metadata: List<RecordMetadata> = emptyList(), val
     }
     fun validate() {
         workoutLog.validate()
+        expenseLedger.validate()
         require(records.size <= 50_000) { "Backup exceeds 50,000 records" }
         require(strokes.sumOf { it.points.size.toLong() } <= 2_000_000) { "Backup exceeds 2,000,000 points" }
         val legacyIds = metadata.map { it.id }.toSet()
@@ -90,4 +98,4 @@ fun JournalSnapshot.canonical() = copy(metadata=metadata.sortedBy { it.id.toStri
         ledger.copy(habits=ledger.habits.sortedBy { it.order },completions=ledger.completions.sortedWith(compareBy({it.date},{it.habitId.toString()})))
     }, notebooks=notebooks.sortedBy { it.metadata.id.toString() },notebookPages=notebookPages.sortedBy { it.metadata.id.toString() },
     strokes=strokes.sortedBy { it.metadata.id.toString() }, todos=todos.sortedBy { it.metadata.id.toString() },
-    workoutLog=workoutLog.canonical())
+    workoutLog=workoutLog.canonical(), expenseLedger=expenseLedger.canonical())

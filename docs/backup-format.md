@@ -108,3 +108,9 @@ sessions remain in the backup to support recovery and restore.
 
 Download My Data wraps the same portable recovery archive in an outer export
 ZIP. The inner archive is the restore input. See [Unified export](unified-export.md).
+
+Phase 8A adds portable data schema 10 when the Android expense ledger is
+populated. The expenses section holds items and category/payment labels,
+including archived labels and deleted expenses. Amounts are decimal-string
+paise. Schemas 4 through 9 and the existing encryption envelope remain
+readable. The validated expense ledger is included inside the recovery ZIP.

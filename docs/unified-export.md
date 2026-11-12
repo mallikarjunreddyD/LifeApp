@@ -18,3 +18,6 @@ before handing it to the browser's download manager. Keep both
 unencrypted exports private. Android caps the outer package at 128 MiB
 and reports omitted readable representations. Browser exports are
 limited to 64 MiB. Monthly Workout PDF remains available from History.
+
+Phase 8A Android expenses are present in the included recovery archive.
+Standalone expense CSV and JSON files on both clients are planned for 8D.

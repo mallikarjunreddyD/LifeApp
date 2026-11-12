@@ -25,7 +25,7 @@ class TodoSyncTest {
     private fun open(file: File, driver: SQLiteDriver = BundledSQLiteDriver()) =
         Room.databaseBuilder<FoundationDatabase>(file.path)
             .setDriver(driver).setQueryCoroutineContext(Dispatchers.IO)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10).build()
 
     private class FakeServer : TodoSyncTransport {
         override val scope = SyncScope(
@@ -257,6 +257,7 @@ class TodoSyncTest {
         BundledSQLiteDriver().open(file.path).use { connection ->
             connection.execSQL("DROP TABLE todo_sync_checkpoint")
             connection.execSQL("DROP TABLE local_workout_records")
+            connection.execSQL("DROP TABLE local_expense_records")
             connection.execSQL("ALTER TABLE todo_operations DROP COLUMN rejected")
             connection.prepare("UPDATE room_master_table SET identity_hash = ? WHERE id = 42").use {
                 it.bindText(1, identity)
