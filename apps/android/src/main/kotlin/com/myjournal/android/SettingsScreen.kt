@@ -1,6 +1,8 @@
 package com.myjournal.android
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
@@ -14,9 +16,24 @@ import com.myjournal.domain.*
 import kotlinx.datetime.LocalDate
 import kotlin.uuid.Uuid
 
+private enum class SettingsPage(val title: String) {
+    ACCOUNT("Account & Security"),
+    SYNC("Synchronization"),
+    BACKUP("Backup & Recovery"),
+    NOTIFICATIONS("Notifications"),
+    APPEARANCE("Appearance"),
+    ABOUT("About LifeApp"),
+}
+
 @Composable
 internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServerSync) {
     val state by operations.state.collectAsState()
+    val server by serverSync.state.collectAsState()
+    var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    var diagnostics by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val packageInfo = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0) }
+    BackHandler(page != null && !state.busy) { page = null }
     var format by rememberSaveable { mutableStateOf("backup") }
     var info by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
@@ -41,32 +58,62 @@ internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServe
             else -> snapshot.notebookPdf(Uuid.parse(requireNotNull(bookId)),pageId?.let(Uuid::parse))
         } }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        val context = androidx.compose.ui.platform.LocalContext.current
-        if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            var diagnostic by remember { mutableStateOf(JournalCanvas.debugAlignmentEnabled) }
-            Row { Switch(checked = diagnostic, onCheckedChange = { diagnostic = it; JournalCanvas.debugAlignmentEnabled = it })
-                Text("Input alignment diagnostic (debug only)", Modifier.padding(12.dp)) }
+    key(page) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (page != null) TextButton(enabled = !state.busy, onClick = { page = null }) { Text("Back to Settings") }
+            Text(page?.title ?: "Settings", style = MaterialTheme.typography.headlineMedium)
+            state.message?.let { Text(it, color = if (state.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
+            when (page) {
+                null -> {
+                    Text(server.protectionSummary())
+                    state.localBackupVerifiedAt?.let { Text("Last verified local backup: ${readableBackupTime(it)}") }
+                    SettingsPage.entries.forEach { section ->
+                        OutlinedButton(modifier = Modifier.fillMaxWidth(), enabled = !state.busy, onClick = { page = section }) {
+                            Text(section.title)
+                        }
+                    }
+                }
+                SettingsPage.ACCOUNT -> AndroidServerSettings(serverSync, operations, accountPage = true)
+                SettingsPage.SYNC -> AndroidServerSettings(serverSync, operations, accountPage = false)
+                SettingsPage.BACKUP -> {
+                    state.localBackupVerifiedAt?.let { Text("Last verified local backup: ${readableBackupTime(it)}") }
+                    Text("Local recovery files are unencrypted. Choose a private destination.")
+                    Button(enabled = !state.busy, onClick = {
+                        format = "backup"
+                        exportBackup.launch(exportName("LifeApp-Backup-${today()}", "zip"))
+                    }) { Text("Back up now") }
+                    OutlinedButton(enabled = !state.busy, onClick = {
+                        selectRestore.launch(arrayOf("application/zip", "application/octet-stream"))
+                    }) { Text("Restore from backup") }
+                    DriveBackupSettings(operations)
+                    var formats by rememberSaveable { mutableStateOf(false) }
+                    TextButton(onClick = { formats = !formats }) { Text(if (formats) "Hide export formats" else "Export data") }
+                    if (formats) {
+                        OutlinedButton(enabled = !state.busy, onClick = operations::preparePdf) { Text("Export PDF") }
+                        OutlinedButton(enabled = !state.busy, onClick = { exportJson.launch(exportName("LifeApp-Records", "json")) }) { Text("Export structured JSON") }
+                        OutlinedButton(enabled = !state.busy, onClick = {
+                            format = "vectors"
+                            exportBackup.launch(exportName("LifeApp-NativeVectors", "zip"))
+                        }) { Text("Export native vectors") }
+                        OutlinedButton(enabled = !state.busy, onClick = { exportMarkdown.launch(exportName("LifeApp-Metadata", "md")) }) { Text("Export Markdown metadata") }
+                        TextButton(onClick = { info = true }) { Text("Backup and export format information") }
+                    }
+                }
+                SettingsPage.NOTIFICATIONS -> TodoReminderSettings()
+                SettingsPage.APPEARANCE -> Text("LifeApp uses a light paper theme.")
+                SettingsPage.ABOUT -> {
+                    @Suppress("DEPRECATION")
+                    val build = packageInfo.versionCode
+                    Text("Version ${packageInfo.versionName} · build $build")
+                    Text("Support: LifeApp repository on GitHub")
+                    TextButton(onClick = { diagnostics = !diagnostics }) { Text("Advanced diagnostics") }
+                    if (diagnostics) ServerDiagnostics(server)
+                }
+            }
         }
-        Text("Backup & Restore",style=MaterialTheme.typography.headlineMedium)
-        Text("Your files stay under your control. Choose a local destination in the system picker. Backups are not encrypted; store them privately.")
-        state.message?.let { Text(it,color=if(state.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
-        Button(enabled=!state.busy,onClick={format="backup";exportBackup.launch(exportName("LifeApp-Backup-${today()}","zip"))}) { Text("Create full local backup") }
-        OutlinedButton(enabled=!state.busy,onClick={selectRestore.launch(arrayOf("application/zip","application/octet-stream"))}) { Text("Restore from file") }
-        HorizontalDivider()
-        Text("Export",style=MaterialTheme.typography.titleLarge)
-        OutlinedButton(enabled=!state.busy,onClick=operations::preparePdf) { Text("Export PDF") }
-        OutlinedButton(enabled=!state.busy,onClick={exportJson.launch(exportName("LifeApp-Records","json"))}) { Text("Export structured JSON") }
-        OutlinedButton(enabled=!state.busy,onClick={format="vectors";exportBackup.launch(exportName("LifeApp-NativeVectors","zip"))}) { Text("Export native vectors") }
-        OutlinedButton(enabled=!state.busy,onClick={exportMarkdown.launch(exportName("LifeApp-Metadata","md"))}) { Text("Export Markdown metadata") }
-        Text("Markdown contains text and metadata only. It does not recognize handwriting and is not a complete backup.",style=MaterialTheme.typography.bodySmall)
-        TextButton(onClick={info=true}) { Text("Backup and export format information") }
-        HorizontalDivider()
-        DriveBackupSettings(operations)
-        HorizontalDivider()
-        TodoReminderSettings()
-        HorizontalDivider()
-        AndroidServerSettings(serverSync, operations)
     }
     if(info) AlertDialog(onDismissRequest={info=false},title={Text("File format information")},text={Column(Modifier.verticalScroll(rememberScrollState())) {
         Text("Full backup v1 is a ZIP with manifest.json, portable data.json and ink/UUID.ljpt files. It includes all modules and archived records. SHA-256 checksums, identities, ownership and point data are validated before restoration.")
@@ -79,7 +126,7 @@ internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServe
     if(preview!=null && !state.busy && !confirm) AlertDialog(onDismissRequest=operations::dismissRestore,title={Text("Validated backup")},text={Column(Modifier.verticalScroll(rememberScrollState())) {
         Text("Created ${preview.backup.createdAt} · App ${preview.backup.appVersion}")
         preview.backup.counts.forEach { (name,count) -> Text("$name: $count") }
-        Text(if(preview.replacesData) "REPLACE EXISTING DATA: all current journal, planner, habits, notebooks and To-do records will be replaced. First choose a different recovery backup file. It must be saved and verified before any replacement. No merge is performed." else "Restore these records into this clean database. Existing data is never merged.")
+        Text(if(preview.replacesData) "REPLACE EXISTING DATA: all current local records will be replaced. First choose a different recovery backup file. It must be saved and verified before any replacement. No merge is performed." else "Restore these records into this clean database. Existing data is never merged.")
     }},confirmButton={TextButton(onClick={ if(preview.replacesData) selectRecovery.launch(exportName("LifeApp-BeforeRestore","zip")) else {recovery=null;confirm=true} }){
         Text(if(preview.replacesData) "Choose recovery file" else "Review restore confirmation")
     }},dismissButton={TextButton(onClick=operations::dismissRestore){Text("Cancel restore")}})
@@ -123,4 +170,28 @@ internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServe
             pdf.launch(exportName(prefix,"pdf"))
         }){Text("Choose PDF destination")}
     },dismissButton={TextButton(onClick=operations::closePdf){Text("Cancel PDF")}})
+}
+
+internal fun readableBackupTime(value: String): String =
+    java.text.DateFormat.getDateTimeInstance().format(java.util.Date(kotlin.time.Instant.parse(value).toEpochMilliseconds()))
+
+internal fun AndroidServerState.protectionSummary() = when {
+    working -> "Synchronizing…"
+    conflicts.isNotEmpty() -> "To-do conflicts need review."
+    pending + pendingImport > 0 -> "${pending + pendingImport} changes waiting to sync."
+    username == null -> "Records are saved on this device. Sign in to sync."
+    bound?.scope != accountScope -> "Review your connection to start syncing."
+    error -> "Synchronization needs attention."
+    lastSync != null -> "To-do checked with the server. Other modules have separate sync coverage."
+    else -> "To-do synchronization is ready."
+}
+
+@Composable
+internal fun ServerDiagnostics(server: AndroidServerState) {
+    server.origin?.let { Text("Server origin: $it") }
+    server.accountScope?.let {
+        Text("Dataset ${it.dataset}")
+        Text("Recovery epoch ${it.epoch}")
+    }
+    server.bound?.let { Text("Bound dataset ${it.scope.dataset} · applied commit ${it.sequence}") }
 }

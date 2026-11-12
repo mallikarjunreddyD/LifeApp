@@ -15,6 +15,7 @@ async function add(page: Page, title: string) {
 
 async function signIn(page: Page) {
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Account & Security' }).click();
   await page.getByLabel('Username').fill('browser-test-owner');
   await page.getByLabel('Password').fill('disposable browser test password');
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -22,17 +23,34 @@ async function signIn(page: Page) {
 }
 
 async function bind(page: Page) {
+  await page.getByRole('button', { name: 'Back to Settings' }).click();
+  await page.getByRole('button', { name: 'Synchronization' }).click();
   page.once('dialog', dialog => void dialog.accept());
-  await page.getByRole('button', { name: 'Use this dataset' }).click();
+  await page.getByRole('button', { name: 'Connect To-do' }).click();
   await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled();
 }
 
 async function sync(page: Page) {
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Synchronization' }).click();
   await page.getByRole('button', { name: 'Sync now' }).click();
   await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled();
   await page.getByRole('button', { name: 'To-do' }).click();
 }
+
+test('Settings separates account controls and advanced diagnostics', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('button', { name: 'Backup & Recovery' })).toBeVisible();
+  await expect(page.getByLabel('Username')).toHaveCount(0);
+  await signIn(page);
+  await expect(page.getByText('Recovery epoch', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Back to Settings' }).click();
+  await page.getByRole('button', { name: 'About LifeApp' }).click();
+  await expect(page.getByText('Recovery epoch', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Advanced diagnostics' }).click();
+  await expect(page.getByText('Recovery epoch', { exact: true })).toBeVisible();
+});
 
 test('iPhone-sized offline shell reopens queued changes and survives worker update', async ({ context, page }) => {
   await page.goto('/');
@@ -136,8 +154,10 @@ test('lost acknowledgment and expired browser session retain the operation', asy
   await page.unroute('**/v1/sync/push');
   await context.clearCookies();
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Synchronization' }).click();
   await page.getByRole('button', { name: 'Sync now' }).click();
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in again' })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Settings' }).click();
   await expect(page.getByText('1 pending')).toBeVisible();
   await signIn(page);
   await expect(page.getByText('0 pending')).toBeVisible();

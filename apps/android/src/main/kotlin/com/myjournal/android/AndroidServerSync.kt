@@ -439,7 +439,7 @@ internal class AndroidServerSync(
 
     private fun requireImportTarget(target: EditableImportQueue.Target, api: ServerApi, session: ServerSession) {
         if (target.origin != api.endpoint.origin || target.scope != session.scope) {
-            throw UserSyncError("The upload belongs to a different HTTPS origin, dataset or recovery epoch. Local records were kept.")
+            throw UserSyncError("Review your connection before retrying this upload. Your local records were kept.")
         }
     }
 
@@ -514,7 +514,7 @@ internal class AndroidServerSync(
             }
             val (credential, session, api) = currentSession()
             if (session.scope != checkpoint.scope || repository.boundOrigin() != api.endpoint.origin) {
-                throw UserSyncError("The server origin, dataset or recovery epoch changed. Local records were kept.")
+                throw UserSyncError("Review your connection before syncing again. Your local records were kept.")
             }
             val transport = api.transport(session, credential.token, repository::retainRejectedResolution)
             val coordinator = TodoSyncCoordinator(repository, transport, uploadLimit = 10)
@@ -533,7 +533,7 @@ internal class AndroidServerSync(
                     store.saveLastVerified(Clock.System.now().toString())
                     store.saveRetryAt(0)
                     refresh(credential)
-                    message("To-do synchronized · ${active.size} active tasks · commit ${progress.checkpoint.sequence}.")
+                    message("To-do synchronization complete.")
                     return SyncOutcome.DONE
                 }
             }

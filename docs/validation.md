@@ -458,3 +458,11 @@ Physical Xiaomi Pad 7 and iPhone Safari tests remain open. Verify inline
 keyboard entry, scroll and safe-area behavior, in-place Android update,
 existing history, and the Android document picker and iPhone PDF flow.
 Workout changes and tombstones remain local to each device.
+
+## Phase 7G.1 categorized Settings
+
+Android and browser regression fixtures navigate through the new categories.
+The browser fixture verifies that the recovery epoch is visible only after
+opening Advanced diagnostics. The Android backup fixture enters Backup &
+Recovery and checks that the normal Settings page has no alignment or server
+URL controls. Hardware and authenticated Drive acceptance remain open.

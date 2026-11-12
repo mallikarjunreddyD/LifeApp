@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.myjournal.domain.TodoOperation
 
 @Composable
-internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOperations) {
+internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOperations, accountPage: Boolean) {
     val server = sync.state.collectAsState().value
     val backupState = operations.state.collectAsState().value
     var origin by rememberSaveable { mutableStateOf(server.origin.orEmpty()) }
@@ -69,46 +69,58 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
         }
     }
     val enabled = !server.working && !backupState.busy
-    Text("LifeApp Server", style = MaterialTheme.typography.titleLarge)
-    Text("To-do sync runs after binding. Review record changes to transfer journals, planners, habits and notebooks.")
     server.message?.let { Text(it, color = if (server.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
-    OutlinedTextField(
-        value = origin,
-        onValueChange = { origin = it },
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text("Server HTTPS URL") },
-        singleLine = true,
-        readOnly = server.pinnedOrigin != null,
-        enabled = enabled,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-    )
-    OutlinedButton(enabled = enabled && origin.isNotBlank(), onClick = { sync.testConnection(origin) }) {
-        Text("Test connection")
-    }
-    if (server.username == null) {
-        OutlinedTextField(user, { user = it }, Modifier.fillMaxWidth(), label = { Text("Server username") },
-            singleLine = true, enabled = enabled)
-        OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Server password") },
-            singleLine = true, enabled = enabled, visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-        OutlinedTextField(secondFactor, { secondFactor = it.take(43) }, Modifier.fillMaxWidth(),
-            label = { Text("Authenticator or recovery code (if enabled)") }, singleLine = true, enabled = enabled,
-            visualTransformation = PasswordVisualTransformation())
-        Button(enabled = enabled && origin.isNotBlank() && user.isNotBlank() && password.isNotEmpty(), onClick = {
-            sync.signIn(origin, user, password, secondFactor.trim().ifEmpty { null })
-            secondFactor = ""
-            password = ""
-        }) { Text("Sign in to LifeApp") }
-    } else {
-        Text("Signed in as ${server.username}")
-        server.accountScope?.let { account ->
-            Text("Dataset ${account.dataset}")
-            Text("Recovery epoch ${account.epoch}")
+    if (accountPage) {
+        var connection by rememberSaveable { mutableStateOf(false) }
+        TextButton(onClick = { connection = !connection }) { Text("Review connection") }
+        if (connection || server.origin == null && server.username == null) {
+            OutlinedTextField(
+                value = origin,
+                onValueChange = { origin = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Server HTTPS URL") },
+                singleLine = true,
+                readOnly = server.pinnedOrigin != null,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+            OutlinedButton(enabled = enabled && origin.isNotBlank(), onClick = { sync.testConnection(origin) }) {
+                Text("Test connection")
+            }
         }
+        if (server.username == null) {
+            OutlinedTextField(user, { user = it }, Modifier.fillMaxWidth(), label = { Text("Server username") },
+                singleLine = true, enabled = enabled)
+            OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Server password") },
+                singleLine = true, enabled = enabled, visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+            OutlinedTextField(secondFactor, { secondFactor = it.take(43) }, Modifier.fillMaxWidth(),
+                label = { Text("Authenticator or recovery code (if enabled)") }, singleLine = true, enabled = enabled,
+                visualTransformation = PasswordVisualTransformation())
+            Button(enabled = enabled && origin.isNotBlank() && user.isNotBlank() && password.isNotEmpty(), onClick = {
+                sync.signIn(origin, user, password, secondFactor.trim().ifEmpty { null })
+                secondFactor = ""
+                password = ""
+            }) { Text("Sign in to LifeApp") }
+        } else {
+            Text("Signed in as ${server.username}")
+            Text("Use your authenticator or a recovery code when signing in.")
+            TextButton(enabled = enabled, onClick = {
+                operations.dismissJournalInventory()
+                operations.dismissEditableImport()
+                sync.disconnect()
+            }) { Text("Sign out") }
+        }
+        return
+    }
+    Text(server.protectionSummary())
+    Text("To-do sync runs after connection review. Journal, planner, habits and notebook use their own record review. Workouts are local.")
+    if (server.username == null) Text("Sign in under Account & Security.")
+    else {
         if (server.bound == null) {
             OutlinedButton(enabled = enabled, onClick = sync::preview) { Text("Review first sync") }
         } else {
-            Button(enabled = enabled && server.bound.scope == server.accountScope, onClick = sync::syncNow) { Text("Sync To-do now") }
+            Button(enabled = enabled && server.bound.scope == server.accountScope, onClick = sync::syncNow) { Text("Sync now") }
         }
         OutlinedButton(enabled = enabled && currentTarget != null, onClick = {
             journalTarget = currentTarget
@@ -130,19 +142,13 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
                 selectImportBackup.launch(exportName("LifeApp-BeforeRecordImport", "zip"))
             }) { Text("Back up and review record changes") }
         }
-        TextButton(enabled = enabled, onClick = {
-            operations.dismissJournalInventory()
-            operations.dismissEditableImport()
-            sync.disconnect()
-        }) { Text("Disconnect server") }
     }
     if (server.importQueueUnreadable) Text("The record upload queue could not be read.", color = MaterialTheme.colorScheme.error)
     if (server.pendingImport > 0 || server.importQueueUnreadable) {
         TextButton(enabled = enabled, onClick = { discardImport = true }) { Text("Clear queued upload copies") }
     }
-    server.bound?.let { Text("Bound dataset ${it.scope.dataset} · applied commit ${it.sequence}") }
     Text("${server.pending} queued To-do operations")
-    server.lastSync?.let { Text("Last successful To-do sync $it") }
+    server.lastSync?.let { Text("Last successful To-do sync: ${readableBackupTime(it)}") }
     server.preview?.let { preview ->
         Text("Local task records ${preview.localCount}. Server task history ${if (preview.remoteHasHistory) "present" else "empty"}.")
         if (preview.allowed) Button(enabled = enabled, onClick = { confirm = true }) { Text("Back up and bind To-do") }
@@ -187,7 +193,6 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
             title = { Text("Review record changes") },
             text = {
                 LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Text("Server ${review.target.origin}") }
                     item { Text("${review.eligible.size} Android records can be uploaded. ${review.downloadable.size} server records can be applied to Android.") }
                     item { Text("The server has ${review.serverCount} record keys.") }
                     if (review.uploadParents.isNotEmpty()) {

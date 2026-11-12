@@ -11,7 +11,7 @@ export class ApiError extends Error {
     const message = status === 401 ? 'Sign in again to synchronize.' :
       status === 403 ? 'The server declined this request.' :
       status === 429 ? 'Too many requests. Wait before trying again.' :
-      status === 410 || code === 'SCOPE_MISMATCH' ? 'The server dataset or cursor changed. Local changes were kept.' :
+      status === 410 || code === 'SCOPE_MISMATCH' ? 'Review your connection before syncing again. Your local changes were kept.' :
       code === 'CONFLICT_CHANGED' ? 'The server conflict changed. Review the current versions.' :
       status >= 500 ? 'The server is unavailable. Local changes were kept.' :
       'The server did not accept this request. Local changes were kept.';

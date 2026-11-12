@@ -5,16 +5,21 @@ test('browser exchanges task changes with the Android HTTPS client', async ({ pa
   test.setTimeout(120_000);
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Account & Security' }).click();
   await page.getByLabel('Username').fill('android-bridge-owner');
   await page.getByLabel('Password').fill('disposable browser test password');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('button', { name: 'Use this dataset' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Back to Settings' }).click();
+  await page.getByRole('button', { name: 'Synchronization' }).click();
   page.once('dialog', dialog => void dialog.accept());
-  await page.getByRole('button', { name: 'Use this dataset' }).click();
+  await page.getByRole('button', { name: 'Connect To-do' }).click();
 
   async function syncUntil(title: string) {
     await expect.poll(async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
+      if (!await page.getByRole('heading', { name: 'Synchronization' }).isVisible()) {
+        await page.getByRole('button', { name: 'Synchronization' }).click();
+      }
       await page.getByRole('button', { name: 'Sync now' }).click();
       await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled();
       await page.getByRole('button', { name: 'To-do' }).click();

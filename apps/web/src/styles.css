@@ -211,3 +211,14 @@ nav button[aria-current=page] { background: var(--active); color: var(--ink); fo
     justify-self: start;
   }
 }
+
+.settings-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: .75rem;
+}
+
+.settings-categories button {
+  min-height: 3.5rem;
+  text-align: start;
+}

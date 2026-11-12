@@ -16,7 +16,7 @@ data class JournalInventoryPreview(val origin: String, val scope: SyncScope, val
 
 data class OperationState(val busy: Boolean = false, val message: String? = null, val error: Boolean = false,
     val preview: RestorePreview? = null, val pdfSnapshot: JournalSnapshot? = null, val driveVersions: List<CloudBackupVersion>? = null,
-    val journalInventory: JournalInventoryPreview? = null)
+    val journalInventory: JournalInventoryPreview? = null, val localBackupVerifiedAt: String? = null)
 
 internal data class EditableImportReview(
     val target: EditableImportQueue.Target,
@@ -33,7 +33,10 @@ internal data class EditableImportReview(
 /** Application-owned operations survive Activity recreation. The UI is locked while busy. */
 class DataOperations(private val app: JournalApplication, private val repository: RoomSnapshotRepository) {
     private val scope = CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
-    private val mutable = MutableStateFlow(OperationState())
+    private val protection = app.getSharedPreferences("backup-verification", android.content.Context.MODE_PRIVATE)
+    private val mutable = MutableStateFlow(OperationState(
+        localBackupVerifiedAt = protection.getString("localVerifiedAt", null),
+    ))
     val state = mutable.asStateFlow()
     private val importReviewMutable = MutableStateFlow<EditableImportReview?>(null)
     internal val importReview = importReviewMutable.asStateFlow()
@@ -70,7 +73,12 @@ class DataOperations(private val app: JournalApplication, private val repository
                 require(file.length()<=BackupArchive.MAX_ARCHIVE_BYTES) { "Export exceeds 64 MiB" }
                 writeVerified(file,uri)
             }
-            if(format=="backup") "Backup created and verified. All committed records included." else "Export created and verified."
+            if (format == "backup") {
+                val verifiedAt = Clock.System.now().toString()
+                protection.edit().putString("localVerifiedAt", verifiedAt).apply()
+                mutable.value = mutable.value.copy(localBackupVerifiedAt = verifiedAt)
+                "Local backup created and verified."
+            } else "Export created and verified."
         } finally { file.delete() }
     }
     internal fun bindServer(uri: Uri, sync: AndroidServerSync, preview: BindingPreview) =

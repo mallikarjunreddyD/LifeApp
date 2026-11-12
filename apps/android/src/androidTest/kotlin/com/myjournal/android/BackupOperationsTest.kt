@@ -31,7 +31,10 @@ class BackupOperationsTest {
         val monitor=instrumentation.addMonitor(IntentFilter(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); addDataType("application/zip") },Instrumentation.ActivityResult(Activity.RESULT_OK,Intent().setData(Uri.fromFile(target))),true)
         try {
             rule.onNodeWithContentDescription("Open Settings").performClick()
-            rule.onNodeWithText("Create full local backup").performClick()
+            rule.onNodeWithText("Input alignment diagnostic", substring = true).assertDoesNotExist()
+            rule.onNodeWithText("Server HTTPS URL").assertDoesNotExist()
+            rule.onNodeWithText("Backup & Recovery").performClick()
+            rule.onNodeWithText("Back up now").performClick()
             rule.waitUntil(30_000){monitor.hits>0 && !app.operations.state.value.busy && app.operations.state.value.message?.startsWith("Backup created")==true}
             assertFalse(app.operations.state.value.error)
             assertTrue(BackupArchive.read(target).counts.isNotEmpty())
