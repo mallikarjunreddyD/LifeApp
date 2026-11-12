@@ -53,6 +53,32 @@ test('Settings separates account controls and advanced diagnostics', async ({ pa
   await expect(page.getByText('Server origin', { exact: true })).toBeVisible();
 });
 
+test('offline Download My Data verifies hashes and describes local coverage', async ({ page, context }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await context.setOffline(true);
+  await add(page, 'Exported offline task');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Backup & Recovery' }).click();
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download My Data' }).click();
+  const download = await downloading;
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  expect(download.suggestedFilename()).toBe('LifeApp-MyData.zip');
+  const unpack = (entry: string) => execFileSync('unzip', ['-p', path!, entry]);
+  const manifest = JSON.parse(unpack('manifest.json').toString());
+  expect(manifest.completeAcrossDevices).toBe(false);
+  expect(manifest.knownQueuedChanges).toBe(1);
+  expect(manifest.recordCounts.todos).toBe(1);
+  for (const file of manifest.files) {
+    const bytes = unpack(file.path);
+    expect(bytes.length).toBe(file.bytes);
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(file.sha256);
+  }
+  expect(unpack('data/todos.json').toString()).toContain('Exported offline task');
+});
+
 test('iPhone-sized offline shell reopens queued changes and survives worker update', async ({ context, page }) => {
   await page.goto('/');
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);

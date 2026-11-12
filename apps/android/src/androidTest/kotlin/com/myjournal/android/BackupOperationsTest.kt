@@ -35,11 +35,41 @@ class BackupOperationsTest {
             rule.onNodeWithText("Server HTTPS URL").assertDoesNotExist()
             rule.onNodeWithText("Backup & Recovery").performClick()
             rule.onNodeWithText("Back up now").performClick()
-            rule.waitUntil(30_000){monitor.hits>0 && !app.operations.state.value.busy && app.operations.state.value.message?.startsWith("Backup created")==true}
+            rule.waitUntil(30_000){monitor.hits>0 && !app.operations.state.value.busy && app.operations.state.value.message?.startsWith("Local backup created")==true}
             assertFalse(app.operations.state.value.error)
             assertTrue(BackupArchive.read(target).counts.isNotEmpty())
         } finally { instrumentation.removeMonitor(monitor);target.delete() }
     }
+    @Test fun unifiedArchivePreservesArchivedPagesAndLJPTBytes() = runBlocking {
+        val root = File.createTempFile("lifeapp-export-test", ".dir", app.cacheDir).apply { check(delete() && mkdir()) }
+        try {
+            val entry = newRecordMetadata()
+            val active = JournalPage(newRecordMetadata(), entry.id, 0)
+            val archived = JournalPage(newRecordMetadata(), entry.id, 1, archived = true)
+            val stroke = InkStroke(newRecordMetadata(), archived.metadata.id, 0, BrushTool.PEN, 0xff000000, 3f,
+                listOf(InkPoint(17f, 21f, 0), InkPoint(20f, 25f, 10)))
+            val snapshot = JournalSnapshot(
+                journals = listOf(JournalEntry(entry, kotlinx.datetime.LocalDate(2026, 11, 12), listOf(active, archived))),
+                strokes = listOf(stroke),
+            )
+            val file = root.resolve("export.zip")
+            UnifiedDataExport.write(file, root, snapshot, waiting = 2)
+            val recovery = root.resolve("extracted.zip")
+            java.util.zip.ZipFile(file).use { zip ->
+                assertNotNull(zip.getEntry("documents/journal.pdf"))
+                val manifest = zip.getInputStream(zip.getEntry("manifest.json")).bufferedReader().use { it.readText() }
+                assertTrue(manifest.contains("\"completeAcrossDevices\":false"))
+                assertTrue(manifest.contains("\"knownQueuedChanges\":2"))
+                zip.getInputStream(zip.getEntry("backup/lifeapp-recovery.zip")).use { source ->
+                    recovery.outputStream().use { source.copyTo(it) }
+                }
+            }
+            val restored = BackupArchive.read(recovery).snapshot
+            assertTrue(restored.journals.single().pages.last().archived)
+            assertArrayEquals(StrokePointCodec.encode(stroke.points), StrokePointCodec.encode(restored.strokes.single().points))
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun selectedFileValidationCleanRestoreRecoveryAndCacheRebuildUseVerifiedRecords() = runBlocking {
         val db=Room.inMemoryDatabaseBuilder<FoundationDatabase>(app).setDriver(BundledSQLiteDriver()).setQueryCoroutineContext(Dispatchers.IO).build()
         val backup=File.createTempFile("lifeapp-input", ".zip",app.cacheDir)

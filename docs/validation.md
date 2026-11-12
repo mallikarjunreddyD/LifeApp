@@ -466,3 +466,15 @@ The browser fixture verifies that the recovery epoch is visible only after
 opening Advanced diagnostics. The Android backup fixture enters Backup &
 Recovery and checks that the normal Settings page has no alignment or server
 URL controls. Hardware and authenticated Drive acceptance remain open.
+
+## Phase 7G automation and export
+
+The regression suites use disposable browser, PostgreSQL and Android
+fixtures. The unified Android archive test checks an archived journal page
+and byte-identical LJPT in the extracted recovery ZIP. The browser test
+checks offline export coverage and SHA-256 for every listed file.
+The server recovery drill captures three managed generations, checks that
+two survive at both destinations, and restores the newest verified copy.
+
+Live Google Drive authorization, scheduled production execution, and
+independent recovery on physical Android and iPhone remain operator checks.

@@ -10,6 +10,7 @@ import { Journal } from './Journal.tsx';
 import { Workouts } from './Workouts.tsx';
 import { useWorkerUpdate } from './worker.ts';
 import packageInfo from '../package.json';
+import { browserExport, downloadExport } from './export.ts';
 
 type Tab = 'To-do' | 'Workouts' | 'History' | 'Journal' | 'Settings';
 const tabs: Tab[] = ['To-do', 'Workouts', 'History', 'Journal', 'Settings'];
@@ -209,7 +210,10 @@ export function App({ store }: { store: LifeStore }) {
     <main>
       {tab === 'To-do' && (loaded ? <Todos view={view} change={change} store={store} /> : <p role="status">Loading local tasks…</p>)}
       {tab === 'Settings' && <Settings view={view} session={session} busy={busy} online={online}
-        onLogin={login} onBind={bind} onLogout={logout} status={status} onConflicts={() => setTab('To-do')} onSync={() => session && void sync(session)} />}
+        onLogin={login} onBind={bind} onLogout={logout} status={status} onExport={async () => {
+          if (session && matches && navigator.onLine) await sync(session);
+          downloadExport(await browserExport(store));
+        }} onConflicts={() => setTab('To-do')} onSync={() => session && void sync(session)} />}
       {(tab === 'Workouts' || tab === 'History') && <>
         <Workouts key={tab} store={store} historyOnly={tab === 'History'} />
         {matches && <details><summary>Read-only server records</summary><ReadRecords key={tab}
@@ -301,13 +305,27 @@ function Conflict({ task, change, store }: { task: TaskView; change: (write: () 
 
 const settingsPages = ['Account & Security', 'Synchronization', 'Backup & Recovery', 'Appearance', 'About LifeApp'] as const;
 
-function Settings({ view, session, busy, online, status, onLogin, onBind, onLogout, onSync, onConflicts }: {
+function Settings({ view, session, busy, online, status, onLogin, onBind, onLogout, onSync, onConflicts, onExport }: {
   view: LocalView; session: BrowserSession | null; busy: boolean; online: boolean; status: string;
   onLogin: (username: string, password: string, secondFactor?: string) => Promise<void>; onBind: () => Promise<void>;
-  onLogout: () => Promise<void>; onSync: () => void; onConflicts: () => void;
+  onLogout: () => Promise<void>; onSync: () => void; onConflicts: () => void; onExport: () => Promise<void>;
 }) {
   const [page, setPage] = useState<typeof settingsPages[number] | null>(null);
   const [diagnostics, setDiagnostics] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState('');
+  async function exportData() {
+    setExporting(true);
+    setExportMessage('');
+    try {
+      await onExport();
+      setExportMessage('Verified browser export. Your browser handles the download.');
+    } catch (failure) {
+      setExportMessage(message(failure));
+    } finally {
+      setExporting(false);
+    }
+  }
   const match = session && sameScope(view.checkpoint?.scope ?? null, session.scope);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -357,7 +375,9 @@ function Settings({ view, session, busy, online, status, onLogin, onBind, onLogo
     </article>}
     {page === 'Backup & Recovery' && <article className="card">
       <ServerBackupStatus key={session?.scope.dataset} account={session?.scope.dataset ?? null} online={online} />
-      <p>Restore Android recovery copies from the Android app.</p>
+      <button disabled={exporting} onClick={() => void exportData()}>Download My Data</button>
+      <p>Includes the To-do and workout data stored in this browser. Restore Android recovery copies from the Android app.</p>
+      {exportMessage && <p role="status">{exportMessage}</p>}
     </article>}
     {page === 'Appearance' && <p>LifeApp uses a light paper theme.</p>}
     {page === 'About LifeApp' && <article className="card">

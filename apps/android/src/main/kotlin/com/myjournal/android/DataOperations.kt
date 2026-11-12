@@ -83,6 +83,28 @@ class DataOperations(private val app: JournalApplication, private val repository
             } else "Export created and verified."
         } finally { file.delete() }
     }
+    internal fun downloadMyData(uri: Uri, sync: AndroidServerSync) = start("Preparing a portable copy of Android data…") {
+        val network = app.getSystemService(android.net.ConnectivityManager::class.java)
+        val online = network?.getNetworkCapabilities(network.activeNetwork)
+            ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        if (online && sync.state.value.username != null) withTimeoutOrNull(15_000) { sync.work(uploadOnly = false) }
+        val data = snapshot()
+        val pending = sync.state.value.let { it.pending + it.pendingImport }
+        val workspace = withContext(Dispatchers.IO) { temp(".export").apply { check(delete() && mkdir()) } }
+        try {
+            val omitted = withContext(Dispatchers.IO) {
+                val output = workspace.resolve("LifeApp-MyData.zip")
+                val omissions = UnifiedDataExport.write(output, workspace, data, pending)
+                writeVerified(output, uri)
+                omissions
+            }
+            if (omitted.isEmpty()) "Verified export of committed Android data."
+            else "Verified export of Android data. Some readable copies exceeded limits; see the manifest."
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { workspace.deleteRecursively() }
+        }
+    }
+
     internal fun bindServer(uri: Uri, sync: AndroidServerSync, preview: BindingPreview) =
         start("Creating a verified local backup before server binding…") {
             val data = snapshot()

@@ -165,3 +165,7 @@ and installed app intact while planning the first transition to this new identit
 Phase 6C adds optional Android To-do sync with the same server as the PWA.
 See the [Android setup](docs/android-server-sync.md) and
 [first-sync backup procedure](docs/initial-data-migration.md).
+
+Settings organizes account, synchronization, backup and recovery controls by
+category. See [Phase 7G acceptance](docs/phase-7g-acceptance.md) for backup setup
+and device checks.
