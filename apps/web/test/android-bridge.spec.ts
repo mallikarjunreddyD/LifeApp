@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 test('browser exchanges task changes with the Android HTTPS client', async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Account & Security' }).click();
   await page.getByLabel('Username').fill('android-bridge-owner');
   await page.getByLabel('Password').fill('disposable browser test password');
@@ -16,7 +16,7 @@ test('browser exchanges task changes with the Android HTTPS client', async ({ pa
 
   async function syncUntil(title: string) {
     await expect.poll(async () => {
-      await page.getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('button', { name: 'Settings', exact: true }).click();
       if (!await page.getByRole('heading', { name: 'Synchronization' }).isVisible()) {
         await page.getByRole('button', { name: 'Synchronization' }).click();
       }

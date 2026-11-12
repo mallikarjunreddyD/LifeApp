@@ -14,7 +14,7 @@ async function add(page: Page, title: string) {
 }
 
 async function signIn(page: Page) {
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Account & Security' }).click();
   await page.getByLabel('Username').fill('browser-test-owner');
   await page.getByLabel('Password').fill('disposable browser test password');
@@ -32,7 +32,7 @@ async function bind(page: Page) {
 }
 
 async function sync(page: Page) {
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Synchronization' }).click();
   await page.getByRole('button', { name: 'Sync now' }).click();
   await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled();
@@ -41,7 +41,7 @@ async function sync(page: Page) {
 
 test('Settings separates account controls and advanced diagnostics', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Backup & Recovery' })).toBeVisible();
   await expect(page.getByLabel('Username')).toHaveCount(0);
   await page.getByRole('button', { name: 'Account & Security' }).click();
@@ -58,7 +58,7 @@ test('offline Download My Data verifies hashes and describes local coverage', as
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   await context.setOffline(true);
   await add(page, 'Exported offline task');
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Backup & Recovery' }).click();
   const downloading = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download My Data' }).click();
@@ -181,7 +181,7 @@ test('lost acknowledgment and expired browser session retain the operation', asy
   await expect(page.getByText('1 pending')).toBeVisible();
   await page.unroute('**/v1/sync/push');
   await context.clearCookies();
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Synchronization' }).click();
   await page.getByRole('button', { name: 'Sync now' }).click();
   await expect(page.getByRole('button', { name: 'Sign in again' })).toBeVisible();
