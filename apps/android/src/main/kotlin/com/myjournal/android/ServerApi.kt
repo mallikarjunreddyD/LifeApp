@@ -35,7 +35,7 @@ internal data class ServerCredential(
 
 internal class ServerHttpFailure(val status: Int, val code: String?, val retrySeconds: Long?) : IOException(when {
     status == 401 -> "Server sign-in expired. Sign in again."
-    code == "SCOPE_MISMATCH" || status == 410 -> "The server dataset, recovery epoch or cursor changed. Local records were kept."
+    code == "SCOPE_MISMATCH" || status == 410 -> "Review your connection before syncing again. Your local records were kept."
     code == "CONFLICT_CHANGED" -> "The server task conflict changed. Review its current versions."
     status == 429 -> "The server is rate limiting requests. Try again later."
     status >= 500 -> "The LifeApp server is unavailable."
