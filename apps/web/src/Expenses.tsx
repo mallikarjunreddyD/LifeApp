@@ -7,7 +7,9 @@ import type { useExpenseSync } from './useExpenseSync.ts';
 import { revise } from './workout.ts';
 import { instantKey, today } from './protocol.ts';
 
-type Page = 'history' | 'new' | 'CATEGORY' | 'PAYMENT' | Expense;
+import { ExpenseAnalysis } from './ExpenseAnalysis.tsx';
+
+type Page = 'analysis' | 'history' | 'new' | 'CATEGORY' | 'PAYMENT' | Expense;
 
 export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<typeof useExpenseSync> }) {
   const [records, setRecords] = useState<ExpenseRecord[] | null>(null);
@@ -78,7 +80,7 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
   return <section className="expense-module">
     {page !== 'history' && <button disabled={busy} onClick={() => navigate('history')}>Back to Expenses</button>}
     <h1>{page === 'history' ? 'Expenses' : page === 'new' ? 'Add Expense' : page === 'CATEGORY' ? 'Manage Categories' :
-      page === 'PAYMENT' ? 'Manage Payment Methods' : 'Edit Expense'}</h1>
+      page === 'PAYMENT' ? 'Manage Payment Methods' : page === 'analysis' ? 'Spending Analysis' : 'Edit Expense'}</h1>
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {!records && !error && <p role="status">Loading expenses…</p>}
@@ -117,6 +119,7 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
       </section>}
       <button className="primary" disabled={busy} onClick={() => navigate('new')}>Add Expense</button>
       <div className="actions expense-secondary">
+        <button onClick={() => navigate('analysis')}>Spending Analysis</button>
         <button onClick={() => navigate('CATEGORY')}>Manage Categories</button>
         <button onClick={() => navigate('PAYMENT')}>Manage Payment Methods</button>
         <button onClick={() => setDeleted(!deleted)}>{deleted ? 'Show History' : 'Recently Deleted'}</button>
@@ -157,7 +160,7 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
           () => store.setExpenseDeleted(confirm.metadata.id, true, confirm.metadata.revision), () => setConfirm(null))}>Confirm Delete</button>
         <button disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
       </div>}
-    </> : page === 'CATEGORY' || page === 'PAYMENT' ? <LabelManager kind={page} labels={labels} busy={busy} save={saveLabel} /> :
+    </> : page === 'analysis' ? <ExpenseAnalysis items={items} labels={labels} initialMonth={month} /> : page === 'CATEGORY' || page === 'PAYMENT' ? <LabelManager kind={page} labels={labels} busy={busy} save={saveLabel} /> :
       <Editor expense={page === 'new' ? undefined : page} labels={labels} history={active} busy={busy} saveLabel={saveLabel}
         save={(build, expected) => void write(async () => {
           const value = build();

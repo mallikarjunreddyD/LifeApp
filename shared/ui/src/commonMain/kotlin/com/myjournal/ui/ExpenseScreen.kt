@@ -97,7 +97,9 @@ fun ExpenseScreen(
             TextButton(enabled = !busy, onClick = { navigate("history") }) { Text("Back to Expenses") }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             notice?.let { Text(it) }
-            if (screen == "CATEGORY" || screen == "PAYMENT") {
+            if (screen == "analysis") {
+                ExpenseAnalysis(data, month)
+            } else if (screen == "CATEGORY" || screen == "PAYMENT") {
                 ExpenseLabelManager(ExpenseLabelKind.valueOf(screen), data.labels, busy) { label, revision, complete ->
                     write {
                         repository.saveLabel(label, revision)
@@ -163,6 +165,7 @@ fun ExpenseScreen(
             Button(enabled = !busy, onClick = { navigate("new") }) { Text("Add Expense") }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = { filters = !filters }) { Text("Filter Expenses") }
+                TextButton(onClick = { navigate("analysis") }) { Text("Spending Analysis") }
                 TextButton(onClick = { navigate("CATEGORY") }) { Text("Manage Categories") }
                 TextButton(onClick = { navigate("PAYMENT") }) { Text("Manage Payment Methods") }
                 TextButton(onClick = { deleted = !deleted }) { Text(if (deleted) "Show History" else "Recently Deleted") }

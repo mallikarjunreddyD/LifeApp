@@ -281,3 +281,9 @@ nav button[aria-current=page] { background: var(--active); color: var(--ink); fo
     font-size: .72rem;
   }
 }
+
+.expense-pie {
+  width: min(100%, 13rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+}

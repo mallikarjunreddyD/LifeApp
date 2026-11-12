@@ -27,4 +27,16 @@ class ExpenseTest {
         assertFailsWith<IllegalArgumentException> { record.copy(amountMinor = 0) }
         assertFailsWith<IllegalArgumentException> { record.copy(date = LocalDate(0, 1, 1)) }
     }
+    @Test fun spendingUsesCalendarPeriodsAndIncludesArchivedCategories() {
+        val defaults = expenseDefaults()
+        val category = defaults.first().copy(name = "Renamed", archived = true)
+        val payment = defaults.first { it.kind == ExpenseLabelKind.PAYMENT }
+        val leap = Expense(newRecordMetadata(), LocalDate(2024, 2, 29), "Train", 1, category.metadata.id, payment.metadata.id)
+        val ledger = ExpenseLedger(listOf(leap, leap.copy(date = LocalDate(2024, 1, 1), amountMinor = 100),
+            leap.copy(date = LocalDate(2025, 1, 1), amountMinor = 10), leap.copy(deleted = true)), listOf(category, payment))
+        assertEquals(1L, ledger.spending(2024, 2).amountMinor)
+        assertEquals(listOf(ExpenseCategoryTotal(category, 101)), ledger.spending(2024).categories)
+        assertEquals(10L, ledger.spending(2025).amountMinor)
+        assertTrue(ledger.spending(2024, 12).categories.isEmpty())
+    }
 }
