@@ -1118,6 +1118,90 @@ paths:
       parameters:
       - *id002
       - *id003
+  /v1/expenses/inventory:
+    get:
+      operationId: expenseInventory
+      description: Count the current expense records and labels in the authenticated scope.
+      parameters:
+      - $ref: '#/components/parameters/EditableDataset'
+      - $ref: '#/components/parameters/EditableEpoch'
+      responses:
+        '200':
+          description: Scoped record count as a decimal string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count:
+                    type: string
+                    pattern: '^[0-9]+$'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '409':
+          $ref: '#/components/responses/Http409'
+  /v1/expenses/pull:
+    get:
+      operationId: pullExpenses
+      description: Page the immutable expense feed for the authenticated dataset and current recovery epoch.
+      parameters:
+      - $ref: '#/components/parameters/EditableDataset'
+      - $ref: '#/components/parameters/EditableEpoch'
+      - name: after
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9]+$'
+      responses:
+        '200':
+          description: At most 32 ordered commits and a continuation flag
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries, hasMore]
+                properties:
+                  entries:
+                    type: array
+                    maxItems: 32
+                    items:
+                      $ref: '#/components/schemas/ExpenseCommit'
+                  hasMore:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Http401'
+        '409':
+          $ref: '#/components/responses/Http409'
+  /v1/expenses/push:
+    post:
+      operationId: pushExpense
+      description: Commit or retry a scoped expense operation. Browser mutations require the existing CSRF header.
+      parameters:
+      - $ref: '#/components/parameters/EditableDataset'
+      - $ref: '#/components/parameters/EditableEpoch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseOperation'
+      responses:
+        '200':
+          description: Matching receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpenseCommit'
+        '400':
+          $ref: '#/components/responses/Http400'
+        '401':
+          $ref: '#/components/responses/Http401'
+        '403':
+          $ref: '#/components/responses/Http403'
+        '409':
+          $ref: '#/components/responses/Http409'
   /v1/backups/status:
     get:
       operationId: backupStatus
@@ -1481,6 +1565,89 @@ components:
             minimum: 0
           - type: 'null'
         completed: *id006
+    ExpenseOperation:
+      type: object
+      additionalProperties: false
+      required: [version, id, parents, mutation, kind, record]
+      properties:
+        version:
+          const: 1
+        id:
+          type: string
+          format: uuid
+        parents:
+          type: array
+          uniqueItems: true
+          maxItems: 32
+          items:
+            type: string
+            format: uuid
+        mutation:
+          enum: [PUT, DELETE, RESTORE, RESOLVE]
+        kind:
+          enum: [expense, label]
+        record:
+          oneOf:
+          - $ref: '#/components/schemas/ExpenseItem'
+          - $ref: '#/components/schemas/ExpenseLabel'
+    ExpenseCommit:
+      type: object
+      required: [sequence, operation]
+      properties:
+        sequence:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        operation:
+          $ref: '#/components/schemas/ExpenseOperation'
+    ExpenseItem:
+      type: object
+      required: [metadata, date, name, amountMinor, currency, categoryId, paymentMethodId, remarks, deleted]
+      properties:
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        date:
+          type: string
+          format: date
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        amountMinor:
+          type: string
+          pattern: '^[1-9][0-9]{0,10}$'
+        currency:
+          const: INR
+        categoryId:
+          type: string
+          format: uuid
+        paymentMethodId:
+          type: string
+          format: uuid
+        remarks:
+          type: string
+          maxLength: 4000
+        deleted:
+          type: boolean
+    ExpenseLabel:
+      type: object
+      required: [metadata, kind, name, icon, color, archived]
+      properties:
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        kind:
+          enum: [CATEGORY, PAYMENT]
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        icon:
+          enum: [BASKET, FOOD, TRANSPORT, SHOPPING, BILL, HEALTH, TRAVEL, EDUCATION, ENTERTAINMENT, PAYMENT, OTHER]
+        color:
+          type: integer
+          minimum: 0
+          maximum: 16777215
+        archived:
+          type: boolean
     WorkoutEntry:
       type: object
       additionalProperties: false
