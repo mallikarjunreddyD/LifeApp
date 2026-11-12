@@ -6,6 +6,10 @@ import com.myjournal.data.SnapshotJson
 import com.myjournal.data.StrokePointCodec
 import com.myjournal.data.TodoOperationJson
 import com.myjournal.domain.CalendarLayout
+import com.myjournal.domain.Expense
+import com.myjournal.domain.ExpenseLabelKind
+import com.myjournal.domain.ExpenseLedger
+import com.myjournal.domain.expenseDefaults
 import com.myjournal.domain.JournalMonth
 import com.myjournal.domain.HabitCompletion
 import com.myjournal.domain.HabitDefinition
@@ -472,6 +476,14 @@ class PostgresHttpTest {
         val first = list("/v1/editable/versions?limit=1").single()
         val cursor = first.getValue("sequence").jsonPrimitive.content
         assertEquals(5, list("/v1/editable/versions?after=$cursor").size)
+        val labels = expenseDefaults()
+        val category = labels.first { it.kind == ExpenseLabelKind.CATEGORY }
+        val payment = labels.first { it.kind == ExpenseLabelKind.PAYMENT }
+        val expense = Expense(newRecordMetadata(), date, "Private expense fixture", 125075,
+            category.metadata.id, payment.metadata.id)
+        val mixed = journal().copy(expenseLedger = ExpenseLedger(listOf(expense), labels))
+        assertEquals(400, stage(Uuid.random(), archive(mixed)))
+
         val competingPlanner = Uuid.random()
         val plannerBytes = archive(JournalSnapshot(planners = listOf(MonthlyPlanner(newRecordMetadata(), CalendarLayout(month)))))
         assertEquals(204, stage(competingPlanner, plannerBytes))

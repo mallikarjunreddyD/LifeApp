@@ -376,3 +376,58 @@ test('record previews preserve vectors and support per-day habit edits', async (
   await expect(notebook).toHaveCount(0);
   await expect(page.getByText('Connect to view committed journal pages.')).toBeVisible();
 });
+
+test('expenses create labels, edit, delete and restore across offline reloads', async ({ page, context }, testInfo) => {
+  await page.goto('/');
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await context.setOffline(true);
+  const expenses = page.getByRole('button', { name: 'Expenses', exact: true });
+  await expenses.click();
+  await page.getByRole('button', { name: 'Add Expense' }).click();
+  await page.getByLabel('Amount (₹)').fill('1,250.75');
+  await page.getByLabel('Expense name').fill('Training shoes');
+  await expect(page.getByLabel('Date', { exact: true })).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+  const date = '2024-02-29';
+  await page.getByLabel('Date', { exact: true }).fill(date);
+  await page.getByRole('button', { name: 'Category · Choose' }).click();
+  await page.getByLabel('Search Category').fill('Gym');
+  await page.getByRole('button', { name: 'Create "Gym"' }).click();
+  await expect(page.getByRole('button', { name: 'Category · Gym' })).toBeVisible();
+  await page.getByRole('button', { name: 'Paid From · Choose' }).click();
+  await page.getByLabel('Search Paid From').fill('Gift Card');
+  await page.getByRole('button', { name: 'Create "Gift Card"' }).click();
+  await expect(page.getByRole('button', { name: 'Paid From · Gift Card' })).toBeVisible();
+  await page.getByText('Remarks (optional)', { exact: true }).click();
+  await page.getByLabel('Expense remarks').fill('Winter training');
+  await page.screenshot({ path: testInfo.outputPath('expense-entry.png') });
+  await page.getByRole('button', { name: 'Save Expense' }).click();
+  await expect(page.getByRole('heading', { name: 'Training shoes' })).toBeVisible();
+  await page.reload();
+  await expenses.click();
+  await page.getByText('Filter Expenses', { exact: true }).click();
+  await page.getByLabel('Month', { exact: true }).fill(date.slice(0, 7));
+  await expect(page.getByRole('heading', { name: 'Training shoes' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByLabel('Date', { exact: true })).toHaveValue(date);
+  await expect(page.getByLabel('Amount (₹)')).toHaveValue('1250.75');
+  await expect(page.getByLabel('Expense remarks')).toHaveValue('Winter training');
+  await page.getByLabel('Amount (₹)').fill('0.01');
+  await page.getByRole('button', { name: 'Save Expense' }).click();
+  await expect(page.locator('.expense-summary strong')).toHaveText('₹0.01');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('expense-history.png') });
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('Training shoes · ₹0.01');
+  await page.getByRole('button', { name: 'Confirm Delete' }).click();
+  await expect(page.locator('.expense-summary strong')).toHaveText('₹0.00');
+  await page.getByRole('button', { name: 'Recently Deleted' }).click();
+  await page.getByRole('button', { name: 'Restore Expense' }).click();
+  await page.getByRole('button', { name: 'Show History' }).click();
+  await expect(page.locator('.expense-summary strong')).toHaveText('₹0.01');
+  if (!await page.getByLabel('Search expense names').isVisible()) {
+    await page.getByText('Filter Expenses', { exact: true }).click();
+  }
+  await page.getByLabel('Search expense names').fill('Other');
+  await expect(page.getByRole('heading', { name: 'Training shoes' })).toHaveCount(0);
+});

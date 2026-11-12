@@ -8,12 +8,13 @@ import type { LifeStore, LocalView, TaskView } from './store.ts';
 import { EditableRecords } from './EditableRecords.tsx';
 import { Journal } from './Journal.tsx';
 import { Workouts } from './Workouts.tsx';
+import { Expenses } from './Expenses.tsx';
 import { useWorkerUpdate } from './worker.ts';
 import packageInfo from '../package.json';
 import { browserExport, downloadExport } from './export.ts';
 
-type Tab = 'To-do' | 'Workouts' | 'History' | 'Journal' | 'Settings';
-const tabs: Tab[] = ['To-do', 'Workouts', 'History', 'Journal', 'Settings'];
+type Tab = 'To-do' | 'Workouts' | 'History' | 'Journal' | 'Expenses' | 'Settings';
+const tabs: Tab[] = ['To-do', 'Workouts', 'History', 'Journal', 'Expenses', 'Settings'];
 const ACTIVE_SYNC_INTERVAL = 5 * 60 * 1000;
 const blank: LocalView = { tasks: [], pending: 0, checkpoint: null, lastSync: null };
 
@@ -223,6 +224,7 @@ export function App({ store }: { store: LifeStore }) {
         {matches && <details><summary>Read-only server records</summary><ReadRecords key={tab}
           kind={tab === 'Workouts' ? 'exercises' : 'workouts'} session={session} online={online} /></details>}
       </>}
+      {tab === 'Expenses' && <Expenses store={store} />}
       {tab === 'Journal' && <section><h1>Journal</h1>
         {online && session ? <div key={session.scope.dataset + '/' + session.scope.epoch}>
           <Journal session={session} />

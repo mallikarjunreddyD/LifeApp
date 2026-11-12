@@ -1,3 +1,5 @@
+import { checkExpenseRecord, expenseDefaults, expenseNameKey } from './expense.ts';
+import type { ExpenseRecord } from './expense.ts';
 import { checkWorkoutRecords, revise } from './workout.ts';
 import type { Session, WorkoutRecord } from './workout.ts';
 import { advance, calendarDate, decodeOperation, instantKey, nextSequence, now, sameOperation, sameScope, title } from './protocol.ts';
@@ -24,7 +26,7 @@ function complete(transaction: IDBTransaction): Promise<void> {
 }
 
 export async function openStore(name = 'lifeapp-browser'): Promise<LifeStore> {
-  const open = indexedDB.open(name, 2);
+  const open = indexedDB.open(name, 3);
   open.onupgradeneeded = event => {
     const db = open.result;
     if (event.oldVersion === 0) {
@@ -34,7 +36,8 @@ export async function openStore(name = 'lifeapp-browser'): Promise<LifeStore> {
       ops.createIndex('record', 'operation.recordId');
       db.createObjectStore('tasks', { keyPath: 'id' });
     }
-    db.createObjectStore('workouts', { keyPath: 'value.metadata.id' });
+    if (event.oldVersion < 2) db.createObjectStore('workouts', { keyPath: 'value.metadata.id' });
+    db.createObjectStore('expenses', { keyPath: 'value.metadata.id' });
   };
   const db = await result(open);
   db.onversionchange = () => db.close();
@@ -46,12 +49,14 @@ class Transaction {
   readonly operations: IDBObjectStore;
   readonly tasks: IDBObjectStore;
   readonly workouts: IDBObjectStore;
+  readonly expenses: IDBObjectStore;
 
   constructor(transaction: IDBTransaction) {
     this.settings = transaction.objectStore('settings');
     this.operations = transaction.objectStore('operations');
     this.tasks = transaction.objectStore('tasks');
     this.workouts = transaction.objectStore('workouts');
+    this.expenses = transaction.objectStore('expenses');
   }
 
   async state(): Promise<Settings> {
@@ -103,7 +108,7 @@ export class LifeStore {
   close() { this.#database.close(); }
 
   private async use<T>(mode: IDBTransactionMode, work: (tx: Transaction) => Promise<T>): Promise<T> {
-    const transaction = this.#database.transaction(['settings', 'operations', 'tasks', 'workouts'], mode);
+    const transaction = this.#database.transaction(['settings', 'operations', 'tasks', 'workouts', 'expenses'], mode);
     const finished = complete(transaction);
     void finished.catch(() => {});
     try {
@@ -115,6 +120,61 @@ export class LifeStore {
       await finished.catch(() => {});
       throw error;
     }
+  }
+
+  async seedExpenses(): Promise<void> {
+    await this.use('readwrite', async tx => {
+      if (await result(tx.expenses.count()) !== 0) return;
+      for (const label of expenseDefaults()) await result(tx.expenses.add({ kind: 'label', value: label }));
+    });
+  }
+
+  async expenseRecords(): Promise<ExpenseRecord[]> {
+    return this.use('readonly', async tx => await result(tx.expenses.getAll()) as ExpenseRecord[]);
+  }
+
+  async saveExpense(record: ExpenseRecord, expected: string | null): Promise<void> {
+    await this.use('readwrite', async tx => {
+      const records = await result(tx.expenses.getAll()) as ExpenseRecord[];
+      const { metadata } = record.value;
+      const prior = records.find(item => item.value.metadata.id === metadata.id);
+      if ((prior?.value.metadata.revision ?? null) !== expected || (prior && prior.kind !== record.kind) ||
+          metadata.revision !== (expected === null ? '1' : nextSequence(expected)) ||
+          (prior && (prior.value.metadata.createdAt !== metadata.createdAt ||
+            instantKey(prior.value.metadata.updatedAt) > instantKey(metadata.updatedAt)))) {
+        throw new Error('This record changed. Reopen it before saving.');
+      }
+      checkExpenseRecord(record);
+      const labels = records.flatMap(item => item.kind === 'label' ? [item.value] : []);
+      if (record.kind === 'label') {
+        const { kind, name, archived } = record.value;
+        if (prior?.kind === 'label' && prior.value.kind !== kind) throw new Error('A label cannot change type.');
+        if (!archived && labels.some(item => item.metadata.id !== metadata.id && item.kind === kind &&
+            expenseNameKey(item.name) === expenseNameKey(name))) throw new Error('This name already exists. Check archived items.');
+      } else {
+        const previous = prior?.kind === 'expense' ? prior.value : undefined;
+        if (record.value.deleted || previous?.deleted) throw new Error('Restore this expense before editing it.');
+        const category = labels.find(item => item.metadata.id === record.value.categoryId && item.kind === 'CATEGORY');
+        const payment = labels.find(item => item.metadata.id === record.value.paymentMethodId && item.kind === 'PAYMENT');
+        if (!category || !payment || (category.archived && previous?.categoryId !== category.metadata.id) ||
+            (payment.archived && previous?.paymentMethodId !== payment.metadata.id)) {
+          throw new Error('Choose an available category and payment method.');
+        }
+      }
+      await result(tx.expenses.put(record));
+    });
+  }
+
+  async setExpenseDeleted(id: string, deleted: boolean, expected: string): Promise<void> {
+    await this.use('readwrite', async tx => {
+      const prior = await result(tx.expenses.get(id)) as ExpenseRecord | undefined;
+      if (prior?.kind !== 'expense') throw new Error('Expense is unavailable.');
+      if (prior.value.deleted === deleted) return;
+      if (prior.value.metadata.revision !== expected) throw new Error('This expense changed. Reopen it before continuing.');
+      await result(tx.expenses.put({ kind: 'expense', value: {
+        ...prior.value, metadata: revise(prior.value.metadata), deleted,
+      } }));
+    });
   }
 
   async workoutRecords(): Promise<WorkoutRecord[]> {

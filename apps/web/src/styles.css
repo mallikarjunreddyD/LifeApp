@@ -222,3 +222,62 @@ nav button[aria-current=page] { background: var(--active); color: var(--ink); fo
   min-height: 3.5rem;
   text-align: start;
 }
+
+.expense-module {
+  max-width: 70rem;
+  margin-inline: auto;
+}
+
+.expense-summary strong {
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.expense-history {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: .7rem;
+}
+
+.expense-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.expense-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .25rem .6rem;
+}
+
+.expense-card h3,
+.expense-card p {
+  margin-block: .25rem;
+}
+
+.expense-secondary button {
+  border-color: transparent;
+  background: transparent;
+  font-size: .88rem;
+  min-height: 2.65rem;
+}
+
+.expense-module details > summary {
+  cursor: pointer;
+  padding-block: .55rem;
+}
+
+.expense-module select {
+  min-height: 2.6rem;
+  font: inherit;
+}
+
+@media (max-width: 420px) {
+  nav button {
+    min-width: 0;
+    padding-inline: .15rem;
+    font-size: .72rem;
+  }
+}

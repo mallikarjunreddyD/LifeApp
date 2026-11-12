@@ -44,3 +44,7 @@ Live workout transport and tombstone replay remain future work.
 Phase 7G introduces categorized Settings, automatic sync triggers, scheduled
 encrypted recovery and a unified local data export. Live backup scheduling
 and independent recovery must pass [operational acceptance](phase-7g-acceptance.md).
+
+Phase 8A introduces the offline [Expense Tracker](phase-8-expense-tracker.md).
+The subsequent milestones add synchronization, spending charts and unified
+export and recovery acceptance.

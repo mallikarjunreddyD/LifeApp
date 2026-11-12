@@ -130,3 +130,10 @@ before destructive remote cleanup and keep manual copies outside scope.
 Use a disposable dataset and rclone destination for backup tests. Keep
 Android recovery credentials independently recoverable and protected by
 Keystore when cached. Never activate production timers or pruning from a PR.
+
+## Phase 8 expenses
+
+Use integer INR paise and a decimal string in portable JSON. Preserve label
+references and expense tombstones. Update backup and restore compatibility
+with every persistent schema change. Keep expense writes local until scoped
+replay, receipts and conflict review pass.

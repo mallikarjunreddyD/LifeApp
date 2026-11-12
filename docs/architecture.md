@@ -198,3 +198,8 @@ independent recovery as separate concerns. Android uses WorkManager for
 deferred sync and encrypted backups. The PWA runs foreground sync and exports
 only its committed local records. PostgreSQL snapshots use separate operator
 credentials and managed retention.
+
+Phase 8A stores expenses in the shared Room data layer and the existing PWA
+IndexedDB database. The expense domain uses integer paise, stable label
+references and recoverable deletion. Android backup captures and restores
+expense records in the same transaction as existing modules.

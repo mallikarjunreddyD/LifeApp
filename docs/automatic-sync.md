@@ -21,3 +21,6 @@ receipts arrive. Safari can suspend the app when it leaves the foreground.
 
 Neither client automatically adopts a changed recovery epoch or clears an
 outbox on session expiry. Workout writes remain local.
+
+Phase 8A expenses are device-local. Expense synchronization enters this
+schedule only after the Phase 8B scope and replay rules are implemented.

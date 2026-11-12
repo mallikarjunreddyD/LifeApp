@@ -38,7 +38,7 @@ class RoomSnapshotRepository(private val database: FoundationDatabase) : Snapsho
             } + dao.bookInk().map { it.model() }
         return JournalSnapshot(dao.metadata().map { notebookMeta(it.id,it.createdAt,it.updatedAt,it.revision,it.schemaVersion) },entries,planners,ledgers,
             dao.books().map { it.model() },dao.bookPages().map { it.model() },ink.sortedBy { it.metadata.id.toString() },
-            database.todos().all().map(TodoRow::model), RoomWorkoutRepository(database).capture()).also { it.validate() }
+            database.todos().all().map(TodoRow::model), RoomWorkoutRepository(database).capture(), RoomExpenseRepository(database).capture()).also { it.validate() }
     }
 
     suspend fun addEditableRecords(records: List<EditableImportRecord>) = applyEditableRecords(records, emptyMap())
@@ -67,7 +67,7 @@ class RoomSnapshotRepository(private val database: FoundationDatabase) : Snapsho
                     notebooks = flatMap { it.notebooks }, notebookPages = flatMap { it.notebookPages }, strokes = flatMap { it.strokes },
                 )
                 (remaining + incoming).combine().copy(metadata = existing.metadata, todos = existing.todos,
-                    workoutLog = existing.workoutLog).validate()
+                    workoutLog = existing.workoutLog, expenseLedger = existing.expenseLedger).validate()
 
                 for (old in expected.values) {
                     old.journals.forEach { entry ->
@@ -99,6 +99,7 @@ class RoomSnapshotRepository(private val database: FoundationDatabase) : Snapsho
         database.useWriterConnection { connection -> connection.immediateTransaction {
             RoomTodoRepository(database).replaceFromBackup(snapshot.todos)
             RoomWorkoutRepository(database).restore(snapshot.workoutLog)
+            RoomExpenseRepository(database).restore(snapshot.expenseLedger)
             dao.clearNotebookStrokeRow()
             dao.clearNotebookPageRow()
             dao.clearNotebookRow()
