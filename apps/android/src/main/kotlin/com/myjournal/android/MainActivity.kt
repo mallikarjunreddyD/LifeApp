@@ -86,9 +86,7 @@ class MainActivity : ComponentActivity() {
                 monthlyPlanner = { MonthlyPlannerScreen(model) }, habitTracker = { HabitTrackerScreen(model) },
                 notebook = { NotebookScreen(model) }, settings = { SettingsScreen(applicationState.operations, applicationState.serverSync) },
                 expenses = {
-                    com.myjournal.ui.ExpenseScreen(applicationState.expenses, today()) { enabled, back ->
-                        BackHandler(enabled, onBack = back)
-                    }
+                    AndroidExpenses(applicationState)
                 },
                 workouts = {
                     com.myjournal.ui.WorkoutScreen(
@@ -121,12 +119,14 @@ class MainActivity : ComponentActivity() {
         val app = application as JournalApplication
         observeSyncConnectivity(app)
         app.serverSync.onForeground()
+        app.expenseSync.schedule()
         app.operations.syncTrackedOnForeground(app.serverSync)
         activeSync = lifecycleScope.launch {
             while (true) {
                 delay(5 * 60 * 1000L)
                 app.serverSync.schedule()
                 app.serverSync.scheduleEditableUpload()
+                app.expenseSync.schedule()
             }
         }
     }
@@ -144,6 +144,7 @@ class MainActivity : ComponentActivity() {
                 if (available && !online) {
                     app.serverSync.schedule()
                     app.serverSync.scheduleEditableUpload()
+                app.expenseSync.schedule()
                 }
                 online = available
                 app.serverSync.networkChanged(available)

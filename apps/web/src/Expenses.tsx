@@ -2,18 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import type { LifeStore } from './store.ts';
 import { expenseDecimal, expenseIcons, expenseNameKey, formatExpensePaise, parseExpensePaise } from './expense.ts';
 import type { Expense, ExpenseLabel, ExpenseRecord, Icon, LabelKind } from './expense.ts';
+import { competingExpenseHeads, recordOf } from './expenseSync.ts';
+import type { useExpenseSync } from './useExpenseSync.ts';
 import { revise } from './workout.ts';
 import { instantKey, today } from './protocol.ts';
 
 type Page = 'history' | 'new' | 'CATEGORY' | 'PAYMENT' | Expense;
 
-export function Expenses({ store }: { store: LifeStore }) {
+export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<typeof useExpenseSync> }) {
   const [records, setRecords] = useState<ExpenseRecord[] | null>(null);
   const [page, setPage] = useState<Page>('history');
   const [month, setMonth] = useState(today().slice(0, 7));
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
   const [payment, setPayment] = useState('');
+  const [reviewConflicts, setReviewConflicts] = useState(false);
   const [deleted, setDeleted] = useState(false);
   const [confirm, setConfirm] = useState<Expense | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,7 +38,7 @@ export function Expenses({ store }: { store: LifeStore }) {
       if (live) setRecords(value);
     }).catch(() => { if (live) setError('Could not open expenses on this device.'); });
     return () => { live = false; };
-  }, [store]);
+  }, [store, sync.generation]);
 
   async function write(action: () => Promise<void>, done?: () => void) {
     if (busy) return;
@@ -44,6 +47,7 @@ export function Expenses({ store }: { store: LifeStore }) {
     setNotice('');
     try {
       await action();
+      sync.committed();
       setRecords(await store.expenseRecords());
       done?.();
       setNotice('Saved on this device.');
@@ -84,6 +88,33 @@ export function Expenses({ store }: { store: LifeStore }) {
         <strong>{formatExpensePaise(period.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</strong>
         <p>{period.length} {period.length === 1 ? 'transaction' : 'transactions'} · Saved on this device</p>
       </article>
+      {sync.status && <p role="status">{sync.status}</p>}
+      {sync.state ? <div className="actions">
+        <button onClick={sync.syncNow}>Sync Expenses Now</button>
+        {!!sync.state.pending.length && <span>{sync.state.pending.length} expense changes waiting.</span>}
+        {!!competingExpenseHeads(sync.state).length && <button onClick={() => setReviewConflicts(!reviewConflicts)}>
+          Review Expense Conflicts
+        </button>}
+      </div> : <button onClick={() => void sync.reviewConnection()}>Review Expense Connection</button>}
+      {sync.review && <div role="alertdialog" aria-label="Connect Expenses" className="card">
+        <p>{sync.review.local.filter(record => record.kind === 'expense').length} local expenses and {sync.review.count} server expense records and labels.
+          Independent records will be kept, and competing versions can be reviewed.</p>
+        <button onClick={() => void sync.bind()}>Connect Expenses</button>
+        <button onClick={sync.dismissReview}>Cancel</button>
+      </div>}
+      {reviewConflicts && sync.state && <section>
+        <h2>Expense conflicts</h2>
+        {competingExpenseHeads(sync.state).map(heads => <article className="card" key={heads[0]!.record.metadata.id}>
+          {heads.map(version => {
+            const record = recordOf(version);
+            return <p key={version.id}><button onClick={() => void sync.resolve(version.id, heads.map(head => head.id))}>
+              Keep {record.value.name}{record.kind === 'expense'
+                ? ` · ${formatExpensePaise(BigInt(record.value.amountMinor))} · ${record.value.date}${record.value.deleted ? ' · Deleted' : ''}`
+                : record.value.archived ? ' · Archived' : ''}
+            </button></p>;
+          })}
+        </article>)}
+      </section>}
       <button className="primary" disabled={busy} onClick={() => navigate('new')}>Add Expense</button>
       <div className="actions expense-secondary">
         <button onClick={() => navigate('CATEGORY')}>Manage Categories</button>
@@ -221,7 +252,10 @@ function LabelManager({ kind, labels, busy, save }: { kind: LabelKind; labels: E
   const [name, setName] = useState('');
   const [icon, setIcon] = useState<Icon>(kind === 'CATEGORY' ? 'OTHER' : 'PAYMENT');
   const [color, setColor] = useState('#527062');
+  const activeNames = labels.filter(label => label.kind === kind && !label.archived).map(label => expenseNameKey(label.name));
   return <>
+    {new Set(activeNames).size < activeNames.length &&
+      <p>Some names were created on different devices. Rename or archive one to distinguish them. Historical expenses keep their labels.</p>}
     <form className="editor" onSubmit={event => {
       event.preventDefault();
       save({ ...makeLabel(kind, name), metadata: revise(editing?.metadata), icon, color: Number.parseInt(color.slice(1), 16),

@@ -28,6 +28,7 @@ import kotlin.uuid.Uuid
 fun ExpenseScreen(
     repository: ExpenseRepository,
     today: LocalDate,
+    syncControls: @Composable () -> Unit = {},
     backHandler: @Composable (Boolean, () -> Unit) -> Unit = { _, _ -> },
 ) {
     var ledger by remember { mutableStateOf<ExpenseLedger?>(null) }
@@ -158,6 +159,7 @@ fun ExpenseScreen(
                     Text("${period.size} ${if (period.size == 1) "transaction" else "transactions"} · Saved on this device")
                 }
             }
+            syncControls()
             Button(enabled = !busy, onClick = { navigate("new") }) { Text("Add Expense") }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = { filters = !filters }) { Text("Filter Expenses") }
@@ -309,6 +311,9 @@ private fun ExpenseLabelManager(kind: ExpenseLabelKind, all: List<ExpenseLabel>,
     var icon by rememberSaveable { mutableStateOf(ExpenseIcon.OTHER) }
     var color by rememberSaveable { mutableIntStateOf(0x527062) }
     Text(if (category) "Manage Categories" else "Manage Payment Methods", style = MaterialTheme.typography.headlineMedium)
+    if (labels.filterNot { it.archived }.groupBy { expenseNameKey(it.name) }.values.any { it.size > 1 }) {
+        Text("Some names were created on different devices. Rename or archive one to distinguish them. Historical expenses keep their labels.")
+    }
     OutlinedTextField(name, { name = it.take(120) }, label = { Text(if (editing == null) "New name" else "Edit name") }, singleLine = true)
     if (category) FlowRow {
         TextButton(onClick = { icon = ExpenseIcon.entries[(icon.ordinal + 1) % ExpenseIcon.entries.size] }) {

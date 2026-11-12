@@ -2,6 +2,7 @@ package com.myjournal.server
 
 import com.myjournal.core.RecordMetadata
 import com.myjournal.data.workoutJson
+import com.myjournal.data.ExpenseSyncJson
 import com.myjournal.data.TodoOperationJson
 import com.myjournal.data.checkJsonSizeAndDepth
 import com.myjournal.domain.CommittedTodo
@@ -36,6 +37,7 @@ private val databaseDispatcher = Dispatchers.IO.limitedParallelism(12)
 
 internal fun Application.lifeApp(database: Database, auth: Authentication, origin: String) {
     val todos = TodoStore(database)
+    val expenses = ExpenseStore(database)
     val workouts = WorkoutReader(database)
     val stagedInk = StagedInkStore(database)
     val journalInk = JournalInkStore(database)
@@ -433,6 +435,33 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                         put("heads", JsonArray(heads.map(TodoOperation::json)))
                     }
                 })
+            }
+            get("/expenses/inventory") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireRecordScope(scope)
+                val count = databaseCall { expenses.inventory(scope) }
+                call.json(buildJsonObject { put("count", count.toString()) })
+            }
+            get("/expenses/pull") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireRecordScope(scope)
+                val after = validated {
+                    requireNotNull(call.request.queryParameters["after"]?.toLongOrNull()).also { require(it >= 0) }
+                }
+                val (entries, more) = databaseCall { expenses.pull(scope, after) }
+                call.json(buildJsonObject {
+                    put("entries", JsonArray(entries.map(ExpenseSyncJson::committed)))
+                    put("hasMore", more)
+                })
+            }
+            post("/expenses/push") {
+                val session = call.authenticate(auth).second
+                call.requireMutation(session, origin)
+                call.requireRecordScope(session.scope)
+                val body = call.body()
+                val operation = validated { ExpenseSyncJson.operation(body) }
+                val receipt = databaseCall { validated { expenses.push(session.scope, operation) } }
+                call.json(ExpenseSyncJson.committed(receipt))
             }
             get("/backups/status") {
                 val scope = call.authenticate(auth).second.scope

@@ -105,6 +105,20 @@ class DataOperations(private val app: JournalApplication, private val repository
         }
     }
 
+    internal fun bindExpenses(uri: Uri, sync: AndroidExpenseSync, review: ExpenseConnectionReview) =
+        start("Verifying a recovery backup before connecting expenses…") {
+            val data = snapshot()
+            val file = temp(".zip")
+            try {
+                withContext(Dispatchers.IO) {
+                    BackupArchive.write(file, data)
+                    writeVerified(file, uri)
+                }
+                sync.bind(review, data.expenseLedger)
+                "Recovery backup verified. Expense synchronization queued."
+            } finally { file.delete() }
+        }
+
     internal fun bindServer(uri: Uri, sync: AndroidServerSync, preview: BindingPreview) =
         start("Creating a verified local backup before server binding…") {
             val data = snapshot()
