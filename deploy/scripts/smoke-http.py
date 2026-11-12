@@ -104,7 +104,8 @@ if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):
     assert planner_headers["X-Content-SHA256"] == hashlib.sha256(planner).hexdigest()
     assert json.loads(call(f"{record_path}/preview", headers=scope_headers)[0])["title"] == "2026-11"
     backup = json.loads(call("/v1/backups/status", headers=auth)[0])
-    assert backup["state"] == "failed" and backup["lastVerifiedAt"] is None
+    # The snapshot records its own in-progress capture and earlier verified generations.
+    assert backup["state"] == "failed" and isinstance(backup["lastVerifiedAt"], str)
     workout = json.loads(call("/v1/workouts/70000000-0000-4000-8000-000000000002", headers=auth)[0])
     restored_set = workout["entries"][0]["sets"][0]
     assert restored_set["metadata"]["id"] == "70000000-0000-4000-8000-000000000004"
