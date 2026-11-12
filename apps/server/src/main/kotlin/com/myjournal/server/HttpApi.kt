@@ -39,6 +39,7 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
     val todos = TodoStore(database)
     val expenses = ExpenseStore(database)
     val workouts = WorkoutReader(database)
+    val workoutSync = WorkoutSyncStore(database)
     val stagedInk = StagedInkStore(database)
     val journalInk = JournalInkStore(database)
     val editable = EditableRecordStore(database)
@@ -465,6 +466,32 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                 val receipt = databaseCall { validated { expenses.push(session.scope, operation) } }
                 call.json(ExpenseSyncJson.committed(receipt))
             }
+            get("/structured/workouts") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireRecordScope(scope)
+                val (after, limit) = call.pagination()
+                val rows = databaseCall { workoutSync.list(scope, after, limit.coerceAtMost(3)) }
+                call.json(paged(rows, limit.coerceAtMost(3), { it.record.id }) { it.json() })
+            }
+            get("/structured/workouts/{id}") {
+                val scope = call.authenticate(auth).second.scope
+                call.requireRecordScope(scope)
+                val id = validated { Uuid.parse(requireNotNull(call.parameters["id"])) }
+                call.json(databaseCall { workoutSync.head(scope, id) }.json())
+            }
+            post("/structured/workouts") {
+                val session = call.authenticate(auth).second
+                call.requireMutation(session, origin)
+                call.requireRecordScope(session.scope)
+                val body = call.body(512 * 1024)
+                val (version, parent) = validated {
+                    require(body.keys == setOf("entry", "parent"))
+                    com.myjournal.data.WorkoutSyncVersion.parse(body.getValue("entry").jsonObject) to
+                        body.getValue("parent").jsonPrimitive.contentOrNull?.let(Uuid::parse)
+                }
+                val receipt = databaseCall { validated { workoutSync.push(session.scope, version, parent) } }
+                call.json(receipt.json())
+            }
             get("/backups/status") {
                 val scope = call.authenticate(auth).second.scope
                 val (state, verified) = databaseCall { todos.backupStatus(scope) }
@@ -538,11 +565,11 @@ private fun ApplicationCall.sessionCookie(value: String, age: Int) {
     response.headers.append(HttpHeaders.SetCookie, "$SESSION_COOKIE=$value; Path=/; Max-Age=$age; Secure; HttpOnly; SameSite=Strict")
 }
 
-private suspend fun ApplicationCall.body(): JsonObject {
+private suspend fun ApplicationCall.body(limit: Int = BODY_LIMIT): JsonObject {
     if (!request.contentType().match(ContentType.Application.Json)) invalid()
-    if ((request.contentLength() ?: 0) > BODY_LIMIT) tooLarge()
-    val bytes = receiveChannel().readBuffer(BODY_LIMIT.toLong() + 1).readByteArray()
-    if (bytes.size > BODY_LIMIT) tooLarge()
+    if ((request.contentLength() ?: 0) > limit) tooLarge(limit)
+    val bytes = receiveChannel().readBuffer(limit.toLong() + 1).readByteArray()
+    if (bytes.size > limit) tooLarge(limit)
     return validated {
         val text = bytes.decodeToString(throwOnInvalidSequence = true)
         checkJsonSizeAndDepth(text)
@@ -602,5 +629,5 @@ private inline fun <T> validated(block: () -> T): T = try {
 private fun invalid(): Nothing = throw ApiFailure(400, "INVALID_REQUEST", "Malformed or invalid request.")
 private fun recordTooLarge(): Nothing = throw ApiFailure(413, "LIMIT_EXCEEDED", "The record archive exceeds 16 MiB.")
 private fun inkTooLarge(): Nothing = throw ApiFailure(413, "LIMIT_EXCEEDED", "The stroke exceeds 20,000,012 bytes.")
-private fun tooLarge(): Nothing = throw ApiFailure(413, "LIMIT_EXCEEDED", "The request exceeds 16 KiB.")
+private fun tooLarge(limit: Int = BODY_LIMIT): Nothing = throw ApiFailure(413, "LIMIT_EXCEEDED", "The request exceeds ${limit / 1024} KiB.")
 private suspend fun <T> databaseCall(block: () -> T): T = withContext(databaseDispatcher) { block() }

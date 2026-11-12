@@ -10,6 +10,10 @@ import com.myjournal.data.JournalInkJson
 import com.myjournal.data.SnapshotJson
 import com.myjournal.data.StrokePointCodec
 import com.myjournal.data.TodoOperationJson
+import com.myjournal.data.WorkoutSyncRecord
+import com.myjournal.data.WorkoutSyncVersion
+import com.myjournal.data.workoutJson
+import com.myjournal.domain.ExerciseDefinition
 import com.myjournal.domain.CalendarLayout
 import com.myjournal.domain.Expense
 import com.myjournal.domain.ExpenseLabelKind
@@ -351,6 +355,34 @@ class PostgresHttpTest {
             query("SELECT count(*) FROM staged_ink WHERE dataset_id = ?", scope.dataset.sql()) { it.getInt(1) }.single()
         }
         assertEquals(1, remaining)
+    }
+
+    @Test fun workoutSyncKeepsTheWinningHeadAndRejectsAStaleWriter() = testApplication {
+        application { lifeApp(database, auth, origin) }
+        val token = client.login(user).token()
+        fun HttpRequestBuilder.scoped(requested: SyncScope = scope) {
+            bearerAuth(token)
+            header("X-LifeApp-Dataset", requested.dataset.toString())
+            header("X-LifeApp-Epoch", requested.epoch.toString())
+        }
+        suspend fun push(entry: WorkoutSyncVersion, parent: Uuid? = null) = client.post("/v1/structured/workouts") {
+            scoped()
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("entry", entry.json()); put("parent", parent?.toString()) }.toString())
+        }
+        assertEquals(401, client.get("/v1/structured/workouts").status.value)
+        assertEquals(409, client.get("/v1/structured/workouts") { scoped(scope.copy(epoch = Uuid.random())) }.status.value)
+        val exercise = ExerciseDefinition(newRecordMetadata(), "Original press")
+        val first = WorkoutSyncVersion(Uuid.random(), WorkoutSyncRecord("exercise", exercise.workoutJson()))
+        assertEquals(first, WorkoutSyncVersion.parse(push(first).json()))
+        assertEquals(first, WorkoutSyncVersion.parse(push(first).json()))
+        val metadata = exercise.metadata.revised(exercise.metadata.updatedAt)
+        val next = WorkoutSyncVersion(Uuid.random(), WorkoutSyncRecord("exercise", exercise.copy(metadata = metadata, name = "Edited press").workoutJson()))
+        assertEquals(next, WorkoutSyncVersion.parse(push(next, first.version).json()))
+        assertEquals(first, WorkoutSyncVersion.parse(push(first).json()))
+        val competitor = WorkoutSyncVersion(Uuid.random(), WorkoutSyncRecord("exercise", exercise.copy(metadata = metadata, name = "Concurrent press").workoutJson()))
+        assertEquals(409, push(competitor, first.version).status.value)
+        assertEquals(next, WorkoutSyncVersion.parse(client.get("/v1/structured/workouts/${exercise.metadata.id}") { scoped() }.json()))
     }
 
     @Test fun expenseFeedRetainsConflictsAndRetriesAcrossTheAuthenticatedScope() = testApplication {

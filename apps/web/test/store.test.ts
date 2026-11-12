@@ -235,3 +235,29 @@ test('connecting synchronization preserves existing bindings and rejects stale r
     store.close();
   }
 });
+
+test('offline habit checks survive a reopen and stay scoped to their recovery epoch', async () => {
+  const name = crypto.randomUUID();
+  const base = crypto.randomUUID();
+  const habitId = crypto.randomUUID();
+  const edit = { base, check: { id: crypto.randomUUID(), habitId, date: '2026-11-02', checked: true } };
+  const month = { title: '2026-11', habits: [{ id: habitId, name: 'Read', archived: false, days: [] }] };
+  const before = await openStore(name);
+  await before.saveHabitMonth(scope, base, month);
+  await before.queueHabitEdit(scope, edit);
+  before.close();
+  const after = await openStore(name);
+  try {
+    assert.deepEqual((await after.habitSyncState(scope)).edits, [edit]);
+    assert.deepEqual((await after.habitSyncState({ ...scope, epoch: crypto.randomUUID() })).edits, []);
+    await assert.rejects(after.queueHabitEdit(scope, { ...edit, check: { ...edit.check, id: crypto.randomUUID() } }));
+    const receipt = { versionId: crypto.randomUUID(), conflicted: false };
+    await after.confirmHabitEdit(scope, edit, receipt, month);
+    const state = await after.habitSyncState(scope);
+    assert.deepEqual(state.edits, []);
+    assert.deepEqual(state.receipts[base], receipt);
+    assert.deepEqual(state.months[receipt.versionId], month);
+  } finally {
+    after.close();
+  }
+});

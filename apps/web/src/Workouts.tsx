@@ -1,3 +1,4 @@
+import type { WorkoutConflict } from './workoutSync.ts';
 import { useEffect, useRef, useState } from 'react';
 import { today } from './protocol.ts';
 import type { LifeStore } from './store.ts';
@@ -17,7 +18,11 @@ function move<T>(items: T[], index: number, offset: number): T[] {
   return next;
 }
 
-export function Workouts({ store, historyOnly = false }: { store: LifeStore; historyOnly?: boolean }) {
+export function Workouts({ store, historyOnly = false, generation, syncStatus, conflicts, onSaved, onResolve }: {
+  store: LifeStore; historyOnly?: boolean; generation: number; syncStatus: string;
+  conflicts: WorkoutConflict[]; onSaved: () => void;
+  onResolve: (conflict: WorkoutConflict, keepLocal: boolean) => Promise<void>;
+}) {
   const [records, setRecords] = useState<WorkoutRecord[] | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -52,6 +57,13 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
     return () => { current = false; };
   }, [store]);
 
+  useEffect(() => {
+    let active = true;
+    void store.workoutRecords().then(value => { if (active) setRecords(value); })
+      .catch(() => { if (active) setError('Could not refresh saved workouts.'); });
+    return () => { active = false; };
+  }, [generation, store]);
+
   async function write(action: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
@@ -59,6 +71,7 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
     try {
       await action();
       setRecords(await store.workoutRecords());
+      onSaved();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Could not save the workout.');
     } finally { setBusy(false); }
@@ -106,6 +119,25 @@ export function Workouts({ store, historyOnly = false }: { store: LifeStore; his
   return <section className="workout-logbook">
     <h1>Workouts</h1>
     <p>Workout changes are saved on this device.</p>
+    {syncStatus && <p role="status">{syncStatus}</p>}
+    {!!conflicts.length && <details><summary>Review workout copies</summary>
+      {conflicts.map(conflict => {
+        const { local, remote } = conflict;
+        return <article className="card" key={local.value.metadata.id}>
+        <h2>{local.kind === 'session' ? local.value.date : local.value.name}</h2>
+        <details><summary>This device</summary><pre>{JSON.stringify(local.value, null, 2)}</pre></details>
+        <details><summary>Server copy</summary><pre>{JSON.stringify(remote.record.value, null, 2)}</pre></details>
+        <div className="actions">
+          <button disabled={busy} onClick={() => {
+            if (window.confirm('Keep this device’s workout copy?')) void write(() => onResolve(conflict, true));
+          }}>Keep this device’s copy</button>
+          <button disabled={busy} onClick={() => {
+            if (window.confirm('Replace this device’s workout with the reviewed server copy?')) void write(() => onResolve(conflict, false));
+          }}>Keep server copy</button>
+        </div>
+      </article>;
+      })}
+    </details>}
     {error && <p role="alert">{error}</p>}
     {!records && !error && <p role="status">Loading workouts…</p>}
     {records && (session && draft ? <form className="editor" onSubmit={event => {

@@ -2,7 +2,7 @@ import { commitJournalFixture } from './journal-fixture.ts';
 import { expect, test } from '@playwright/test';
 
 test('browser exchanges task changes with the Android HTTPS client', async ({ page }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Account & Security' }).click();
@@ -53,6 +53,19 @@ test('browser exchanges task changes with the Android HTTPS client', async ({ pa
   await page.getByRole('button', { name: 'Save Expense' }).click();
   await expect(expense).toContainText('₹2.05');
   await expect(page.getByText(/expense changes waiting/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  if (!await page.getByRole('heading', { name: 'Synchronization' }).isVisible()) {
+    await page.getByRole('button', { name: 'Synchronization' }).click();
+  }
+  await page.getByRole('button', { name: 'Sync now', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Workouts', exact: true }).click();
+  await page.getByText('Exercise library', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Android bridge press' })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit exercise', exact: true }).click();
+  await page.getByLabel('Exercise name').fill('Browser bridge press');
+  await page.getByRole('button', { name: 'Save exercise' }).click();
+  await expect(page.getByRole('heading', { name: 'Browser bridge press' })).toBeVisible();
   await expect(page.getByRole('navigation').getByRole('button', { name: 'Journal', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'To-do', exact: true }).click();
   await commitJournalFixture(page.request, new URL(page.url()).origin, '2026-11-09');

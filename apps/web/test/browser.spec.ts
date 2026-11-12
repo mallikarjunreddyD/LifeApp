@@ -202,6 +202,20 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
     }).toBe(0);
     await second.getByRole('button', { name: 'Recently Deleted' }).click();
     await expect(second.getByRole('heading', { name: 'Cross-device expense' })).toBeVisible();
+
+    await context.setOffline(true);
+    await page.getByRole('button', { name: 'Workouts', exact: true }).click();
+    await page.getByText('Exercise library', { exact: true }).click();
+    await page.getByRole('button', { name: 'New exercise' }).click();
+    await page.getByLabel('Exercise name').fill('Cross-device press');
+    await page.getByRole('button', { name: 'Save exercise' }).click();
+    await expect(page.getByRole('heading', { name: 'Cross-device press' })).toBeVisible();
+    await context.setOffline(false);
+    await expect(page.getByText('Workouts checked with the server.')).toBeVisible();
+    await syncExpenses(second);
+    await second.getByRole('button', { name: 'Workouts', exact: true }).click();
+    await second.getByText('Exercise library', { exact: true }).click();
+    await expect(second.getByRole('heading', { name: 'Cross-device press' })).toBeVisible();
   } finally { await other.close(); }
 });
 
@@ -305,6 +319,8 @@ test('workout logbook drafts, deletion and PDF work offline', async ({ page, con
 test('Habits shows structured months and hides handwriting modules', async ({ context, page }) => {
   await page.goto('/');
   await signIn(page);
+  await bind(page);
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   await expect(page.getByRole('navigation').getByRole('button', { name: /Journal|Planner|Notebook/ })).toHaveCount(0);
   const session = await (await context.request.get('/v1/session')).json();
   const headers = { Origin: new URL(page.url()).origin, 'X-CSRF-Token': session.csrfToken,
@@ -331,16 +347,26 @@ test('Habits shows structured months and hides handwriting modules', async ({ co
   const reading = page.getByRole('checkbox', { name: 'Reading' });
   await expect(reading).toBeVisible();
   await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('2');
+  await context.setOffline(true);
   await reading.click();
-  await expect(page.getByText('Habit completion saved.')).toBeVisible();
+  await expect(page.getByText('1 habit changes waiting to sync.')).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Habits', exact: true }).click();
+  await page.getByText('Habit months and versions', { exact: true }).click();
+  await page.getByRole('button', { name: 'Habits · 2026-11', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('2');
   await expect(reading).toBeChecked();
+  await context.setOffline(false);
+  await expect(page.getByText('1 habit changes waiting to sync.')).toHaveCount(0);
+  const updated = await (await context.request.get('/v1/editable/versions?kind=habits', { headers })).json();
+  const latest = updated.items.find((row: { current: boolean }) => row.current);
+  const preview = await (await context.request.get('/v1/editable/versions/' + latest.id + '/preview', { headers })).json();
+  expect(preview.habits.find((habit: { name: string }) => habit.name === 'Reading').completedDays).toContain(2);
   await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('1');
   await expect(reading).not.toBeChecked();
   const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
     (await (await caches.open(name)).keys()).map(item => new URL(item.url).pathname)))).flat());
   expect(cachedPaths.some(path => path.startsWith('/v1/journal/') || path.startsWith('/v1/editable/'))).toBe(false);
-  await context.setOffline(true);
-  await expect(page.getByText('Connect to view server habit months.')).toBeVisible();
 });
 
 test('expenses create labels, edit, delete and restore across offline reloads', async ({ page, context }, testInfo) => {

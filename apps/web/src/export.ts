@@ -80,7 +80,7 @@ export function expenseCsv(items: readonly Expense[], labels: readonly ExpenseLa
 }
 
 export async function browserExport(store: LifeStore): Promise<Blob> {
-  const { view, workouts, expenses, expensePending } = await store.exportSnapshot();
+  const { view, workouts, expenses, expensePending, habits } = await store.exportSnapshot();
   const items = expenses.flatMap(record => record.kind === 'expense' ? [record.value] : []);
   const labels = expenses.flatMap(record => record.kind === 'label' ? [record.value] : []);
   const categories = labels.filter(label => label.kind === 'CATEGORY');
@@ -89,6 +89,7 @@ export async function browserExport(store: LifeStore): Promise<Blob> {
   const pack = (path: string, value: unknown) => files.set(path, encoder.encode(JSON.stringify(value, null, 2)));
   pack('data/todos.json', view.tasks);
   pack('data/workouts.json', workouts);
+  if (habits) pack('data/habits.json', { months: habits.months, queuedChecks: habits.edits });
   pack('expenses/expenses.json', items);
   pack('expenses/categories.json', categories);
   pack('expenses/payment-methods.json', payments);
@@ -100,10 +101,10 @@ export async function browserExport(store: LifeStore): Promise<Blob> {
   ));
   const manifest = {
     format: 'LifeAppMyData', version: 1, createdAt: new Date().toISOString(), source: 'browser-local',
-    completeAcrossDevices: false, knownQueuedChanges: view.pending + expensePending,
-    coverage: 'Browser-local To-do, workout and expense data. Online-only and other device records are unavailable.',
+    completeAcrossDevices: false, knownQueuedChanges: view.pending + expensePending + (habits?.edits.length ?? 0),
+    coverage: 'Browser-local To-do, workout, habit and expense data. Online-only and other device records are unavailable.',
     recordCounts: { todos: view.tasks.length, workoutRecords: workouts.length, expenses: items.length,
-      expenseCategories: categories.length, paymentMethods: payments.length },
+      expenseCategories: categories.length, paymentMethods: payments.length, habitVersions: Object.keys(habits?.months ?? {}).length },
     unavailable: ['Android journal, planner, habit and notebook records', 'Server-only records and backup files'],
     files: await Promise.all(Array.from(files, async ([path, bytes]) => ({ path, bytes: bytes.length, sha256: await sha256(bytes) }))),
   };

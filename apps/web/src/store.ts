@@ -1,3 +1,6 @@
+import { workoutMatches } from './workoutSync.ts';
+import type { WorkoutBinding, WorkoutVersion } from './workoutSync.ts';
+import type { HabitEdit, HabitMonth, HabitSyncState, HabitVersionPage } from './habitSync.ts';
 import { applyExpenseOperation, competingExpenseHeads, deleted, effectiveExpenseHeads, newExpenseOperation, recordOf, sameOperation as sameExpenseOperation } from './expenseSync.ts';
 import type { ExpenseCommit, ExpenseMutation, ExpenseSyncState } from './expenseSync.ts';
 import { checkExpenseRecord, expenseDefaults, expenseNameKey } from './expense.ts';
@@ -124,6 +127,72 @@ export class LifeStore {
     }
   }
 
+  private habitKey(scope: Scope): string {
+    return 'habits/' + scope.dataset + '/' + scope.epoch;
+  }
+
+  private async readHabits(tx: Transaction, scope: Scope): Promise<HabitSyncState> {
+    return (await result(tx.settings.get(this.habitKey(scope)))) ?? { pages: {}, months: {}, edits: [], receipts: {} };
+  }
+
+  private async updateHabits(scope: Scope, update: (state: HabitSyncState) => void): Promise<void> {
+    await this.use('readwrite', async tx => {
+      const state = await this.readHabits(tx, scope);
+      update(state);
+      await result(tx.settings.put(state, this.habitKey(scope)));
+    });
+  }
+
+  async habitSyncState(scope: Scope): Promise<HabitSyncState> {
+    return this.use('readonly', tx => this.readHabits(tx, scope));
+  }
+
+  async saveHabitPage(scope: Scope, after: string, page: HabitVersionPage): Promise<void> {
+    await this.updateHabits(scope, state => { state.pages[after] = page; });
+  }
+
+  async saveHabitMonth(scope: Scope, version: string, month: HabitMonth): Promise<void> {
+    await this.updateHabits(scope, state => { state.months[version] = month; });
+  }
+
+  async queueHabitEdit(scope: Scope, edit: HabitEdit): Promise<void> {
+    await this.updateHabits(scope, state => {
+      const month = state.months[edit.base];
+      const date = calendarDate(edit.check.date);
+      if (!month || date.slice(0, 7) !== month.title ||
+          !month.habits.some(habit => habit.id === edit.check.habitId && !habit.archived)) {
+        throw new Error('Refresh this habit month before editing.');
+      }
+      if (state.edits.some(item => item.check.habitId === edit.check.habitId && item.check.date === date)) {
+        throw new Error('This day already has a queued change.');
+      }
+      if (state.edits.length >= 512) throw new Error('Sync queued habit changes before adding more.');
+      state.edits.push(edit);
+    });
+  }
+
+  async confirmHabitEdit(scope: Scope, edit: HabitEdit, receipt: HabitSyncState['receipts'][string], month: HabitMonth): Promise<void> {
+    await this.updateHabits(scope, state => {
+      if (!state.edits.some(item => item.check.id === edit.check.id && item.base === edit.base)) return;
+      state.months[receipt.versionId] = month;
+      state.receipts[edit.base] = receipt;
+      state.edits = state.edits.filter(item => item.check.id !== edit.check.id);
+    });
+  }
+
+  async blockHabitEdit(scope: Scope, edit: HabitEdit): Promise<void> {
+    await this.updateHabits(scope, state => {
+      const item = state.edits.find(candidate => candidate.check.id === edit.check.id);
+      if (item) item.blocked = true;
+    });
+  }
+
+  async discardBlockedHabitEdit(scope: Scope, id: string): Promise<void> {
+    await this.updateHabits(scope, state => {
+      state.edits = state.edits.filter(item => item.check.id !== id || !item.blocked);
+    });
+  }
+
   async seedExpenses(): Promise<void> {
     await this.use('readwrite', async tx => {
       if (await result(tx.expenses.count()) !== 0 || await result(tx.settings.get('expense-sync'))) return;
@@ -147,7 +216,7 @@ export class LifeStore {
     await result(tx.settings.put({ scope, cursor: '0', heads: [], pending, acknowledged: [] } satisfies ExpenseSyncState, 'expense-sync'));
   }
 
-  async bindStructured(scope: Scope, reviewedExpenses: ExpenseRecord[]): Promise<void> {
+  async bindStructured(scope: Scope, reviewedExpenses: ExpenseRecord[], reviewedWorkouts?: WorkoutRecord[]): Promise<void> {
     await this.use('readwrite', async tx => {
       const todo = await tx.state();
       const expense = await result(tx.settings.get('expense-sync')) as ExpenseSyncState | undefined;
@@ -155,6 +224,17 @@ export class LifeStore {
         throw new Error('Reconnect to the original account or recovery epoch. Local changes were kept.');
       }
       if (!expense) await this.bindExpenseRecords(tx, scope, reviewedExpenses);
+      if (reviewedWorkouts !== undefined) {
+        const workout = await result(tx.settings.get('workout-sync')) as WorkoutBinding | undefined;
+        if (workout && !sameScope(workout.scope, scope)) throw new Error('Workouts belong to another account or recovery epoch.');
+        if (!workout) {
+          const current = await result(tx.workouts.getAll()) as WorkoutRecord[];
+          if (current.length !== reviewedWorkouts.length || current.some((item, index) => !workoutMatches(item, reviewedWorkouts[index]))) {
+            throw new Error('Workouts changed. Review again.');
+          }
+          await result(tx.settings.put({ scope, versions: {} } satisfies WorkoutBinding, 'workout-sync'));
+        }
+      }
       if (!todo.checkpoint) await tx.save({ ...todo, checkpoint: { scope, sequence: '0' } });
     });
   }
@@ -306,6 +386,33 @@ export class LifeStore {
     });
   }
 
+  async workoutBinding(): Promise<WorkoutBinding | null> {
+    return this.use('readonly', async tx => (await result(tx.settings.get('workout-sync'))) ?? null);
+  }
+
+  async applyWorkoutVersion(scope: Scope, before: WorkoutVersion | undefined, received: WorkoutVersion,
+    expected: WorkoutRecord | undefined, download: boolean): Promise<boolean> {
+    return this.use('readwrite', async tx => {
+      const binding = await result(tx.settings.get('workout-sync')) as WorkoutBinding | undefined;
+      const id = received.record.value.metadata.id;
+      if (!binding || !sameScope(binding.scope, scope) || binding.versions[id]?.version !== before?.version) {
+        throw new Error('Another tab advanced workout sync. Retry.');
+      }
+      if (download) {
+        const draft = await result(tx.settings.get('workout-draft')) as { session: Session } | undefined;
+        if (draft?.session.metadata.id === id) return false;
+        const records = await result(tx.workouts.getAll()) as WorkoutRecord[];
+        const local = records.find(item => item.value.metadata.id === id);
+        if (!workoutMatches(local, expected)) return false;
+        checkWorkoutRecords([...records.filter(item => item.value.metadata.id !== id), received.record]);
+        await result(tx.workouts.put(received.record));
+      }
+      binding.versions[id] = received;
+      await result(tx.settings.put(binding, 'workout-sync'));
+      return true;
+    });
+  }
+
   async workoutRecords(): Promise<WorkoutRecord[]> {
     return this.use('readonly', async tx => await result(tx.workouts.getAll()) as WorkoutRecord[]);
   }
@@ -374,12 +481,16 @@ export class LifeStore {
   }
 
   async exportSnapshot() {
-    return this.use('readonly', async tx => ({
-      view: await this.readLocalView(tx),
-      workouts: await result(tx.workouts.getAll()) as WorkoutRecord[],
-      expenses: await result(tx.expenses.getAll()) as ExpenseRecord[],
-      expensePending: ((await result(tx.settings.get('expense-sync'))) as ExpenseSyncState | undefined)?.pending.length ?? 0,
-    }));
+    return this.use('readonly', async tx => {
+      const view = await this.readLocalView(tx);
+      return {
+        view,
+        workouts: await result(tx.workouts.getAll()) as WorkoutRecord[],
+        expenses: await result(tx.expenses.getAll()) as ExpenseRecord[],
+        expensePending: ((await result(tx.settings.get('expense-sync'))) as ExpenseSyncState | undefined)?.pending.length ?? 0,
+        habits: view.checkpoint ? await this.readHabits(tx, view.checkpoint.scope) : null,
+      };
+    });
   }
 
   async bind(scope: Scope): Promise<void> {

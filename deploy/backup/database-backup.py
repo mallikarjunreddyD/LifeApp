@@ -44,7 +44,13 @@ CHECKPOINT_V3 = CHECKPOINT_V2.replace(
         'expenseOperations', (SELECT count(*) FROM expense_operations),
         'expenseHeads', (SELECT count(*) FROM expense_heads)""",
 )
-CHECKPOINTS = {1: CHECKPOINT, 2: CHECKPOINT_V2, 3: CHECKPOINT_V3}
+CHECKPOINT_V4 = CHECKPOINT_V3.replace(
+    "'expenseHeads', (SELECT count(*) FROM expense_heads)",
+    """'expenseHeads', (SELECT count(*) FROM expense_heads),
+        'workoutSyncVersions', (SELECT count(*) FROM workout_sync_versions),
+        'workoutSyncHeads', (SELECT count(*) FROM workout_sync_heads)""",
+)
+CHECKPOINTS = {1: CHECKPOINT, 2: CHECKPOINT_V2, 3: CHECKPOINT_V3, 4: CHECKPOINT_V4}
 
 
 def compose(project, release, *args):
@@ -85,11 +91,11 @@ def capture(args, work):
     dump = work / "database.dump"
     with subprocess.Popen(psql(args), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as session:
         session.stdin.write("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSELECT pg_export_snapshot();\n")
-        session.stdin.write("SELECT to_regclass('public.expense_operations') IS NOT NULL;\n")
+        session.stdin.write("SELECT CASE WHEN to_regclass('public.workout_sync_versions') IS NOT NULL THEN 4 WHEN to_regclass('public.expense_operations') IS NOT NULL THEN 3 ELSE 2 END;\n")
         session.stdin.flush()
         snapshot = session.stdout.readline().strip()
         validate(re.fullmatch(r"[A-F0-9-]+", snapshot), "Could not acquire a PostgreSQL snapshot.")
-        version = 3 if session.stdout.readline().strip() == "t" else 2
+        version = int(session.stdout.readline().strip())
         session.stdin.write(CHECKPOINTS[version] + "\n")
         session.stdin.flush()
         checkpoint = json.loads(session.stdout.readline())

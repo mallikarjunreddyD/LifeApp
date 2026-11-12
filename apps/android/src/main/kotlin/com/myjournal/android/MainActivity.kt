@@ -118,6 +118,7 @@ class MainActivity : ComponentActivity() {
         observeSyncConnectivity(app)
         app.serverSync.onForeground()
         app.expenseSync.schedule()
+        app.workoutSync.schedule()
         app.operations.syncTrackedOnForeground(app.serverSync)
         activeSync = lifecycleScope.launch {
             while (true) {
@@ -125,6 +126,8 @@ class MainActivity : ComponentActivity() {
                 app.serverSync.schedule()
                 app.serverSync.scheduleEditableUpload()
                 app.expenseSync.schedule()
+                app.workoutSync.schedule()
+                app.operations.syncTrackedOnForeground(app.serverSync)
             }
         }
     }
@@ -143,6 +146,8 @@ class MainActivity : ComponentActivity() {
                     app.serverSync.schedule()
                     app.serverSync.scheduleEditableUpload()
                     app.expenseSync.schedule()
+                    app.workoutSync.schedule()
+                    app.operations.syncTrackedOnForeground(app.serverSync)
                 }
                 online = available
                 app.serverSync.networkChanged(available)

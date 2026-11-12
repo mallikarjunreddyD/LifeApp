@@ -5,6 +5,9 @@ import type { BrowserSession } from './api.ts';
 import { sameScope, today } from './protocol.ts';
 import type { Todo } from './protocol.ts';
 import type { LifeStore, LocalView, TaskView } from './store.ts';
+import { resolveWorkoutConflict, syncWorkouts } from './workoutSync.ts';
+import type { WorkoutConflict } from './workoutSync.ts';
+import { syncHabits } from './habitSync.ts';
 import { Habits } from './Habits.tsx';
 import { Workouts } from './Workouts.tsx';
 import { Expenses } from './Expenses.tsx';
@@ -37,13 +40,16 @@ export function App({ store }: { store: LifeStore }) {
   const [visible, setVisible] = useState(!document.hidden);
   const expenseSync = useExpenseSync(store, session, online, visible);
   const [habitGeneration, setHabitGeneration] = useState(0);
+  const [workoutGeneration, setWorkoutGeneration] = useState(0);
+  const [workoutConnected, setWorkoutConnected] = useState(false);
+  const [workoutConflicts, setWorkoutConflicts] = useState<WorkoutConflict[]>([]);
+  const [workoutStatus, setWorkoutStatus] = useState('');
   const [structuredBusy, setStructuredBusy] = useState(false);
 
   async function syncStructured(current: BrowserSession) {
     setStructuredBusy(true);
     try {
       await Promise.all([sync(current, true), expenseSync.syncNow()]);
-      setHabitGeneration(generation => generation + 1);
     } finally {
       setStructuredBusy(false);
     }
@@ -56,8 +62,13 @@ export function App({ store }: { store: LifeStore }) {
   const worker = useWorkerUpdate();
   const scope = view.checkpoint?.scope ?? null;
   const matches = session !== null && sameScope(scope, session.scope);
+  const habitScope = session?.scope ?? scope;
 
-  const refresh = useCallback(async () => setView(await store.view()), [store]);
+  const refresh = useCallback(async () => {
+    const [local, workout] = await Promise.all([store.view(), store.workoutBinding()]);
+    setView(local);
+    setWorkoutConnected(workout !== null);
+  }, [store]);
 
   const sync = useCallback(async (current: BrowserSession, manual = false) => {
     if (!navigator.onLine || Date.now() < (manual ? serverDeadline.current : retryDeadline.current)) return;
@@ -79,6 +90,17 @@ export function App({ store }: { store: LifeStore }) {
       serverDeadline.current = 0;
       scheduleRetry(complete ? 0 : Date.now() + 1000);
       setNotice(complete ? 'To-do synchronization complete.' : 'Checking the remaining To-do changes.');
+      try { await syncHabits(store, verified); }
+      catch { setNotice('To-do checked. Habit changes are saved locally and waiting to sync.'); }
+      finally { setHabitGeneration(generation => generation + 1); }
+      try {
+        if (await store.workoutBinding()) {
+          const conflicts = await syncWorkouts(store, verified);
+          setWorkoutConflicts(conflicts);
+          setWorkoutStatus(conflicts.length ? `${conflicts.length} workout records need review. Both copies were kept.` : 'Workouts checked with the server.');
+        }
+      } catch (failure) { setWorkoutStatus(message(failure)); }
+      finally { setWorkoutGeneration(generation => generation + 1); }
 
     } catch (failure) {
       if (failure instanceof ApiError && failure.status === 401) {
@@ -105,9 +127,10 @@ export function App({ store }: { store: LifeStore }) {
     let active = true;
     async function hydrate() {
       try {
-        const local = await store.view();
+        const [local, workout] = await Promise.all([store.view(), store.workoutBinding()]);
         if (!active) return;
         setView(local);
+        setWorkoutConnected(workout !== null);
         setLoaded(true);
         if (!navigator.onLine) return;
         const current = await api.session();
@@ -195,12 +218,12 @@ export function App({ store }: { store: LifeStore }) {
     setStructuredBusy(true);
     try {
       await store.seedExpenses();
-      const records = await store.expenseRecords();
+      const [records, workoutRecords] = await Promise.all([store.expenseRecords(), store.workoutRecords()]);
       const serverCount = await api.expenseInventory(session);
       const localCount = records.filter(record => record.kind === 'expense').length;
-      if (!window.confirm(`Connect To-do and Expenses? This browser has ${view.tasks.length} tasks and ${localCount} expenses. The server has ${serverCount} expense records and labels. Queued changes will upload to this account.`)) return;
+      if (!window.confirm(`Connect synchronization? This browser has ${view.tasks.length} tasks, ${localCount} expenses and ${workoutRecords.length} workout records. The server has ${serverCount} expense records and labels. Queued changes will upload to this account.`)) return;
       if (await api.expenseInventory(session) !== serverCount) throw new Error('Server expenses changed. Review again.');
-      await store.bindStructured(session.scope, records);
+      await store.bindStructured(session.scope, records, workoutRecords);
       await Promise.all([refresh(), expenseSync.refresh()]);
       await syncStructured(session);
     } catch (failure) { setError(message(failure)); }
@@ -236,18 +259,26 @@ export function App({ store }: { store: LifeStore }) {
     <main>
       {tab === 'To-do' && (loaded ? <Todos view={view} change={change} store={store} /> : <p role="status">Loading local tasks…</p>)}
       {tab === 'Settings' && <Settings view={view} session={session} busy={busy || structuredBusy} online={online}
-        onLogin={login} onBind={bind} onLogout={logout} status={status} expensePending={expenseSync.state?.pending.length ?? 0} expenseConnected={expenseSync.state !== null} onExport={async () => {
+        onLogin={login} onBind={bind} onLogout={logout} status={status} expensePending={expenseSync.state?.pending.length ?? 0} expenseConnected={expenseSync.state !== null} workoutConnected={workoutConnected} workoutStatus={workoutStatus} onExport={async () => {
           if (session && matches && navigator.onLine) await sync(session);
           downloadExport(await browserExport(store));
         }} onConflicts={() => setTab('To-do')} onSync={() => session && void syncStructured(session)} />}
       {(tab === 'Workouts' || tab === 'History') && <>
-        <Workouts key={tab} store={store} historyOnly={tab === 'History'} />
+        <Workouts key={tab} store={store} historyOnly={tab === 'History'} generation={workoutGeneration}
+          syncStatus={workoutStatus} conflicts={matches ? workoutConflicts : []}
+          onResolve={async (conflict, keepLocal) => {
+            if (!session || !matches || !online || busy) throw new Error('Wait for synchronization and try again.');
+            await resolveWorkoutConflict(store, session, conflict, keepLocal);
+            await sync(session, true);
+          }}
+          onSaved={() => { if (session && matches && navigator.onLine) void sync(session); }} />
         {matches && <details><summary>Read-only server records</summary><ReadRecords key={tab}
           kind={tab === 'Workouts' ? 'exercises' : 'workouts'} session={session} online={online} /></details>}
       </>}
       {tab === 'Expenses' && <Expenses store={store} sync={expenseSync} />}
       {tab === 'Habits' && <section><h1>Habits</h1>
-        {online && session ? <Habits key={session.scope.dataset + '/' + session.scope.epoch} session={session} generation={habitGeneration} />
+        {habitScope ? <Habits key={habitScope.dataset + '/' + habitScope.epoch} scope={habitScope}
+          session={session} online={online} store={store} generation={habitGeneration} />
           : <p>{online ? 'Sign in to view server habit months.' : 'Connect to view server habit months.'}</p>}
       </section>}
     </main>
@@ -330,8 +361,8 @@ function Conflict({ task, change, store }: { task: TaskView; change: (write: () 
 
 const settingsPages = ['Account & Security', 'Synchronization', 'Backup & Recovery', 'Appearance', 'About LifeApp'] as const;
 
-function Settings({ view, session, busy, online, status, onLogin, onBind, onLogout, onSync, onConflicts, onExport, expensePending, expenseConnected }: {
-  view: LocalView; session: BrowserSession | null; busy: boolean; online: boolean; status: string; expensePending: number; expenseConnected: boolean;
+function Settings({ view, session, busy, online, status, onLogin, onBind, onLogout, onSync, onConflicts, onExport, expensePending, expenseConnected, workoutConnected, workoutStatus }: {
+  view: LocalView; session: BrowserSession | null; busy: boolean; online: boolean; status: string; expensePending: number; expenseConnected: boolean; workoutConnected: boolean; workoutStatus: string;
   onLogin: (username: string, password: string, secondFactor?: string) => Promise<void>; onBind: () => Promise<void>;
   onLogout: () => Promise<void>; onSync: () => void; onConflicts: () => void; onExport: () => Promise<void>;
 }) {
@@ -388,13 +419,14 @@ function Settings({ view, session, busy, online, status, onLogin, onBind, onLogo
     {page === 'Synchronization' && <article className="card">
       <p>{online ? status : 'Offline — changes saved on this device.'}</p>
       <p>Automatic To-do sync {match ? 'enabled' : 'awaiting connection review'}.</p>
-      <p>Sync now checks connected To-do and Expenses and refreshes server Habits. Workout edits are stored in this browser.</p>
+      <p>Sync now checks connected To-do, Expenses, Workouts and Habits.</p>
       {view.lastSync && <p>Last successful To-do sync <time dateTime={view.lastSync}>{new Date(view.lastSync).toLocaleString()}</time></p>}
       <p>{view.pending} pending To-do changes</p>
+      {workoutStatus && <p>{workoutStatus}</p>}
       {expensePending > 0 && <p>{expensePending} expense changes waiting.</p>}
       {view.tasks.some(task => task.conflicts.length > 0) && <button onClick={onConflicts}>Review conflicts</button>}
       {!session ? <button onClick={() => setPage('Account & Security')}>Sign in again</button> : <>
-        {(!view.checkpoint || !expenseConnected) && <button className="primary" disabled={busy || !online} onClick={() => void onBind()}>Connect synchronization</button>}
+        {(!view.checkpoint || !expenseConnected || !workoutConnected) && <button className="primary" disabled={busy || !online} onClick={() => void onBind()}>Connect synchronization</button>}
         {view.checkpoint && !match && <p role="alert">Reconnect to the original account or contact the server operator for recovery. Local changes were kept.</p>}
         <button disabled={!match || !online || busy} onClick={onSync}>Sync now</button>
       </>}

@@ -1,3 +1,5 @@
+import { workoutVersion } from './workoutSync.ts';
+import type { WorkoutVersion } from './workoutSync.ts';
 import { decodeExpenseCommit } from './expenseSync.ts';
 import type { ExpenseOperation } from './expenseSync.ts';
 import { instant, object, pageOf, receiptOf, scopeOf, sequence, uuid } from './protocol.ts';
@@ -145,6 +147,28 @@ export const api = {
     }));
   },
   async session() { return browserSession(await json('/v1/session')); },
+  async workoutVersions(session: BrowserSession, cursor: string | null) {
+    const query = new URLSearchParams({ limit: '3' });
+    if (cursor) query.set('cursor', uuid(cursor));
+    const result = object(await json('/v1/structured/workouts?' + query, { headers: journalHeaders(session.scope) }), ['items', 'next']);
+    if (!Array.isArray(result.items) || result.items.length > 3) throw new Error('Invalid workout page.');
+    const items = result.items.map(workoutVersion);
+    const next = result.next === null ? null : uuid(result.next);
+    if (next && (next === cursor || items.length !== 3 || items.at(-1)?.record.value.metadata.id !== next)) {
+      throw new Error('Invalid workout cursor.');
+    }
+    return { items, next };
+  },
+  async workoutHead(session: BrowserSession, id: string) {
+    return workoutVersion(await json('/v1/structured/workouts/' + uuid(id), { headers: journalHeaders(session.scope) }));
+  },
+  async pushWorkout(session: BrowserSession, entry: WorkoutVersion, parent: string | null) {
+    return workoutVersion(await json('/v1/structured/workouts', {
+      method: 'POST',
+      headers: { ...journalHeaders(session.scope), 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry, parent }),
+    }));
+  },
   async expenseInventory(session: BrowserSession) {
     const value = object(await json('/v1/expenses/inventory', { headers: journalHeaders(session.scope) }), ['count']);
     return sequence(value.count, false);
