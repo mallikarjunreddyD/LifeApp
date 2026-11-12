@@ -131,6 +131,30 @@ class ServerSyncIntegrationTest {
             assertEquals(receipt, transport.submit(originalOp))
             assertTrue(taskId in api.visibleTaskIds(credential.token))
 
+            val expenses = RoomExpenseRepository(database)
+            expenses.seed()
+            val ledger = RoomSnapshotRepository(database).capture().expenseLedger
+            val expenseScope = credential.session.scope
+            val expense = Expense(newRecordMetadata(), LocalDate(2026, 11, 9), "Android offline expense", 103,
+                ledger.labels.first { it.kind == ExpenseLabelKind.CATEGORY }.metadata.id,
+                ledger.labels.first { it.kind == ExpenseLabelKind.PAYMENT }.metadata.id)
+            expenses.bind(expenseScope, api.endpoint.origin, ledger)
+            expenses.saveExpense(expense, null)
+            suspend fun syncExpenses() {
+                val state = requireNotNull(expenses.syncState())
+                state.pending.filterNot { it.id in state.acknowledged }.forEach { operation ->
+                    expenses.acknowledge(expenseScope, api.pushExpense(credential.session, credential.token, operation))
+                }
+                var cursor = state.cursor
+                do {
+                    val (entries, more) = api.pullExpenses(credential.session, credential.token, cursor)
+                    expenses.replay(expenseScope, cursor, entries)
+                    cursor = requireNotNull(expenses.syncState()).cursor
+                } while (more)
+            }
+            syncExpenses()
+            assertTrue(requireNotNull(expenses.syncState()).pending.isEmpty())
+
             val browserId = withTimeout(90_000) {
                 var found: Uuid? = null
                 while (found == null) {
@@ -139,6 +163,17 @@ class ServerSyncIntegrationTest {
                     if (found == null) delay(400)
                 }
                 found
+            }
+            withTimeout(45_000) {
+                while (true) {
+                    syncExpenses()
+                    val updated = requireNotNull(expenses.syncState()).project().expenses.single()
+                    if (updated.amountMinor == 205L) {
+                        assertEquals(expense.metadata.id, updated.metadata.id)
+                        break
+                    }
+                    delay(400)
+                }
             }
             val overlap = JournalImportInventory.compare(saved, api.journalEntries(credential.session, credential.token))
             assertEquals(1, overlap.serverEntries)

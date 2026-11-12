@@ -51,13 +51,20 @@ internal fun AndroidExpenses(app: JournalApplication) {
     }
     if (showConflicts) AlertDialog(onDismissRequest = { showConflicts = false }, title = { Text("Expense conflicts") },
         text = { Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+            val labels = remember(state) { state?.project()?.labels.orEmpty().associateBy { it.metadata.id } }
             for (versions in conflicts) {
                 for (version in versions) {
                     val record = version.record
                     val description = when (record) {
-                        is ExpenseRecord.Item -> "${record.value.name} · ${formatExpensePaise(record.value.amountMinor)} · ${record.value.date}" +
-                            if (record.deleted) " · Deleted" else ""
-                        is ExpenseRecord.Label -> record.value.name + if (record.value.archived) " · Archived" else ""
+                        is ExpenseRecord.Item -> with(record.value) {
+                            listOf(name, formatExpensePaise(amountMinor), date.toString(),
+                                labels[categoryId]?.name.orEmpty(), labels[paymentMethodId]?.name.orEmpty(),
+                                remarks, if (deleted) "Deleted" else "").filter { it.isNotEmpty() }.joinToString(" · ")
+                        }
+                        is ExpenseRecord.Label -> with(record.value) {
+                            "$name · ${icon.symbol} · #${color.toString(16).padStart(6, '0')}" +
+                                if (archived) " · Archived" else ""
+                        }
                     }
                     TextButton(onClick = {
                         sync.resolve(record.metadata.id, version.id, versions.map { it.id }.toSet())

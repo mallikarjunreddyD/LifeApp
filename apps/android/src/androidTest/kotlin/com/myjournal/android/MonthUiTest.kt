@@ -92,7 +92,9 @@ class MonthUiTest {
         rule.onNodeWithText("Habit name").performTextReplacement("Read Books")
         rule.onNodeWithText("Apply changes").performClick()
         rule.waitUntil { app.habits.state.value.ledger!!.habits.any { it.name == "Read Books" } }
-        rule.onNodeWithContentDescription("Read Books, ${month.date(12)}").assertIsOn()
+        val renamedDay = "Read Books, ${month.date(12)}"
+        rule.onNodeWithContentDescription("Habit days").performScrollToNode(hasContentDescription(renamedDay))
+        rule.onNodeWithContentDescription(renamedDay).assertIsOn()
         rule.onNodeWithText("Manage habits").performClick()
         rule.onNodeWithContentDescription("Move left habit Read Books").performClick()
         rule.onNodeWithContentDescription("Archive habit Read Books").performClick()

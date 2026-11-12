@@ -8,11 +8,12 @@ data class JournalSnapshot(val metadata: List<RecordMetadata> = emptyList(), val
     val planners: List<MonthlyPlanner> = emptyList(), val habits: List<MonthlyHabitLedger> = emptyList(),
     val notebooks: List<Notebook> = emptyList(), val notebookPages: List<NotebookPage> = emptyList(),
     val strokes: List<InkStroke> = emptyList(), val todos: List<Todo> = emptyList(), val workoutLog: WorkoutLog = WorkoutLog(),
-    val expenseLedger: ExpenseLedger = ExpenseLedger()) {
+    val expenseLedger: ExpenseLedger = ExpenseLedger(), val expenseSync: ExpenseSyncState? = null) {
     val records get() = metadata + journals.flatMap { listOf(it.metadata) + it.pages.map { p -> p.metadata } } +
         planners.map { it.metadata } + habits.flatMap { listOf(it.metadata) + it.habits.map { h -> h.metadata } + it.completions.map { c -> c.metadata } } +
         notebooks.map { it.metadata } + notebookPages.map { it.metadata } + strokes.map { it.metadata } + todos.map { it.metadata } + workoutLog.records + expenseLedger.records
     val dataSchemaVersion get() = when {
+        expenseSync != null -> 11
         expenseLedger.records.isNotEmpty() -> 10
         workoutLog.exercises.any { it.description != null } || workoutLog.sessions.any { session ->
             session.logged || session.deleted || session.routineId != null || session.entries.any { it.remarks != null }
@@ -41,6 +42,17 @@ data class JournalSnapshot(val metadata: List<RecordMetadata> = emptyList(), val
     fun validate() {
         workoutLog.validate()
         expenseLedger.validate()
+        expenseSync?.let { sync ->
+            require(sync.cursor >= 0 && ServerEndpoint.parse(sync.origin).origin == sync.origin)
+            val heads = sync.heads.values.flatten()
+            require(heads.size + sync.pending.size <= 100_000)
+            require(sync.heads.values.all { it.isNotEmpty() && it.size <= 32 })
+            require(heads.map { it.id }.distinct().size == heads.size)
+            val pending = sync.pending.associateBy { it.id }
+            require(pending.size == sync.pending.size && pending.keys.containsAll(sync.acknowledged))
+            require(heads.all { pending[it.id]?.let { queued -> queued == it } ?: true })
+            require(sync.project().canonical() == expenseLedger.canonical()) { "Expense sync does not match saved records" }
+        }
         require(records.size <= 50_000) { "Backup exceeds 50,000 records" }
         require(strokes.sumOf { it.points.size.toLong() } <= 2_000_000) { "Backup exceeds 2,000,000 points" }
         val legacyIds = metadata.map { it.id }.toSet()

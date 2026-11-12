@@ -38,6 +38,7 @@ assert b"LifeApp" in call("/")[0]
 assert json.loads(call("/manifest.webmanifest")[0])["display"] == "standalone"
 assert b"lifeapp-shell-" in call("/sw.js")[0]
 call("/v1/todos", expected=401)
+call("/v1/expenses/pull?after=0", expected=401)
 credentials = {"username": "compose-smoke-owner", "password": "disposable compose smoke password"}
 operation = json.loads(Path("contracts/fixtures/todo-operation.json").read_text())
 session = json.loads(call("/v1/session", method="POST", body={**credentials, "client": "android"})[0])
@@ -65,6 +66,30 @@ if sys.argv[1] == "hold":
         time = "2026-11-09T12:00:00Z"
         return {"id": identity, "createdAt": time, "updatedAt": time, "schemaVersion": 1, "revision": 1}
 
+    def expense_operation(record, kind, mutation="PUT", parents=()):
+        body = {"version": 1, "id": str(uuid.uuid4()), "parents": list(parents),
+                "mutation": mutation, "kind": kind, "record": record}
+        first = call("/v1/expenses/push", method="POST", headers=scope_headers, body=body)[0]
+        assert call("/v1/expenses/push", method="POST", headers=scope_headers, body=body)[0] == first
+        return body["id"]
+
+    category, payment, expense = [str(uuid.uuid4()) for _ in range(3)]
+    def expense_meta(identity, revision="1"):
+        return {**metadata(identity), "revision": revision}
+
+    for identity, kind in ((category, "CATEGORY"), (payment, "PAYMENT")):
+        expense_operation({"metadata": expense_meta(identity), "kind": kind,
+                           "name": kind, "icon": "OTHER", "color": 0x527062, "archived": False}, "label")
+    expense_value = {"metadata": expense_meta(expense), "name": "Recovery test",
+                     "date": "2026-11-09", "amountMinor": "125075", "currency": "INR",
+                     "categoryId": category, "paymentMethodId": payment, "remarks": "", "deleted": False}
+    root = expense_operation(expense_value, "expense")
+    revised = {**expense_value, "metadata": expense_meta(expense, "2")}
+    expense_operation({**revised, "deleted": True}, "expense", "DELETE", [root])
+    expense_operation({**revised, "amountMinor": "125076"}, "expense", parents=[root])
+    feed = call("/v1/expenses/pull?after=0", headers=scope_headers)[0]
+    Path(sys.argv[2] + ".expenses").write_bytes(feed)
+
     page_id = "71000000-0000-4000-8000-000000000002"
     call("/v1/journal/ink/commit", method="POST", expected=204, headers=auth, body={
         "scope": scope, "uploadId": upload, "sha256": digest,
@@ -89,6 +114,9 @@ if sys.argv[1] == "hold":
     Path(sys.argv[2]).write_text(session["accessToken"], encoding="utf-8")
     sys.exit(0)
 if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):
+    feed = call("/v1/expenses/pull?after=0", headers=scope_headers)[0]
+    assert json.loads(feed) == json.loads(Path(held + ".expenses").read_bytes())
+    assert len(json.loads(feed)["entries"]) == 5
     token = Path(held).read_text(encoding="utf-8")
     call("/v1/session", headers={"Authorization": f"Bearer {token}"}, expected=401)
     restored_ink, ink_headers = call(f"/v1/journal/ink/{stroke_id}", headers=auth)
@@ -113,6 +141,7 @@ if held := os.environ.get("LIFEAPP_SMOKE_HELD_TOKEN"):
 if old_epoch := os.environ.get("LIFEAPP_OLD_EPOCH"):
     call(f"/v1/sync/pull?epoch={old_epoch}&after=0", headers=auth, expected=409)
     call(record_path, headers={**scope_headers, "X-LifeApp-Epoch": old_epoch}, expected=409)
+    call("/v1/expenses/pull?after=0", headers={**scope_headers, "X-LifeApp-Epoch": old_epoch}, expected=409)
 if sys.argv[1] == "seed":
     call("/v1/sync/push", method="POST", body={"scope": session["scope"], "operation": operation}, headers=auth)
 assert any(item["metadata"]["id"] == operation["recordId"] for item in json.loads(call("/v1/todos", headers=auth)[0])["items"])

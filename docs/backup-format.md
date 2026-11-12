@@ -114,3 +114,10 @@ populated. The expenses section holds items and category/payment labels,
 including archived labels and deleted expenses. Amounts are decimal-string
 paise. Schemas 4 through 9 and the existing encryption envelope remain
 readable. The validated expense ledger is included inside the recovery ZIP.
+
+Portable data schema 11 adds expenseSync for connected Android expenses. It
+preserves the HTTPS origin, scope, replay cursor, heads, pending operations and
+acknowledgments. Credentials stay outside the archive. Restore validates the
+projected ledger before writes. A clean database can recover the saved binding.
+An already connected database keeps its binding and pending edits, and rejects
+an archive with a different ledger. Schemas 4–10 remain readable.

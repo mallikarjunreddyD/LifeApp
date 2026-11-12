@@ -79,6 +79,7 @@ jobs:
             adb pull /sdcard/Download/workout-history.png apps/android/build/workout-screenshots/
             adb pull /sdcard/Download/expense-entry.png apps/android/build/workout-screenshots/
             adb pull /sdcard/Download/expense-history.png apps/android/build/workout-screenshots/
+            adb pull /sdcard/Download/expense-analytics.png apps/android/build/workout-screenshots/
       - uses: actions/upload-artifact@v4
         if: always()
         with:

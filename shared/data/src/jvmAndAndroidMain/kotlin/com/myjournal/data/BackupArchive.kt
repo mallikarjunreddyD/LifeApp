@@ -60,7 +60,8 @@ object BackupArchive {
     private fun sectionsFor(schema: Int) = sections +
         (if (schema >= 6) listOf("todos") else emptyList()) +
         (if (schema >= 7) listOf("workouts") else emptyList()) +
-        (if (schema >= 10) listOf("expenses") else emptyList())
+        (if (schema >= 10) listOf("expenses") else emptyList()) +
+        (if (schema >= 11) listOf("expenseSync") else emptyList())
 
     fun read(file: File, expectedKind: String = "backup"): Validated {
         require(file.length() in 1..MAX_ARCHIVE_BYTES) { "Archive is empty or exceeds 64 MiB" }
@@ -90,7 +91,7 @@ object BackupArchive {
             checkJsonSizeAndDepth(manifestText)
             val manifest = json.parseToJsonElement(manifestText).jsonObject
             require(manifest.getValue("format").jsonPrimitive.content == "LifeAppArchive")
-            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..10) { "Unsupported backup version" }
+            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..11) { "Unsupported backup version" }
             val kind = manifest.getValue("kind").jsonPrimitive.content; require(kind == expectedKind) { "This file is not a full backup" }
             val schema = manifest.getValue("dataSchemaVersion").jsonPrimitive.int
             val expectedSections = sectionsFor(schema)

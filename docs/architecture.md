@@ -203,3 +203,8 @@ Phase 8A stores expenses in the shared Room data layer and the existing PWA
 IndexedDB database. The expense domain uses integer paise, stable label
 references and recoverable deletion. Android backup captures and restores
 expense records in the same transaction as existing modules.
+
+The expense feed uses dedicated PostgreSQL operation and head tables scoped to the
+authenticated dataset and recovery epoch. Each client persists the projection and
+pending changes together. Android portable schema 11 includes expense sync state.
+Analytics aggregates the existing expense projection only when opened.

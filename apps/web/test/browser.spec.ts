@@ -77,6 +77,8 @@ test('offline Download My Data verifies hashes and describes local coverage', as
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(file.sha256);
   }
   expect(unpack('data/todos.json').toString()).toContain('Exported offline task');
+  expect(JSON.parse(unpack('expenses/expenses.json').toString())).toEqual([]);
+  expect(unpack('expenses/expenses.csv').toString()).toMatch(/^id,date,name,amount,currency,/);
 });
 
 test('iPhone-sized offline shell reopens queued changes and survives worker update', async ({ context, page }) => {
@@ -163,6 +165,35 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
     await expect(second.getByText('0 pending')).toBeVisible();
     await sync(page);
     await expect(page.getByText('Second offline edit', { exact: true })).toBeVisible();
+
+    for (const device of [page, second]) {
+      await device.getByRole('button', { name: 'Expenses', exact: true }).click();
+      await device.getByRole('button', { name: 'Review Expense Connection' }).click();
+      await device.getByRole('button', { name: 'Connect Expenses', exact: true }).click();
+      await expect(device.getByText('Expenses checked with the server.')).toBeVisible();
+    }
+    await context.setOffline(true);
+    await page.getByRole('button', { name: 'Add Expense' }).click();
+    await page.getByLabel('Amount (₹)').fill('1.03');
+    await page.getByLabel('Expense name').fill('Cross-device expense');
+    await page.getByRole('button', { name: 'Category · Choose' }).click();
+    await page.getByRole('button', { name: 'Groceries', exact: true }).click();
+    await page.getByRole('button', { name: 'Paid From · Choose' }).click();
+    await page.getByRole('button', { name: 'Cash', exact: true }).click();
+    await page.getByRole('button', { name: 'Save Expense' }).click();
+    await expect(page.getByText('1 expense changes waiting.')).toBeVisible();
+    await context.setOffline(false);
+    await expect(page.getByText('1 expense changes waiting.')).toHaveCount(0);
+    await second.getByRole('button', { name: 'Sync Expenses Now' }).click();
+    await expect(second.getByRole('heading', { name: 'Cross-device expense' })).toBeVisible();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm Delete' }).click();
+    await expect.poll(async () => {
+      await second.getByRole('button', { name: 'Sync Expenses Now' }).click();
+      return second.getByRole('heading', { name: 'Cross-device expense' }).count();
+    }).toBe(0);
+    await second.getByRole('button', { name: 'Recently Deleted' }).click();
+    await expect(second.getByRole('heading', { name: 'Cross-device expense' })).toBeVisible();
   } finally { await other.close(); }
 });
 
@@ -417,6 +448,15 @@ test('expenses create labels, edit, delete and restore across offline reloads', 
   await expect(page.locator('.expense-summary strong')).toHaveText('₹0.01');
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath('expense-history.png') });
+  await page.getByRole('button', { name: 'View Spending Analysis' }).click();
+  await expect(page.getByRole('heading', { name: 'Total expenditure' })).toBeVisible();
+  await expect(page.getByText('Gym · ₹0.01 · 100.0%')).toBeVisible();
+  await page.getByRole('button', { name: 'Yearly' }).click();
+  await expect(page.getByText('Gym · ₹0.01 · 100.0%')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('expense-analytics.png'), fullPage: true });
+  await page.getByLabel('Year (YYYY)').fill('2023');
+  await expect(page.getByText('No expenses recorded for this period.')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Expenses' }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toContainText('Training shoes · ₹0.01');
   await page.getByRole('button', { name: 'Confirm Delete' }).click();
