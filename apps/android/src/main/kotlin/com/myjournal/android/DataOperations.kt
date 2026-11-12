@@ -141,17 +141,19 @@ class DataOperations(private val app: JournalApplication, private val repository
             check(importReviewMutable.value === review)
             sync.queueEditableImport(review)
             importReviewMutable.value = null
-            sync.resumeEditableImport()
+            sync.resumeEditableImport(::snapshot)
             "Approved uploads queued."
         }
 
     internal fun applyEditableDownload(sync: AndroidServerSync, review: EditableImportReview) =
         start("Downloading and validating reviewed records…") {
             check(importReviewMutable.value === review && review.downloadable.isNotEmpty())
-            val count = sync.applyReviewedDownloads(review) { applyRecordBatch(it, review.replaceExpected) }
+            val count = sync.applyReviewedDownloads(review, ::snapshot) { applyRecordBatch(it, review.replaceExpected) }
             importReviewMutable.value = null
             "Applied $count reviewed server records."
         }
+
+    internal fun resumeEditableUploads(sync: AndroidServerSync) = sync.resumeEditableImport(::snapshot)
 
     internal fun setAutomaticEditable(sync: AndroidServerSync, enabled: Boolean) {
         sync.setAutomaticEditable(enabled, ::snapshot)

@@ -7,7 +7,8 @@ export interface BrowserSession { scope: Scope; expiresAt: string; csrfToken: st
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string) {
+  readonly retryAfter: number | null;
+  constructor(status: number, code: string, retryAfter: number | null = null) {
     const message = status === 401 ? 'Sign in again to synchronize.' :
       status === 403 ? 'The server declined this request.' :
       status === 429 ? 'Too many requests. Wait before trying again.' :
@@ -18,6 +19,7 @@ export class ApiError extends Error {
     super(message);
     this.status = status;
     this.code = code;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -50,7 +52,9 @@ async function json(path: string, options: RequestInit = {}, empty = false): Pro
             if (typeof error?.code === 'string') code = error.code;
           } catch { /* Retain the HTTP status. */ }
         }
-        throw new ApiError(response.status, code);
+        const retry = response.headers.get('Retry-After');
+        const deadline = retry === null ? NaN : /^\d+$/.test(retry) ? Date.now() + Number(retry) * 1000 : Date.parse(retry);
+        throw new ApiError(response.status, code, Number.isFinite(deadline) ? deadline : null);
       }
       if (empty) return undefined;
       if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Expected a LifeApp JSON response.');

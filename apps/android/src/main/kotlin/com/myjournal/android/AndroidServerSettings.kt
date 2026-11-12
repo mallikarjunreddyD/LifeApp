@@ -135,7 +135,7 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
         server.editableStatus?.let { Text(it) }
         if (server.pendingImport > 0) {
             Text("${server.pendingImport} approved record uploads pending")
-            OutlinedButton(enabled = enabled, onClick = sync::resumeEditableImport) { Text("Resume record uploads") }
+            OutlinedButton(enabled = enabled, onClick = { operations.resumeEditableUploads(sync) }) { Text("Resume record uploads") }
         } else if (!server.importQueueUnreadable) {
             OutlinedButton(enabled = enabled && currentTarget != null, onClick = {
                 importTarget = currentTarget

@@ -13,6 +13,7 @@ import packageInfo from '../package.json';
 
 type Tab = 'To-do' | 'Workouts' | 'History' | 'Journal' | 'Settings';
 const tabs: Tab[] = ['To-do', 'Workouts', 'History', 'Journal', 'Settings'];
+const ACTIVE_SYNC_INTERVAL = 5 * 60 * 1000;
 const blank: LocalView = { tasks: [], pending: 0, checkpoint: null, lastSync: null };
 
 export function App({ store }: { store: LifeStore }) {
@@ -26,6 +27,15 @@ export function App({ store }: { store: LifeStore }) {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const running = useRef(false);
+  const again = useRef(false);
+  const failures = useRef(0);
+  const retryDeadline = useRef(0);
+  const [retryAt, setRetryAt] = useState(0);
+  const [visible, setVisible] = useState(!document.hidden);
+  const scheduleRetry = useCallback((at: number) => {
+    retryDeadline.current = at;
+    setRetryAt(at);
+  }, []);
   const channel = useRef<BroadcastChannel | null>(null);
   const worker = useWorkerUpdate();
   const scope = view.checkpoint?.scope ?? null;
@@ -34,7 +44,8 @@ export function App({ store }: { store: LifeStore }) {
   const refresh = useCallback(async () => setView(await store.view()), [store]);
 
   const sync = useCallback(async (current: BrowserSession) => {
-    if (running.current) return;
+    if (!navigator.onLine || Date.now() < retryDeadline.current) return;
+    if (running.current) { again.current = true; return; }
     running.current = true;
     setBusy(true);
     setSynced(false);
@@ -48,17 +59,29 @@ export function App({ store }: { store: LifeStore }) {
       }
       const complete = await synchronize(store, verified);
       setSynced(complete);
-      setNotice(complete ? 'Synchronization complete.' : 'More changes are available. Use Sync now to continue.');
+      failures.current = 0;
+      scheduleRetry(complete ? 0 : Date.now() + 1000);
+      setNotice(complete ? 'To-do synchronization complete.' : 'Checking the remaining To-do changes.');
+
     } catch (failure) {
-      if (failure instanceof ApiError && failure.status === 401) setSession(null);
+      if (failure instanceof ApiError && failure.status === 401) {
+        setSession(null);
+        scheduleRetry(0);
+      } else if (failure instanceof ApiError ? failure.status === 429 || failure.status >= 500
+        : failure instanceof Error && failure.cause !== undefined) {
+        const delay = Math.min(300_000, 5000 * 2 ** Math.min(failures.current++, 6)) + Math.random() * 1500;
+        scheduleRetry(Math.max(Date.now() + delay, failure instanceof ApiError ? failure.retryAfter ?? 0 : 0));
+      }
       setError(message(failure));
     } finally {
+      if (again.current && !retryDeadline.current) scheduleRetry(Date.now() + 1000);
+      again.current = false;
+      try { await refresh(); } catch (failure) { setError(message(failure)); }
       running.current = false;
       setBusy(false);
-      try { await refresh(); } catch (failure) { setError(message(failure)); }
       channel.current?.postMessage('refresh');
     }
-  }, [refresh, store]);
+  }, [refresh, scheduleRetry, store]);
 
   useEffect(() => {
     let active = true;
@@ -93,16 +116,30 @@ export function App({ store }: { store: LifeStore }) {
       if (navigator.onLine) void hydrate();
       else setSynced(false);
     };
+    const visibility = () => {
+      setVisible(!document.hidden);
+      if (!document.hidden) void hydrate();
+    };
+    document.addEventListener('visibilitychange', visibility);
     window.addEventListener('online', network);
     window.addEventListener('offline', network);
     return () => {
       active = false;
       bus?.close();
       channel.current = null;
+      document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('online', network);
       window.removeEventListener('offline', network);
     };
   }, [refresh, store, sync]);
+
+  useEffect(() => {
+    if (!session || !matches || !visible || !online) return;
+    const timeout = window.setTimeout(() => void sync(session), retryAt
+      ? Math.min(2_147_483_647, Math.max(0, retryAt - Date.now()))
+      : ACTIVE_SYNC_INTERVAL);
+    return () => window.clearTimeout(timeout);
+  }, [matches, online, retryAt, session, sync, visible]);
 
   async function change(action: () => Promise<void>) {
     setError('');
@@ -126,6 +163,8 @@ export function App({ store }: { store: LifeStore }) {
     try {
       const current = await api.login(username, password, secondFactor);
       setSession(current);
+      failures.current = 0;
+      scheduleRetry(0);
       setSynced(false);
       if (sameScope(scope, current.scope)) await sync(current);
     } catch (failure) { setError(message(failure)); }
@@ -147,6 +186,7 @@ export function App({ store }: { store: LifeStore }) {
     try {
       await api.logout(session);
       setSession(null);
+      scheduleRetry(0);
       setSynced(false);
       setNotice('Signed out. Local tasks and queued changes are still on this browser.');
     } catch (failure) {
@@ -304,6 +344,7 @@ function Settings({ view, session, busy, online, status, onLogin, onBind, onLogo
     </article>}
     {page === 'Synchronization' && <article className="card">
       <p>{online ? status : 'Offline — changes saved on this device.'}</p>
+      <p>Automatic To-do sync {match ? 'enabled' : 'awaiting connection review'}.</p>
       <p>To-do syncs after connection review. Journal records are available from the server when online. Workouts stay in this browser.</p>
       {view.lastSync && <p>Last successful To-do sync <time dateTime={view.lastSync}>{new Date(view.lastSync).toLocaleString()}</time></p>}
       <p>{view.pending} pending To-do changes</p>

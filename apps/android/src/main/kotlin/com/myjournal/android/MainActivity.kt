@@ -17,6 +17,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -24,6 +28,7 @@ import com.myjournal.ui.JournalApp
 
 class MainActivity : ComponentActivity() {
     private lateinit var model: JournalViewModel
+    private var activeSync: Job? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -48,6 +53,15 @@ class MainActivity : ComponentActivity() {
             val planner by model.planner.state.collectAsState()
             val habits by model.habits.state.collectAsState()
             val notebook by model.notebooks.state.collectAsState()
+            val editablePending = journal.pending + planner.pending + habits.pending + notebook.pending
+            var previousPending by remember { mutableIntStateOf(editablePending) }
+            LaunchedEffect(editablePending) {
+                if (previousPending > 0 && editablePending == 0 &&
+                    listOf(journal.error, planner.error, habits.error, notebook.error).all { it == null }) {
+                    applicationState.serverSync.scheduleEditableUpload()
+                }
+                previousPending = editablePending
+            }
             BackHandler(enabled = routes.size > 1 || routes.last().section == com.myjournal.domain.AppSection.NOTEBOOK && notebook.notebook != null) {
                 if (routes.last().section == com.myjournal.domain.AppSection.NOTEBOOK && notebook.notebook != null) model.openNotebook(null) else model.back()
             }
@@ -97,6 +111,19 @@ class MainActivity : ComponentActivity() {
         val app = application as JournalApplication
         app.serverSync.onForeground()
         app.operations.syncTrackedOnForeground(app.serverSync)
+        activeSync = lifecycleScope.launch {
+            while (true) {
+                delay(5 * 60 * 1000L)
+                app.serverSync.schedule()
+                app.serverSync.scheduleEditableUpload()
+            }
+        }
+    }
+
+    override fun onStop() {
+        activeSync?.cancel()
+        activeSync = null
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {

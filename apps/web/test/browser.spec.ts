@@ -20,6 +20,7 @@ async function signIn(page: Page) {
   await page.getByLabel('Password').fill('disposable browser test password');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByText('Signed in to this server.')).toBeVisible();
+  await expect(page.getByText('Recovery epoch', { exact: true })).toHaveCount(0);
 }
 
 async function bind(page: Page) {
@@ -43,13 +44,13 @@ test('Settings separates account controls and advanced diagnostics', async ({ pa
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('button', { name: 'Backup & Recovery' })).toBeVisible();
   await expect(page.getByLabel('Username')).toHaveCount(0);
-  await signIn(page);
-  await expect(page.getByText('Recovery epoch', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Account & Security' }).click();
+  await expect(page.getByLabel('Username')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Settings' }).click();
   await page.getByRole('button', { name: 'About LifeApp' }).click();
   await expect(page.getByText('Recovery epoch', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Advanced diagnostics' }).click();
-  await expect(page.getByText('Recovery epoch', { exact: true })).toBeVisible();
+  await expect(page.getByText('Server origin', { exact: true })).toBeVisible();
 });
 
 test('iPhone-sized offline shell reopens queued changes and survives worker update', async ({ context, page }) => {

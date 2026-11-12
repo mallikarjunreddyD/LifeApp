@@ -272,11 +272,15 @@ internal class AndroidServerSync(
     }
 
     suspend fun applyReviewedDownloads(
-        review: EditableImportReview, apply: suspend (List<EditableImportRecord>) -> Unit,
+        review: EditableImportReview, capture: (suspend () -> JournalSnapshot)? = null,
+        apply: suspend (List<EditableImportRecord>) -> Unit,
     ): Int = gate.withLock {
         val (credential, session, api) = currentSession()
         requireImportTarget(review.target, api, session)
-        applyTrackedDownloads(review, credential, session, api, apply)
+        val count = applyTrackedDownloads(review, credential, session, api, apply)
+        if (capture != null) enableReviewedEditable(credential, session, api, capture)
+        refresh(credential)
+        count
     }
 
     private suspend fun applyTrackedDownloads(
@@ -307,12 +311,14 @@ internal class AndroidServerSync(
         refresh()
     }
 
-    fun resumeEditableImport() = action {
+    fun resumeEditableImport(capture: (suspend () -> JournalSnapshot)? = null) = action {
         val (credential, session, api) = currentSession()
         try {
             val conflicts = sendEditableQueue(credential, session, api)
-            if (conflicts == 0) message("Approved record uploads completed. Local records were kept.")
-            else throw UserSyncError("$conflicts uploads need conflict review. Their local copies are still queued.")
+            if (conflicts == 0) {
+                if (capture != null) enableReviewedEditable(credential, session, api, capture)
+                message("Approved record uploads completed. Local records were kept.")
+            } else throw UserSyncError("$conflicts uploads need conflict review. Their local copies are still queued.")
         } finally {
             refresh()
         }
@@ -355,25 +361,50 @@ internal class AndroidServerSync(
         }
 
     fun setAutomaticEditable(enabled: Boolean, capture: suspend () -> JournalSnapshot) = action {
+        val (credential, session, api) = currentSession()
+        val target = EditableImportQueue.Target(api.endpoint.origin, session.scope)
         if (enabled) {
-            val (credential, session, api) = currentSession()
-            val target = EditableImportQueue.Target(api.endpoint.origin, session.scope)
-            val local = capture().editableImportRecords().map { it.key }
-            withContext(Dispatchers.IO) {
-                val known = editableBaselines.load(target)
-                if (known.isEmpty()) throw UserSyncError("Confirm a shared record through the backup-verified transfer first.")
-                val remote = api.editableVersions(session, credential.token).map { it.key }
-                val legacy = api.journalEntries(session, credential.token).map { EditableImportKey("journal", it.date.toString()) }
-                editableBaselines.excludeExisting(target, (local + remote + legacy).toSet() - known.keys)
-            }
-            store.setEditableEnabled(target)
-            ensureEditableWork()
+            enableReviewedEditable(credential, session, api, capture, manual = true)
+            store.setEditablePaused(target, false)
         } else {
+            store.setEditablePaused(target, true)
             store.setEditableEnabled(null)
             WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_WORK)
+            WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_UPLOAD)
         }
-        refresh()
+        refresh(credential)
         message(if (enabled) "Automatic sync enabled for tracked and new records." else "Automatic record sync paused.")
+    }
+
+    private suspend fun enableReviewedEditable(
+        credential: ServerCredential, session: ServerSession, api: ServerApi,
+        capture: suspend () -> JournalSnapshot, manual: Boolean = false,
+    ) {
+        val target = EditableImportQueue.Target(api.endpoint.origin, session.scope)
+        if (store.editableEnabled(target) || (!manual && store.editablePaused(target))) return
+        val known = withContext(Dispatchers.IO) { editableBaselines.load(target) }
+        if (known.isEmpty()) {
+            if (manual) throw UserSyncError("Confirm a shared record through the backup-verified transfer first.")
+            return
+        }
+        val local = capture().editableImportRecords().map { it.key }
+        withContext(Dispatchers.IO) {
+            val remote = api.editableVersions(session, credential.token).map { it.key }
+            val legacy = api.journalEntries(session, credential.token).map { EditableImportKey("journal", it.date.toString()) }
+            editableBaselines.excludeExisting(target, (local + remote + legacy).toSet() - known.keys)
+        }
+        store.setEditableEnabled(target)
+        ensureEditableWork()
+    }
+
+    fun scheduleEditableUpload() {
+        if (!mutable.value.automaticEditable) return
+        val request = OneTimeWorkRequestBuilder<EditableSyncWorker>()
+            .setInitialDelay(2, TimeUnit.SECONDS)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(EDITABLE_UPLOAD, ExistingWorkPolicy.KEEP, request)
     }
 
     private fun ensureEditableWork() {
@@ -473,6 +504,7 @@ internal class AndroidServerSync(
         store.setEditableEnabled(null)
         WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(WORK)
+        WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_UPLOAD)
         val credential = runCatching { store.load() }.getOrNull()
         store.clear()
         mutable.update { it.copy(preview = null) }
@@ -649,6 +681,7 @@ internal class AndroidServerSync(
 
     companion object {
         private const val WORK = "lifeapp-todo-server-sync"
+        private const val EDITABLE_UPLOAD = "lifeapp-editable-upload"
         private const val EDITABLE_WORK = "lifeapp-editable-server-sync"
     }
 }
