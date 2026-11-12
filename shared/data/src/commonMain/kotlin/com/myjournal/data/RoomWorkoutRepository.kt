@@ -9,6 +9,8 @@ import com.myjournal.domain.*
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import kotlin.time.Clock
+import kotlin.uuid.Uuid
 
 @Entity(tableName = "local_workout_records")
 data class WorkoutRow(@PrimaryKey val id: String, val kind: String, val payload: String)
@@ -20,6 +22,12 @@ interface WorkoutDao {
 
     @Query("SELECT * FROM local_workout_records ORDER BY id")
     suspend fun all(): List<WorkoutRow>
+
+    @Query("SELECT * FROM local_workout_records WHERE id = :id")
+    suspend fun find(id: String): WorkoutRow?
+
+    @Query("DELETE FROM local_workout_records WHERE id = :id")
+    suspend fun remove(id: String)
 
     @Upsert
     suspend fun save(row: WorkoutRow)
@@ -57,8 +65,37 @@ class RoomWorkoutRepository(private val database: FoundationDatabase) : WorkoutR
         val log = capture()
         val existing = log.sessions.find { it.metadata.id == session.metadata.id }
         check(existing?.metadata?.revision == previousRevision) { "This workout changed. Reopen it before saving." }
+        check(existing?.deleted != true && !session.deleted) { "Restore this workout before editing it." }
         validateRevision(existing?.metadata, session.metadata)
         save(log, session.row(), log.copy(sessions = log.sessions.filterNot { it.metadata.id == session.metadata.id } + session))
+    }
+
+    override suspend fun loadDraft(): WorkoutDraft? {
+        val row = dao.find("draft") ?: return null
+        val session = WorkoutJson.session(Json.parseToJsonElement(row.payload).jsonObject)
+        val revision = row.kind.removePrefix("draft:").toLongOrNull()
+        val saved = dao.find(session.metadata.id.toString())
+        val savedRevision = saved?.let { WorkoutJson.session(Json.parseToJsonElement(it.payload).jsonObject).metadata.revision }
+        return if (savedRevision == revision) WorkoutDraft(session, revision) else null
+    }
+
+    override suspend fun saveDraft(draft: WorkoutDraft?) {
+        if (draft == null) dao.remove("draft")
+        else dao.save(WorkoutRow("draft", "draft:${draft.previousRevision ?: ""}", draft.session.workoutJson().toString()))
+    }
+
+    override suspend fun spreadsheetHistory() = dao.find("history-view")?.payload == "table"
+
+    override suspend fun setSpreadsheetHistory(enabled: Boolean) {
+        dao.save(WorkoutRow("history-view", "preference", if (enabled) "table" else "cards"))
+    }
+
+    override suspend fun setSessionDeleted(id: Uuid, deleted: Boolean) = write {
+        val session = capture().sessions.single { it.metadata.id == id }
+        if (session.deleted != deleted) {
+            val metadata = session.metadata.revised(maxOf(session.metadata.updatedAt, Clock.System.now()))
+            dao.save(session.copy(metadata = metadata, deleted = deleted).row())
+        }
     }
 
     private suspend fun save(before: WorkoutLog, row: WorkoutRow, after: WorkoutLog) {
@@ -88,6 +125,7 @@ class RoomWorkoutRepository(private val database: FoundationDatabase) : WorkoutR
         val routines = mutableListOf<WorkoutRoutine>()
         val sessions = mutableListOf<WorkoutSession>()
         for (row in rows) {
+            if (row.id == "draft" || row.id == "history-view") continue
             val value = Json.parseToJsonElement(row.payload).jsonObject
             val id = when (row.kind) {
                 "exercise" -> WorkoutJson.exercise(value).also(exercises::add).metadata.id

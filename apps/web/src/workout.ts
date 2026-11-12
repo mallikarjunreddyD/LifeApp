@@ -2,16 +2,17 @@ import { calendarDate, instantKey, nextSequence, now } from './protocol.ts';
 import type { Metadata } from './protocol.ts';
 
 export interface Exercise {
-  metadata: Metadata; name: string; category: string | null; equipment: string | null; archived: boolean;
+  metadata: Metadata; name: string; category: string | null; equipment: string | null; archived: boolean; description?: string;
 }
 export interface Routine { metadata: Metadata; name: string; exerciseOrder: string[]; plannedSetCounts?: (number | null)[] }
 export interface RecordedSet {
   metadata: Metadata; entryId: string; number: number; weight: { value: number; unit: 'KG' | 'LB' } | null;
   repetitions: number | null; durationSeconds: number | null; restSeconds: number | null; completed: boolean;
 }
-export interface Entry { metadata: Metadata; sessionId: string; exerciseId: string; order: number; round: number | null; sets: RecordedSet[] }
+export interface Entry { metadata: Metadata; sessionId: string; exerciseId: string; order: number; round: number | null; sets: RecordedSet[]; remarks?: string }
 export interface Session {
   metadata: Metadata; date: string; startedAt: string | null; endedAt: string | null;
+  logged?: boolean; deleted?: boolean; routineId?: string; routineName?: string;
   averageHeartRateBpm?: number; durationManuallyEntered?: boolean;
   durationSeconds: number | null; caloriesKcal: number | null; notes: string | null; completed: boolean; entries: Entry[];
 }
@@ -45,6 +46,7 @@ export function checkWorkoutRecords(records: WorkoutRecord[]) {
       if (!name.trim() || name.length > 120 || name !== name.trim()) throw new Error('Enter a name up to 120 characters.');
     }
     if (record.kind === 'exercise') {
+      if ((record.value.description?.length ?? 0) > 4000) throw new Error('Description is too long.');
       for (const field of [record.value.category, record.value.equipment]) {
         if (field !== null && (!field.trim() || field.length > 120)) throw new Error('Exercise fields must be up to 120 characters.');
       }
@@ -60,8 +62,11 @@ export function checkWorkoutRecords(records: WorkoutRecord[]) {
     } else {
       const session = record.value;
       calendarDate(session.date);
+      if (!!session.routineId !== !!session.routineName || (session.routineName?.length ?? 0) > 120) {
+        throw new Error('Invalid routine reference.');
+      }
       if ((session.notes?.length ?? 0) > 4000) throw new Error('Notes may contain up to 4,000 characters.');
-      if (session.completed && session.endedAt === null) throw new Error('Missing workout end time.');
+      if (session.completed && !session.logged && session.endedAt === null) throw new Error('Missing workout end time.');
       integer(session.caloriesKcal, 0);
       integer(session.durationSeconds, 0);
       if (session.averageHeartRateBpm !== undefined) {
@@ -76,6 +81,7 @@ export function checkWorkoutRecords(records: WorkoutRecord[]) {
       }
       session.entries.forEach((entry, index) => {
         identify(entry.metadata);
+        if ((entry.remarks?.length ?? 0) > 4000) throw new Error('Exercise remarks are too long.');
         if (entry.sessionId !== session.metadata.id || entry.order !== index || !exerciseIds.has(entry.exerciseId)) {
           throw new Error('Invalid workout exercise.');
         }
@@ -99,4 +105,23 @@ function integer(value: number | null, minimum: number) {
   if (value !== null && (!Number.isInteger(value) || value < minimum || value > 2_147_483_647)) {
     throw new Error('Enter a whole number in the allowed range.');
   }
+}
+
+export function blankSet(entryId: string, number: number): RecordedSet {
+  return { metadata: revise(), entryId, number, weight: null, repetitions: null,
+    durationSeconds: null, restSeconds: null, completed: false };
+}
+
+export function routineEntries(sessionId: string, routine?: Routine): Entry[] {
+  return routine?.exerciseOrder.map((id, order) => {
+    const entry = entryFor(sessionId, id, order);
+    entry.sets = Array.from({ length: routine.plannedSetCounts?.[order] ?? 0 },
+      (_, index) => blankSet(entry.metadata.id, index + 1));
+    return entry;
+  }) ?? [];
+}
+
+export function setSummary(set: RecordedSet): string {
+  if (set.repetitions !== null) return `${set.weight ? `${set.weight.value} ${set.weight.unit} × ` : ''}${set.repetitions} reps`;
+  return set.weight ? `${set.weight.value} ${set.weight.unit}` : set.durationSeconds !== null ? `${set.durationSeconds}s` : '—';
 }

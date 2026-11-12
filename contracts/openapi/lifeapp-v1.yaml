@@ -1503,6 +1503,9 @@ components:
           - type: integer
             minimum: 1
           - type: 'null'
+        remarks:
+          type: string
+          maxLength: 4000
         sets:
           type: array
           maxItems: 1000
@@ -1557,6 +1560,17 @@ components:
             maxLength: 4000
           - type: 'null'
         completed: *id006
+        logged:
+          type: boolean
+          description: A manually saved logbook entry can omit timer timestamps.
+        deleted:
+          type: boolean
+          description: Reserved for recoverable workout deletion. The current API is read-only.
+        routineId: *id001
+        routineName:
+          type: string
+          minLength: 1
+          maxLength: 120
         entries:
           type: array
           maxItems: 1000
@@ -1589,6 +1603,9 @@ components:
             maxLength: 120
           - type: 'null'
         archived: *id006
+        description:
+          type: string
+          maxLength: 4000
     WorkoutPage:
       type: object
       additionalProperties: false

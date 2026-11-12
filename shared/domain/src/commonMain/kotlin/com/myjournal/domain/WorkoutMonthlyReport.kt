@@ -12,6 +12,6 @@ data class WorkoutMonthlyReport(val month: JournalMonth, val sessions: List<Work
 
 fun WorkoutLog.monthlyReport(month: JournalMonth) = WorkoutMonthlyReport(
     month,
-    sessions.filter { it.completed && JournalMonth.from(it.date) == month }
+    sessions.filter { !it.deleted && (it.completed || it.logged) && JournalMonth.from(it.date) == month }
         .sortedWith(compareBy({ it.date }, { it.startedAt }, { it.metadata.id.toString() })),
 )

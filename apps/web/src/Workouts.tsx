@@ -1,211 +1,306 @@
 import { useEffect, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
-import { now, today } from './protocol.ts';
+import { today } from './protocol.ts';
 import type { LifeStore } from './store.ts';
 import { WorkoutReport } from './WorkoutReport.tsx';
-import { entryFor, revise } from './workout.ts';
-import type { Entry, Exercise, RecordedSet, Routine, Session, WorkoutRecord } from './workout.ts';
+import { blankSet, entryFor, revise, routineEntries, setSummary } from './workout.ts';
+import type { Exercise, Routine, Session, WorkoutRecord } from './workout.ts';
 
-type Editor = { kind: 'exercise'; exercise?: Exercise } | { kind: 'routine'; routine?: Routine } |
-  { kind: 'set'; entry: Entry; set?: RecordedSet } | { kind: 'details' } | { kind: 'finish' };
+type Draft = { session: Session; revision: string | null };
+type Editor = { kind: 'exercise'; value?: Exercise } | { kind: 'routine'; value?: Routine };
+const text = (data: FormData, name: string) => String(data.get(name) ?? '').trim();
+const optionalNumber = (raw: string) => raw === '' ? null : Number(raw);
+
+function move<T>(items: T[], index: number, offset: number): T[] {
+  const next = [...items];
+  const destination = index + offset;
+  if (destination >= 0 && destination < next.length) [next[index], next[destination]] = [next[destination]!, next[index]!];
+  return next;
+}
 
 export function Workouts({ store, historyOnly = false }: { store: LifeStore; historyOnly?: boolean }) {
   const [records, setRecords] = useState<WorkoutRecord[] | null>(null);
-  const [active, setActive] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  const [library, setLibrary] = useState(false);
+  const [routinesOpen, setRoutinesOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [month, setMonth] = useState('');
+  const [day, setDay] = useState('');
+  const [routineFilter, setRoutineFilter] = useState('');
+  const [view, setView] = useState(() => localStorage.getItem('lifeapp-workout-view') === 'table' ? 'table' : 'cards');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<Session | null>(null);
+
   useEffect(() => {
     let current = true;
-    void store.workoutRecords().then(value => { if (current) setRecords(value); })
-      .catch(() => { if (current) setError('Could not load saved workouts.'); });
+    void Promise.all([store.workoutRecords(), store.workoutDraft()]).then(([saved, pending]) => {
+      if (!current) return;
+      setRecords(saved);
+      if (pending) {
+        const prior = saved.find(item => item.kind === 'session' && item.value.metadata.id === pending.session.metadata.id);
+        if ((prior?.value.metadata.revision ?? null) === pending.revision) setDraft(pending);
+      }
+    }).catch(() => { if (current) setError('Could not load saved workouts.'); });
     return () => { current = false; };
   }, [store]);
 
-  async function save(build: () => WorkoutRecord, expected: string | null, open = false) {
+  async function write(action: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
     setError('');
     try {
-      const record = build();
-      await store.saveWorkout(record, expected);
+      await action();
       setRecords(await store.workoutRecords());
-      if (open) setActive(record.value.metadata.id);
-      setEditor(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Could not save the workout.');
     } finally { setBusy(false); }
   }
 
+  function keepDraft(next: Draft | null) {
+    setDraft(next);
+    void store.saveWorkoutDraft(next).catch(() => setError('Could not save the draft on this device.'));
+  }
+
+  function change(update: (value: Session) => Session) {
+    if (draft) keepDraft({ ...draft, session: update(draft.session) });
+  }
+
   const exercises = (records ?? []).flatMap(item => item.kind === 'exercise' ? [item.value] : [])
     .sort((a, b) => a.name.localeCompare(b.name));
   const sessions = (records ?? []).flatMap(item => item.kind === 'session' ? [item.value] : [])
-    .sort((a, b) => b.date.localeCompare(a.date) || (b.startedAt ?? '').localeCompare(a.startedAt ?? ''));
+    .sort((a, b) => b.date.localeCompare(a.date) || b.metadata.createdAt.localeCompare(a.metadata.createdAt));
   const routines = (records ?? []).flatMap(item => item.kind === 'routine' ? [item.value] : []);
-  const session = sessions.find(item => item.metadata.id === active);
   const available = exercises.filter(exercise => !exercise.archived);
   const names = new Map(exercises.map(exercise => [exercise.metadata.id, exercise.name]));
-  const byId = (id: string) => names.get(id) ?? id;
-  const start = (routine?: Routine) => void save(() => {
-    const metadata = revise();
-    return { kind: 'session', value: { metadata, date: today(), startedAt: metadata.createdAt,
-      endedAt: null, durationSeconds: null, caloriesKcal: null, notes: null, completed: false,
-      entries: routine?.exerciseOrder.map((id, index) => {
-        const entry = entryFor(metadata.id, id, index);
-        entry.sets = Array.from({ length: routine.plannedSetCounts?.[index] ?? 0 }, (_, offset) => ({
-          metadata: revise(), entryId: entry.metadata.id, number: offset + 1, weight: null, repetitions: null,
-          durationSeconds: null, restSeconds: null, completed: false,
-        }));
-        return entry;
-      }) ?? [],
-    } };
-  }, null, true);
-  const change = (update: (value: Session) => Session) => {
-    if (session) void save(() => ({ kind: 'session', value: { ...update(session), metadata: revise(session.metadata) } }),
-      session.metadata.revision);
-  };
-  const date = new Date();
-  const weekStart = new Date(date.getFullYear(), date.getMonth(), date.getDate() - (date.getDay() + 6) % 7);
-  const completed = sessions.filter(value => value.completed);
-  const weekly = completed.filter(value => value.date >= today(weekStart) && value.date <= today(date));
-
-  function form(title: string, contents: ReactNode, submit: (values: FormData) => void) {
-    return <form key={title} className="editor" onSubmit={(event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault(); submit(new FormData(event.currentTarget));
-    }}>
-      <h2>{title}</h2>{contents}<div className="actions"><button type="submit" disabled={busy}>Save</button>
-        <button type="button" disabled={busy} onClick={() => { setEditor(null); setError(''); }}>Cancel</button></div>
-    </form>;
-  }
-
-  function setForm(selection: Extract<Editor, { kind: 'set' }>) {
-    return form(selection.set ? 'Edit set' : 'Add set', <>
-      <label>Weight<input type="number" step="any" min="0" inputMode="decimal" name="weight" defaultValue={selection.set?.weight?.value ?? ''} /></label>
-      <label>Weight unit<select name="unit" defaultValue={selection.set?.weight?.unit ?? 'KG'}><option>KG</option><option>LB</option></select></label>
-      <label>Repetitions<input type="number" min="0" inputMode="numeric" name="reps" defaultValue={selection.set?.repetitions ?? ''} /></label>
-      <label>Duration (seconds)<input type="number" min="1" name="duration" defaultValue={selection.set?.durationSeconds ?? ''} /></label>
-      <label>Rest (seconds)<input type="number" min="0" name="rest" defaultValue={selection.set?.restSeconds ?? ''} /></label>
-      <label><input type="checkbox" name="completed" defaultChecked={selection.set?.completed ?? false} /> Set completed</label>
-    </>, values => change(value => {
-      const weight = number(values, 'weight');
-      const set: RecordedSet = { metadata: revise(selection.set?.metadata), entryId: selection.entry.metadata.id,
-        number: selection.set?.number ?? selection.entry.sets.length + 1,
-        weight: weight === null ? null : { value: weight, unit: text(values, 'unit') === 'LB' ? 'LB' : 'KG' },
-        repetitions: number(values, 'reps'), durationSeconds: number(values, 'duration'), restSeconds: number(values, 'rest'),
-        completed: values.has('completed') };
-      return { ...value, entries: value.entries.map(entry => entry.metadata.id !== selection.entry.metadata.id ? entry : {
-        ...entry, metadata: revise(entry.metadata), sets: selection.set ? entry.sets.map(previous => previous.metadata.id === set.metadata.id ? set : previous) : [...entry.sets, set],
-      }) };
-    }));
-  }
+  const byId = (id: string) => names.get(id) ?? 'Exercise';
+  const visible = sessions.filter(value => !value.deleted && (!month || value.date.startsWith(month)) &&
+    (!day || value.date === day) && (!routineFilter || value.routineName === routineFilter));
+  const session = draft?.session;
+  const selectedRoutine = routines.find(value => value.metadata.id === session?.routineId);
+  const summary = (value: Session) => [
+    `${value.entries.length} exercises`,
+    value.durationSeconds !== null && `${+(value.durationSeconds / 60).toFixed(1)} min`,
+    value.averageHeartRateBpm !== undefined && `${value.averageHeartRateBpm} BPM`,
+    value.caloriesKcal !== null && `${value.caloriesKcal} kcal`,
+  ].filter(Boolean).join(' · ');
+  const title = (value: Session) => `${value.routineName ?? 'Workout'} · ${value.date}`;
+  const rows = (value: Session) => <table className="workout-history-table">
+    <thead><tr><th>Exercise</th><th>Weight × reps</th><th>Remarks</th></tr></thead>
+    <tbody>{value.entries.map(entry => <tr key={entry.metadata.id}>
+      <th scope="row">{byId(entry.exerciseId)}</th><td>{entry.sets.map(setSummary).join(', ') || '—'}</td>
+      <td>{entry.remarks ?? '—'}</td>
+    </tr>)}</tbody>
+  </table>;
 
   if (reportOpen) return <WorkoutReport sessions={sessions} exercises={exercises} close={() => setReportOpen(false)} />;
 
-  return <section>
-    <h1>{historyOnly ? 'Workout history' : 'Workouts'}</h1>
-    <p>Saved in this browser. Workout changes stay on this device.</p>
+  return <section className="workout-logbook">
+    <h1>Workouts</h1>
+    <p>Workout changes are saved on this device.</p>
     {error && <p role="alert">{error}</p>}
     {!records && !error && <p role="status">Loading workouts…</p>}
-    {records && (session ? <>
-      <button disabled={busy} onClick={() => { setActive(null); setEditor(null); }}>Back to workouts</button>
-      <h2>{session.date} · {session.completed ? 'Completed' : 'In progress'}</h2>
-      <button disabled={busy} onClick={() => setEditor({ kind: 'details' })}>Edit workout details</button>
-      <p role="status">{busy ? 'Saving…' : error ? 'Changes need attention' : 'Saved on this device'}</p>
-      {!session.completed && <button disabled={busy} onClick={() => setEditor({ kind: 'finish' })}>Finish workout</button>}
-      <form onSubmit={event => {
-        event.preventDefault();
-        const id = text(new FormData(event.currentTarget), 'exercise');
+    {records && (session && draft ? <form className="editor" onSubmit={event => {
+      event.preventDefault();
+      void write(async () => {
+        const prior = sessions.find(value => value.metadata.id === session.metadata.id);
+        const entries = session.entries.map(entry => {
+          const original = prior?.entries.find(value => value.metadata.id === entry.metadata.id);
+          return { ...entry, metadata: original ? revise(original.metadata) : entry.metadata,
+            sets: entry.sets.map(set => {
+              const saved = original?.sets.find(value => value.metadata.id === set.metadata.id);
+              return { ...set, metadata: saved ? revise(saved.metadata) : set.metadata,
+                completed: set.completed && (!!set.repetitions || set.durationSeconds !== null) };
+            }) };
+        });
+        const value: Session = { ...session, entries, logged: true,
+          metadata: prior ? revise(prior.metadata) : session.metadata };
+        await store.saveWorkout({ kind: 'session', value }, draft.revision);
+        keepDraft(null);
+      });
+    }}>
+      <h2>{draft.revision ? 'Edit workout' : 'Add workout'}</h2>
+      <label>Workout date<input type="date" required value={session.date} onChange={event => {
+        const date = event.currentTarget.value; change(value => ({ ...value, date }));
+      }} /></label>
+      {!draft.revision && <label>Routine<select value={session.routineId ?? ''} onChange={event => {
+        const routine = routines.find(value => value.metadata.id === event.currentTarget.value);
+        if (session.entries.length && !window.confirm('Replace the exercises and sets in this draft?')) return;
+        change(value => ({ ...value, routineId: routine?.metadata.id, routineName: routine?.name,
+          entries: routineEntries(value.metadata.id, routine) }));
+      }}><option value="">No routine</option>{routines.map(value =>
+        <option key={value.metadata.id} value={value.metadata.id}>{value.name}</option>)}</select></label>}
+      {draft.revision && session.routineName && <p>{session.routineName}</p>}
+      <div className="actions">
+        <button type="button" onClick={() => setEditor({ kind: 'routine', value: selectedRoutine })}>
+          {selectedRoutine ? 'Edit routine' : 'New routine'}
+        </button>
+        {selectedRoutine && session.entries.length > 0 && <button type="button" disabled={busy}
+          onClick={() => void write(async () => store.saveWorkout({ kind: 'routine', value: {
+            ...selectedRoutine, metadata: revise(selectedRoutine.metadata),
+            exerciseOrder: session.entries.map(entry => entry.exerciseId),
+            plannedSetCounts: session.entries.map(entry => entry.sets.length || null),
+          } }, selectedRoutine.metadata.revision))}>Save changes to routine</button>}
+      </div>
+      {session.entries.map((entry, position) => <details key={entry.metadata.id} open className="workout-exercise">
+        <summary>{byId(entry.exerciseId)}</summary>
+        <div className="actions">
+          <button type="button" disabled={!position} onClick={() => change(value => ({ ...value,
+            entries: move(value.entries, position, -1).map((item, order) => ({ ...item, order })) }))}>Move up</button>
+          <button type="button" disabled={position === session.entries.length - 1} onClick={() => change(value => ({ ...value,
+            entries: move(value.entries, position, 1).map((item, order) => ({ ...item, order })) }))}>Move down</button>
+          <button type="button" onClick={() => change(value => ({ ...value, entries: value.entries
+            .filter(item => item.metadata.id !== entry.metadata.id).map((item, order) => ({ ...item, order })) }))}>Remove exercise</button>
+        </div>
+        {entry.sets.map(set => {
+          const update = (apply: (previous: typeof set) => typeof set) => change(value => ({ ...value,
+            entries: value.entries.map(item => item.metadata.id !== entry.metadata.id ? item : { ...item,
+              sets: item.sets.map(row => row.metadata.id === set.metadata.id ? apply(row) : row) }) }));
+          return <div key={set.metadata.id} className="workout-set-row">
+            <span>Set {set.number}</span>
+            <label>Weight<input type="number" min="0" step="any" inputMode="decimal" value={set.weight?.value ?? ''}
+              onChange={event => {
+                const weight = optionalNumber(event.currentTarget.value);
+                update(row => ({ ...row, weight: weight === null ? null : { value: weight, unit: row.weight?.unit ?? 'KG' } }));
+              }} /></label>
+            <label>Unit<select value={set.weight?.unit ?? 'KG'} disabled={!set.weight} onChange={event => {
+              const unit = event.currentTarget.value === 'LB' ? 'LB' : 'KG';
+              update(row => ({ ...row, weight: row.weight && { ...row.weight, unit } }));
+            }}><option>KG</option><option>LB</option></select></label>
+            <label>Repetitions<input type="number" min="0" max="2147483647" inputMode="numeric" value={set.repetitions ?? ''}
+              onChange={event => {
+                const repetitions = optionalNumber(event.currentTarget.value);
+                update(row => ({ ...row, repetitions }));
+              }} /></label>
+            <button type="button" onClick={() => change(value => ({ ...value, entries: value.entries.map(item =>
+              item.metadata.id !== entry.metadata.id ? item : { ...item, sets: item.sets.filter(row => row.metadata.id !== set.metadata.id)
+                .map((row, index) => ({ ...row, number: index + 1 })) }) }))}>Remove set</button>
+          </div>;
+        })}
+        <div className="actions">{[false, true].map(copy => <button key={String(copy)} type="button"
+          disabled={copy && !entry.sets.length} onClick={() => change(value => ({ ...value, entries: value.entries.map(item => {
+            if (item.metadata.id !== entry.metadata.id) return item;
+            const last = copy ? item.sets.at(-1) : undefined;
+            const set = blankSet(item.metadata.id, item.sets.length + 1);
+            return { ...item, sets: [...item.sets, { ...set, weight: last?.weight ?? null, repetitions: last?.repetitions ?? null }] };
+          }) }))}>{copy ? 'Copy previous set' : 'Add set'}</button>)}</div>
+        <label>Exercise remarks<textarea maxLength={4000} value={entry.remarks ?? ''} onChange={event => {
+          const remarks = event.currentTarget.value;
+          change(value => ({ ...value, entries: value.entries.map(item => item.metadata.id === entry.metadata.id ? { ...item, remarks } : item) }));
+        }} /></label>
+      </details>)}
+      <label>Add exercise<select value="" onChange={event => {
+        const id = event.currentTarget.value;
         if (id) change(value => ({ ...value, entries: [...value.entries, entryFor(value.metadata.id, id, value.entries.length)] }));
-      }}>
-        <label>Exercise<select name="exercise" required>{available.map(value =>
-          <option key={value.metadata.id} value={value.metadata.id}>{value.name}</option>)}</select></label>
-        <button disabled={busy || !available.length}>Add exercise entry</button>
-      </form>
-      {session.entries.map(entry => <article key={entry.metadata.id}>
-        <h3>{byId(entry.exerciseId)}</h3>
-        <ul>{entry.sets.map(set => <li key={set.metadata.id}>
-          {editor?.kind === 'set' && editor.entry.metadata.id === entry.metadata.id && editor.set?.metadata.id === set.metadata.id
-            ? setForm(editor)
-            : <button disabled={busy} onClick={() => setEditor({ kind: 'set', entry, set })}>Set {set.number} · {setSummary(set)}</button>}
-        </li>)}</ul>
-        {editor?.kind === 'set' && editor.entry.metadata.id === entry.metadata.id && !editor.set
-          ? setForm(editor)
-          : <button disabled={busy} onClick={() => setEditor({ kind: 'set', entry })}>Add set</button>}
-
+      }}><option value="">Choose exercise</option>{available.map(value =>
+        <option key={value.metadata.id} value={value.metadata.id}>{value.name}</option>)}</select></label>
+      <button type="button" onClick={() => setEditor({ kind: 'exercise' })}>New exercise</button>
+      <h3>Workout summary</h3>
+      <label>Workout minutes<input type="number" min="0" max="35791394" inputMode="numeric"
+        value={session.durationSeconds === null ? '' : Math.floor(session.durationSeconds / 60)} onChange={event => {
+          const minutes = optionalNumber(event.currentTarget.value);
+          change(value => ({ ...value, durationSeconds: minutes === null
+            ? (value.startedAt && value.endedAt ? Math.floor((Date.parse(value.endedAt) - Date.parse(value.startedAt)) / 1000) : null)
+            : minutes * 60, durationManuallyEntered: minutes !== null }));
+        }} /></label>
+      <label>Average heart rate (BPM)<input type="number" min="20" max="250" inputMode="numeric"
+        value={session.averageHeartRateBpm ?? ''} onChange={event => {
+          const averageHeartRateBpm = optionalNumber(event.currentTarget.value) ?? undefined;
+          change(value => ({ ...value, averageHeartRateBpm }));
+        }} /></label>
+      <label>Active calories<input type="number" min="0" max="2147483647" inputMode="numeric"
+        value={session.caloriesKcal ?? ''} onChange={event => {
+          const caloriesKcal = optionalNumber(event.currentTarget.value); change(value => ({ ...value, caloriesKcal }));
+        }} /></label>
+      <label>Overall remarks<textarea maxLength={4000} value={session.notes ?? ''} onChange={event => {
+        const notes = event.currentTarget.value; change(value => ({ ...value, notes }));
+      }} /></label>
+      <div className="actions"><button disabled={busy}>Save workout</button>
+        <button type="button" disabled={busy} onClick={() => {
+          if (window.confirm('Discard this workout draft?')) keepDraft(null);
+        }}>Discard draft</button></div>
+    </form> : <>
+      {!historyOnly && <button className="workout-add" disabled={busy} onClick={() => keepDraft({ revision: null,
+        session: { metadata: revise(), date: today(), startedAt: null, endedAt: null, durationSeconds: null,
+          caloriesKcal: null, notes: null, completed: false, logged: true, entries: [] } })}>Add workout</button>}
+      <h2>Workout history</h2>
+      <div className="workout-filters">
+        <label>Month<input type="month" value={month} onChange={event => setMonth(event.currentTarget.value)} /></label>
+        <label>Workout date<input type="date" value={day} onChange={event => setDay(event.currentTarget.value)} /></label>
+        <label>Routine<select value={routineFilter} onChange={event => setRoutineFilter(event.currentTarget.value)}>
+          <option value="">All routines</option>{[...new Set(sessions.flatMap(value => value.routineName ? [value.routineName] : []))]
+            .sort().map(name => <option key={name}>{name}</option>)}</select></label>
+        <label>History view<select value={view} onChange={event => {
+          const next = event.currentTarget.value === 'table' ? 'table' : 'cards';
+          setView(next); localStorage.setItem('lifeapp-workout-view', next);
+        }}><option value="cards">Workout cards</option><option value="table">Spreadsheet</option></select></label>
+      </div>
+      <button type="button" onClick={() => setReportOpen(true)}>Export monthly PDF</button>
+      {!visible.length && <p>No workouts match these filters.</p>}
+      {visible.map(value => <article key={value.metadata.id} className="workout-history">
+        {view === 'table' ? <><h3>{title(value)}</h3><p>{summary(value)}</p>{rows(value)}</> :
+          <details><summary>{title(value)} · {summary(value)}</summary>{rows(value)}{value.notes && <p>{value.notes}</p>}</details>}
+        <div className="actions"><button disabled={busy} onClick={() => keepDraft({ session: value,
+          revision: value.metadata.revision })}>Edit workout</button>
+          <button disabled={busy} onClick={() => setConfirm(value)}>Delete workout</button></div>
       </article>)}
-    </> : <>
-      <p>{weekly.length} completed this week · {weekly.reduce((sum, value) => sum + (value.durationSeconds ?? 0), 0)} seconds</p>
-      {!historyOnly && <button disabled={busy} onClick={() => start()}>Start workout</button>}
-      <button disabled={busy} onClick={() => setReportOpen(true)}>Export monthly PDF</button>
-      <ul className="record-list">{sessions.map(value => <li key={value.metadata.id}><button disabled={busy}
-        onClick={() => { setActive(value.metadata.id); setEditor(null); }}>{value.date} ·
-        {value.completed ? ` ${value.durationSeconds ?? 0} seconds` : ' In progress'} · {value.entries.length} exercises</button></li>)}</ul>
+      {confirm && <div role="alertdialog" aria-label="Delete workout confirmation" className="editor">
+        <p>Move {title(confirm)} to Recently deleted?</p>
+        <button disabled={busy} onClick={() => void write(async () => {
+          await store.setWorkoutDeleted(confirm.metadata.id, true); setConfirm(null);
+        })}>Confirm delete</button>
+        <button disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
+      </div>}
+      {sessions.some(value => value.deleted) && <details><summary>Recently deleted</summary>
+        {sessions.filter(value => value.deleted).map(value => <article key={value.metadata.id}>{title(value)}
+          <button disabled={busy} onClick={() => void write(() => store.setWorkoutDeleted(value.metadata.id, false))}>Restore workout</button>
+        </article>)}</details>}
       {!historyOnly && <>
-        <h2>Exercise library</h2><button disabled={busy} onClick={() => setEditor({ kind: 'exercise' })}>New exercise</button>
-        {exercises.map(exercise => <article key={exercise.metadata.id}>
-          <h3>{exercise.name}{exercise.archived ? ' (archived)' : ''}</h3>
-          <p>{[exercise.category, exercise.equipment].filter(Boolean).join(' · ')}</p>
-          <button disabled={busy} onClick={() => setEditor({ kind: 'exercise', exercise })}>Edit exercise</button>
-          <button disabled={busy} onClick={() => void save(() => ({ kind: 'exercise', value: {
-            ...exercise, metadata: revise(exercise.metadata), archived: !exercise.archived,
-          } }), exercise.metadata.revision)}>{exercise.archived ? 'Restore' : 'Archive'}</button>
-          <details><summary>Exercise history</summary><ul>{completed.flatMap(workout =>
-            workout.entries.filter(entry => entry.exerciseId === exercise.metadata.id)
-              .flatMap(entry => entry.sets.filter(set => set.completed).map(set =>
-                <li key={set.metadata.id}>{workout.date} · {setSummary(set)}</li>)))}</ul></details>
-        </article>)}
-        <h2>Routines</h2><button disabled={busy || !available.length} onClick={() => setEditor({ kind: 'routine' })}>New routine</button>
-        {routines.map(routine => <article key={routine.metadata.id}>
-          <h3>{routine.name}</h3><p>{routine.exerciseOrder.map(byId).join(' · ')}</p>
-          <button disabled={busy} onClick={() => setEditor({ kind: 'routine', routine })}>Edit routine</button>
-          <button disabled={busy || routine.exerciseOrder.some(id => !available.some(exercise => exercise.metadata.id === id))}
-            onClick={() => start(routine)}>Start routine</button>
-        </article>)}
+        <details open={library} onToggle={event => setLibrary(event.currentTarget.open)}><summary>Exercise library</summary>
+          {library && <><label>Search exercises<input type="search" value={query} onChange={event => setQuery(event.currentTarget.value)} /></label>
+            <button onClick={() => setEditor({ kind: 'exercise' })}>New exercise</button>
+            {exercises.filter(value => value.name.toLowerCase().includes(query.toLowerCase())).map(value =>
+              <article key={value.metadata.id}><h3>{value.name}{value.archived && ' (archived)'}</h3>
+                <p>{value.category} {value.description}</p>
+                <button onClick={() => setEditor({ kind: 'exercise', value })}>Edit exercise</button>
+                <button disabled={busy} onClick={() => void write(() => store.saveWorkout({ kind: 'exercise',
+                  value: { ...value, metadata: revise(value.metadata), archived: !value.archived } }, value.metadata.revision))}>
+                  {value.archived ? 'Restore exercise' : 'Archive exercise'}</button></article>)}</>}
+        </details>
+        <details open={routinesOpen} onToggle={event => setRoutinesOpen(event.currentTarget.open)}><summary>Manage routines</summary>
+          {routinesOpen && <><button onClick={() => setEditor({ kind: 'routine' })}>New routine</button>
+            {routines.map(value => <article key={value.metadata.id}><h3>{value.name}</h3>
+              <p>{value.exerciseOrder.map(byId).join(' · ')}</p>
+              <button onClick={() => setEditor({ kind: 'routine', value })}>Edit routine</button></article>)}</>}
+        </details>
       </>}
     </>)}
-    {editor?.kind === 'exercise' && form(editor.exercise ? 'Edit exercise' : 'New exercise', <>
-      <label>Name<input name="name" required maxLength={120} defaultValue={editor.exercise?.name} /></label>
-      <label>Category or body part<input name="category" maxLength={120} defaultValue={editor.exercise?.category ?? ''} /></label>
-      <label>Equipment<input name="equipment" maxLength={120} defaultValue={editor.exercise?.equipment ?? ''} /></label>
-    </>, values => void save(() => ({ kind: 'exercise', value: {
-      metadata: revise(editor.exercise?.metadata), name: text(values, 'name'),
-      category: text(values, 'category') || null, equipment: text(values, 'equipment') || null,
-      archived: editor.exercise?.archived ?? false,
-    } }), editor.exercise?.metadata.revision ?? null))}
-    {editor?.kind === 'routine' && <RoutineEditor key={editor.routine?.metadata.id ?? 'new'} routine={editor.routine}
-      exercises={exercises} busy={busy} close={() => setEditor(null)} save={(name, exerciseOrder, plannedSetCounts) => void save(() => ({
-        kind: 'routine', value: { metadata: revise(editor.routine?.metadata), name, exerciseOrder, plannedSetCounts },
-      }), editor.routine?.metadata.revision ?? null)} />}
-    {(editor?.kind === 'details' || editor?.kind === 'finish') && session && form(
-      editor.kind === 'finish' ? 'Finish workout' : 'Workout details', <>
-      {editor.kind === 'finish' && <p>{session.entries.filter(entry => !entry.sets.length || entry.sets.some(set => !set.completed)).length}
-        {' '}incomplete exercises will remain in this session.</p>}
-      <label>Workout duration (minutes)<input type="number" name="minutes" min="0" max="35791394"
-        inputMode="numeric" defaultValue={session.durationSeconds === null ? '' : Math.floor(session.durationSeconds / 60)} /></label>
-      <label>Average heart rate (BPM)<input type="number" name="bpm" min="20" max="250"
-        inputMode="numeric" defaultValue={session.averageHeartRateBpm ?? ''} /></label>
-      <label>Date<input type="date" name="date" required defaultValue={session.date} /></label>
-      <label>Calories (kcal)<input type="number" name="calories" min="0" defaultValue={session.caloriesKcal ?? ''} /></label>
-      <label>Notes<textarea name="notes" maxLength={4000} defaultValue={session.notes ?? ''} /></label>
-    </>, values => change(value => {
-      const minutes = number(values, 'minutes');
-      const bpm = number(values, 'bpm');
-      const durationChanged = minutes !== (value.durationSeconds === null ? null : Math.floor(value.durationSeconds / 60));
-      const finishing = editor.kind === 'finish';
-      const startedAt = finishing ? value.startedAt ?? now() : value.startedAt;
-      const endedAt = finishing && startedAt ? (Date.parse(now()) < Date.parse(startedAt) ? startedAt : now()) : value.endedAt;
-      const elapsed = endedAt && startedAt ? Math.floor((Date.parse(endedAt) - Date.parse(startedAt)) / 1000) : null;
-      const updated = { ...value, date: text(values, 'date'), caloriesKcal: number(values, 'calories'),
-        notes: text(values, 'notes') || null, startedAt, endedAt, completed: finishing || value.completed,
-        durationSeconds: durationChanged ? (minutes === null ? elapsed : minutes * 60) : value.durationSeconds ?? elapsed,
-        durationManuallyEntered: durationChanged ? minutes !== null : value.durationManuallyEntered ?? false,
-      };
-      if (bpm === null) delete updated.averageHeartRateBpm;
-      else updated.averageHeartRateBpm = bpm;
-      return updated;
-    }))}
-
+    {editor?.kind === 'exercise' && <form key={editor.value?.metadata.id ?? 'new-exercise'} className="editor" onSubmit={event => {
+      event.preventDefault();
+      const values = new FormData(event.currentTarget);
+      const original = editor.value;
+      void write(async () => {
+        await store.saveWorkout({ kind: 'exercise', value: { metadata: revise(original?.metadata),
+          name: text(values, 'name'), category: text(values, 'category') || null, equipment: original?.equipment ?? null,
+          description: text(values, 'description'), archived: original?.archived ?? false } }, original?.metadata.revision ?? null);
+        setEditor(null);
+      });
+    }}><h2>{editor.value ? 'Edit exercise' : 'New exercise'}</h2>
+      <label>Exercise name<input name="name" required maxLength={120} defaultValue={editor.value?.name} /></label>
+      <label>Category<input name="category" maxLength={120} defaultValue={editor.value?.category ?? ''} /></label>
+      <label>Description<textarea name="description" maxLength={4000} defaultValue={editor.value?.description} /></label>
+      <button disabled={busy}>Save exercise</button><button type="button" onClick={() => setEditor(null)}>Cancel</button>
+    </form>}
+    {editor?.kind === 'routine' && <RoutineEditor key={editor.value?.metadata.id ?? 'new-routine'} routine={editor.value}
+      exercises={exercises} busy={busy} close={() => setEditor(null)} save={(name, exerciseOrder, plannedSetCounts) => {
+        const prior = editor.value;
+        void write(async () => {
+          await store.saveWorkout({ kind: 'routine', value: { metadata: revise(prior?.metadata), name,
+            exerciseOrder, plannedSetCounts } }, prior?.metadata.revision ?? null);
+          setEditor(null);
+        });
+      }} />}
   </section>;
 }
 
@@ -223,6 +318,8 @@ function RoutineEditor({ routine, exercises, busy, close, save }: { routine?: Ro
         const next = event.currentTarget.valueAsNumber;
         setPlan(plan.map((item, position) => position === index ? { id, count: Number.isNaN(next) ? null : next } : item));
       }} /></label>
+      <button type="button" disabled={!index} onClick={() => setPlan(move(plan, index, -1))}>Move up</button>
+      <button type="button" disabled={index === plan.length - 1} onClick={() => setPlan(move(plan, index, 1))}>Move down</button>
       <button type="button" onClick={() => setPlan(plan.filter((_, position) => position !== index))}>Remove</button></li>)}</ol>
     {exercises.filter(exercise => !exercise.archived).map(exercise => <button type="button" key={exercise.metadata.id}
       onClick={() => setPlan([...plan, { id: exercise.metadata.id, count: null }])}>Add {exercise.name}</button>)}
@@ -230,11 +327,3 @@ function RoutineEditor({ routine, exercises, busy, close, save }: { routine?: Ro
     <button type="button" disabled={busy} onClick={close}>Cancel</button>
   </form>;
 }
-
-const text = (data: FormData, name: string) => String(data.get(name) ?? '').trim();
-const number = (data: FormData, name: string) => text(data, name) === '' ? null : Number(text(data, name));
-const setSummary = (set: RecordedSet) => [
-  set.weight && `${set.weight.value} ${set.weight.unit}`, set.repetitions !== null && `${set.repetitions} reps`,
-  set.durationSeconds !== null && `${set.durationSeconds}s active`, set.restSeconds !== null && `${set.restSeconds}s rest`,
-  set.completed ? 'Completed' : 'Open',
-].filter(Boolean).join(' · ');

@@ -13,6 +13,7 @@ fun ExerciseDefinition.workoutJson() = buildJsonObject {
     put("category", category)
     put("equipment", equipment)
     put("archived", archived)
+    description?.let { put("description", it) }
 }
 
 fun WorkoutSession.workoutJson() = buildJsonObject {
@@ -26,6 +27,10 @@ fun WorkoutSession.workoutJson() = buildJsonObject {
     put("caloriesKcal", caloriesKcal)
     put("notes", notes)
     put("completed", completed)
+    if (logged) put("logged", true)
+    if (deleted) put("deleted", true)
+    routineId?.let { put("routineId", it.toString()) }
+    routineName?.let { put("routineName", it) }
     put("entries", JsonArray(entries.map(WorkoutExerciseEntry::json)))
 }
 
@@ -35,6 +40,7 @@ internal fun WorkoutExerciseEntry.json() = buildJsonObject {
     put("exerciseId", exerciseId.toString())
     put("order", order)
     put("round", round)
+    remarks?.let { put("remarks", it) }
     put("sets", JsonArray(sets.map(RecordedSet::json)))
 }
 
@@ -69,7 +75,7 @@ fun WorkoutRoutine.workoutJson() = buildJsonObject {
 
 object WorkoutJson {
     fun exercise(value: JsonObject) = with(value) {
-        ExerciseDefinition(metadata(), text("name")!!, text("category"), text("equipment"), flag("archived"))
+        ExerciseDefinition(metadata(), text("name")!!, text("category"), text("equipment"), flag("archived"), optionalText("description"))
     }
 
     fun routine(value: JsonObject) = with(value) {
@@ -86,6 +92,10 @@ object WorkoutJson {
             text("notes"), flag("completed"), getValue("entries").jsonArray.map { entry(it.jsonObject) },
             averageHeartRateBpm = get("averageHeartRateBpm")?.jsonPrimitive?.int,
             durationManuallyEntered = get("durationManuallyEntered")?.jsonPrimitive?.boolean ?: false,
+            logged = get("logged")?.jsonPrimitive?.boolean ?: false,
+            deleted = get("deleted")?.jsonPrimitive?.boolean ?: false,
+            routineId = optionalText("routineId")?.let(Uuid::parse),
+            routineName = optionalText("routineName"),
         )
     }
 
@@ -93,6 +103,7 @@ object WorkoutJson {
         WorkoutExerciseEntry(
             metadata(), Uuid.parse(text("sessionId")!!), Uuid.parse(text("exerciseId")!!),
             number("order")!!, number("round"), getValue("sets").jsonArray.map { set(it.jsonObject) },
+            optionalText("remarks"),
         )
     }
 
@@ -113,6 +124,7 @@ object WorkoutJson {
         ).also { require(it.schemaVersion == 1) }
     }
 
+    private fun JsonObject.optionalText(key: String) = get(key)?.jsonPrimitive?.contentOrNull
     private fun JsonObject.text(key: String) = getValue(key).jsonPrimitive.contentOrNull
     private fun JsonObject.number(key: String) = getValue(key).jsonPrimitive.let { if (it == JsonNull) null else it.int }
     private fun JsonObject.flag(key: String) = getValue(key).jsonPrimitive.boolean

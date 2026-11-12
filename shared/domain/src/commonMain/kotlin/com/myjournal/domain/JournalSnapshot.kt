@@ -12,6 +12,9 @@ data class JournalSnapshot(val metadata: List<RecordMetadata> = emptyList(), val
         planners.map { it.metadata } + habits.flatMap { listOf(it.metadata) + it.habits.map { h -> h.metadata } + it.completions.map { c -> c.metadata } } +
         notebooks.map { it.metadata } + notebookPages.map { it.metadata } + strokes.map { it.metadata } + todos.map { it.metadata } + workoutLog.records
     val dataSchemaVersion get() = when {
+        workoutLog.exercises.any { it.description != null } || workoutLog.sessions.any { session ->
+            session.logged || session.deleted || session.routineId != null || session.entries.any { it.remarks != null }
+        } -> 9
         workoutLog.sessions.any { it.averageHeartRateBpm != null || it.durationManuallyEntered } -> 8
         workoutLog.records.isNotEmpty() -> 7
         else -> 6

@@ -72,16 +72,16 @@ internal object WorkoutPdfExport {
             }
         }
         try {
-            paragraph("Completed workouts  ${report.sessions.size}")
+            paragraph("Recorded workouts  ${report.sessions.size}")
             paragraph("Total workout minutes  ${minutes(report.totalDurationSeconds?.toDouble())}")
             paragraph("Average workout minutes  ${minutes(report.averageDurationSeconds)}  ·  ${report.durations.size} measured sessions")
             paragraph("Average heart rate  ${number(report.averageHeartRateBpm, " BPM")}  ·  ${report.heartRates.size} measured sessions")
             paragraph("Recorded calories  ${report.totalCalories?.let { "$it kcal" } ?: "Unavailable"}  ·  ${report.calories.size} measured sessions")
-            if (report.sessions.isEmpty()) paragraph("No completed workouts this month.")
+            if (report.sessions.isEmpty()) paragraph("No recorded workouts this month.")
             for (session in report.sessions) {
                 ensureActive()
                 if (height - margin - y < 48) nextPage()
-                paragraph("${session.date}  ·  ${number(session.durationSeconds?.toDouble()?.div(60), " min")}  ·  " +
+                paragraph("${session.date}  ·  ${session.routineName ?: "Workout"}  ·  ${number(session.durationSeconds?.toDouble()?.div(60), " min")}  ·  " +
                     "${number(session.averageHeartRateBpm?.toDouble(), " BPM")}  ·  " +
                     (session.caloriesKcal?.let { "$it kcal" } ?: "Calories unavailable"))
                 for (entry in session.entries) {
@@ -93,7 +93,6 @@ internal object WorkoutPdfExport {
                             set.weight?.let { "${it.value} ${it.unit}" },
                             set.repetitions?.let { "$it reps" },
                             set.durationSeconds?.let { "$it s" },
-                            if (set.completed) null else "Incomplete",
                         ).joinToString(" · ")
                     }
                     if (compact) paragraph("$name  |  ${sets.joinToString("   /   ").ifEmpty { "No sets recorded" }}")
@@ -102,6 +101,7 @@ internal object WorkoutPdfExport {
                         paragraph(name)
                         if (sets.isEmpty()) paragraph("No sets recorded") else sets.forEach(::paragraph)
                     }
+                    entry.remarks?.takeIf { it.isNotBlank() }?.let { paragraph("Remarks  $it") }
                 }
                 session.notes?.let { paragraph("Notes  $it") }
                 y += 8

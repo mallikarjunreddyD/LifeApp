@@ -36,3 +36,7 @@ architecture/format/validation documents distinguish software evidence from hard
 measurement.
 
 Separate native iOS and Windows apps are outside the release plan.
+
+Phase 7F adds the Android and PWA [workout logbook](phase-7f-workout-logbook-ux.md),
+history views, recoverable local deletion and updated monthly reports.
+Live workout transport and tombstone replay remain future work.

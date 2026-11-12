@@ -437,3 +437,24 @@ harness issue. Its TLS adapter dropped the dataset and epoch headers and
 handled only small JSON requests. The bridge now forwards scoped headers,
 binary archive transfers and archive checksums. The production Android TLS
 implementation still uses normal certificate and hostname verification.
+
+## Phase 7F workout logbook
+
+Local JDK 21 verification passed the shared JVM suites, Android lint and
+debug and instrumentation APK assembly. The Room test covers stable
+identities, stale edits, idempotent deletion, restore, monthly report
+filtering and a schema 9 archive round trip. Existing schema 7 and 8
+backup tests remain in the suite. No Room or IndexedDB version change
+was needed because workout records already use extensible payloads.
+
+PWA type checking, lint and five IndexedDB/protocol tests passed locally.
+The browser scenario covers routine loading, decimal LB sets, draft
+recovery after an offline reload, historical edit, deletion and restore,
+and printing a report. The Android instrumentation scenario covers
+routine loading, date and inline set entry, history and deletion.
+The Actions artifacts collect screenshots from both scenarios.
+
+Physical Xiaomi Pad 7 and iPhone Safari tests remain open. Verify inline
+keyboard entry, scroll and safe-area behavior, in-place Android update,
+existing history, and the Android document picker and iPhone PDF flow.
+Workout changes and tombstones remain local to each device.

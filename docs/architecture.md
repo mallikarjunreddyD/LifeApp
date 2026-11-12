@@ -184,3 +184,11 @@ static shell files only. [Browser setup](pwa-installation.md)
 The Android app owns HTTPS, encrypted session storage and WorkManager scheduling.
 Room owns the checkpoint, binding, task history and outbox. Shared domain owns
 the To-do sync coordinator and protocol. Only the To-do module uses this path.
+
+### Workout logbook
+
+The shared workout domain models manually logged sessions and recoverable
+tombstones. Android Room and PWA IndexedDB keep their existing record
+stores. Revision checks and deletion run in local transactions. Android
+portable backups carry deleted records and preserve original identities.
+The server's existing workout endpoints remain read-only.

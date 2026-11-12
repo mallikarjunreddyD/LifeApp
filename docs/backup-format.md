@@ -98,3 +98,10 @@ optional average heart rate. The Android app writes schema 8 when a workout
 contains either field. Other archives keep their existing schema, and the
 new reader continues to accept schemas 4 through 7. Room and the encrypted
 archive envelope keep their existing versions.
+
+Portable data schema 9 preserves logged workout state, routine identity and
+captured name, exercise entry remarks, exercise descriptions, and session
+tombstones. Its sections and LJPT encoding match schema 8. Readers support
+schemas 4 through 9. New workouts with schema 9 fields are written as schema
+9 so older clients can reject the archive before restoring it. Deleted
+sessions remain in the backup to support recovery and restore.

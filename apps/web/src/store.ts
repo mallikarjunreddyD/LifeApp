@@ -1,5 +1,5 @@
-import { checkWorkoutRecords } from './workout.ts';
-import type { WorkoutRecord } from './workout.ts';
+import { checkWorkoutRecords, revise } from './workout.ts';
+import type { Session, WorkoutRecord } from './workout.ts';
 import { advance, calendarDate, decodeOperation, instantKey, nextSequence, now, sameOperation, sameScope, title } from './protocol.ts';
 import type { Checkpoint, Operation, Page, Receipt, Scope, Todo } from './protocol.ts';
 
@@ -129,6 +129,9 @@ export class LifeStore {
       if ((prior?.value.metadata.revision ?? null) !== expected || (prior && prior.kind !== record.kind)) {
         throw new Error('This record changed. Reopen it before saving.');
       }
+      if ((prior?.kind === 'session' && prior.value.deleted) || (record.kind === 'session' && record.value.deleted)) {
+        throw new Error('Restore this workout before editing it.');
+      }
       const metadata = record.value.metadata;
       if (metadata.revision !== (expected === null ? '1' : nextSequence(expected)) ||
           (prior && (prior.value.metadata.createdAt !== metadata.createdAt ||
@@ -137,6 +140,28 @@ export class LifeStore {
       }
       checkWorkoutRecords([...records.filter(item => item.value.metadata.id !== id), record]);
       await result(tx.workouts.put(record));
+    });
+  }
+
+  async workoutDraft(): Promise<{ session: Session; revision: string | null } | undefined> {
+    return this.use('readonly', async tx => await result(tx.settings.get('workout-draft')));
+  }
+
+  async saveWorkoutDraft(draft: { session: Session; revision: string | null } | null): Promise<void> {
+    await this.use('readwrite', async tx => {
+      if (draft) await result(tx.settings.put(draft, 'workout-draft'));
+      else await result(tx.settings.delete('workout-draft'));
+    });
+  }
+
+  async setWorkoutDeleted(id: string, deleted: boolean): Promise<void> {
+    await this.use('readwrite', async tx => {
+      const record = await result(tx.workouts.get(id)) as WorkoutRecord | undefined;
+      if (record?.kind !== 'session') throw new Error('Workout no longer exists.');
+      if (!!record.value.deleted === deleted) return;
+      await result(tx.workouts.put({ kind: 'session', value: {
+        ...record.value, deleted, metadata: revise(record.value.metadata),
+      } }));
     });
   }
 
