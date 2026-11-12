@@ -111,6 +111,7 @@ internal fun readableBackupTime(value: String): String =
     java.text.DateFormat.getDateTimeInstance().format(java.util.Date(kotlin.time.Instant.parse(value).toEpochMilliseconds()))
 
 internal fun AndroidServerState.protectionSummary() = when {
+    online == false -> "Offline — changes saved on this device."
     working -> "Synchronizing…"
     conflicts.isNotEmpty() -> "To-do conflicts need review."
     pending + pendingImport > 0 -> "${pending + pendingImport} changes waiting to sync."

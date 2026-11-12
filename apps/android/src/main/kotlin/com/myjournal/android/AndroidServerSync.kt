@@ -36,6 +36,7 @@ internal data class AndroidServerState(
     val editableStatus: String? = null,
     val importQueueUnreadable: Boolean = false,
     val working: Boolean = false,
+    val online: Boolean? = null,
     val message: String? = null,
     val error: Boolean = false,
     val preview: BindingPreview? = null,
@@ -65,6 +66,10 @@ internal class AndroidServerSync(
             catch (failure: Exception) { report(failure) }
             repository.observePendingCount().collect { count -> mutable.update { it.copy(pending = count) } }
         }
+    }
+
+    fun networkChanged(online: Boolean) {
+        mutable.update { it.copy(online = online) }
     }
 
     fun onForeground() {

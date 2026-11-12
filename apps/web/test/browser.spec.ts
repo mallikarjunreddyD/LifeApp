@@ -126,6 +126,7 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
   const other = await browser.newContext({ ignoreHTTPSErrors: true });
   try {
     const second = await other.newPage();
+    await page.clock.install();
     await page.goto('/');
     await signIn(page);
     await bind(page);
@@ -140,7 +141,7 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
     await expect(second.getByText('Cross-device task', { exact: true })).toBeVisible();
     await add(second, 'Created on second browser');
     await expect(second.getByText('0 pending')).toBeVisible();
-    await sync(page);
+    await page.clock.fastForward(5 * 60 * 1000);
     await expect(page.getByText('Created on second browser', { exact: true })).toBeVisible();
 
     await context.setOffline(true);

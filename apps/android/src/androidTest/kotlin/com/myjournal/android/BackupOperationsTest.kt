@@ -45,7 +45,7 @@ class BackupOperationsTest {
         val drive = app.getSharedPreferences("drive-backup", android.content.Context.MODE_PRIVATE)
         val prior = drive.getString("account", null)
         val preferences = app.getSharedPreferences("automatic-backup", android.content.Context.MODE_PRIVATE)
-        assertFalse(preferences.contains("secret"))
+        assertTrue("Use a disposable app installation for this test.", preferences.all.isEmpty())
         val passphrase = "test recovery passphrase"
         try {
             drive.edit().putString("account", account).commit()
@@ -68,8 +68,9 @@ class BackupOperationsTest {
             }
         } finally {
             drive.edit().putString("account", prior).commit()
+            val testScope = preferences.getString("id", null)
             preferences.edit().clear().commit()
-            app.noBackupFilesDir.resolve("automatic-backups").deleteRecursively()
+            if (testScope != null) app.noBackupFilesDir.resolve("automatic-backups/$testScope").deleteRecursively()
         }
     }
 

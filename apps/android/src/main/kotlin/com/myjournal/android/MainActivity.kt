@@ -2,6 +2,10 @@ package com.myjournal.android
 
 import android.os.Bundle
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import com.myjournal.domain.AppSection
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -29,6 +33,7 @@ import com.myjournal.ui.JournalApp
 class MainActivity : ComponentActivity() {
     private lateinit var model: JournalViewModel
     private var activeSync: Job? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -109,6 +114,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         val app = application as JournalApplication
+        observeSyncConnectivity(app)
         app.serverSync.onForeground()
         app.operations.syncTrackedOnForeground(app.serverSync)
         activeSync = lifecycleScope.launch {
@@ -120,9 +126,39 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun observeSyncConnectivity(app: JournalApplication) {
+        val connectivity = getSystemService(ConnectivityManager::class.java) ?: return
+        fun connected() = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        var online = connected()
+        app.serverSync.networkChanged(online)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            private fun update() = runOnUiThread {
+                if (networkCallback !== this) return@runOnUiThread
+                val available = connected()
+                if (available && !online) {
+                    app.serverSync.schedule()
+                    app.serverSync.scheduleEditableUpload()
+                }
+                online = available
+                app.serverSync.networkChanged(available)
+            }
+
+            override fun onAvailable(network: Network) = update()
+            override fun onLost(network: Network) = update()
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) = update()
+        }
+        networkCallback = callback
+        connectivity.registerNetworkCallback(
+            NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(), callback,
+        )
+    }
+
     override fun onStop() {
         activeSync?.cancel()
         activeSync = null
+        networkCallback?.let { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(it) }
+        networkCallback = null
         super.onStop()
     }
 

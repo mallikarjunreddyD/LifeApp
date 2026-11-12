@@ -101,7 +101,7 @@ internal fun AndroidServerSettings(sync: AndroidServerSync, operations: DataOper
                 sync.signIn(origin, user, password, secondFactor.trim().ifEmpty { null })
                 secondFactor = ""
                 password = ""
-            }) { Text("Sign in to LifeApp") }
+            }) { Text(if (server.lastSync != null) "Sign in again" else "Sign in to LifeApp") }
         } else {
             Text("Signed in as ${server.username}")
             Text("Use your authenticator or a recovery code when signing in.")
