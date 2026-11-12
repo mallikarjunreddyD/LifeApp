@@ -33,7 +33,11 @@ class WorkoutLogbookUiTest {
         rule.onNodeWithText("Weight").performTextInput("35.5")
         rule.onNodeWithText("Repetitions").performTextInput("7")
         scrollTo("Exercise remarks")
-        rule.onNodeWithText("Exercise remarks").performTextInput("Slow descent")
+        rule.onNodeWithText("Exercise remarks").performClick()
+        rule.onNodeWithText("Exercise remarks").performTextReplacement("Slow descent")
+        rule.waitUntil(15_000) {
+            runBlocking { repository.loadDraft()?.session?.entries?.singleOrNull()?.remarks == "Slow descent" }
+        }
         capture("workout-entry")
         scrollTo("Save workout")
         rule.onNodeWithText("Save workout").performClick()

@@ -203,8 +203,10 @@ fun WorkoutScreen(
                         .mapIndexed { index, value -> value.copy(order = index) }) }
                 }, { key, invalid ->
                     if (invalid) invalidNumbers[key] = true else invalidNumbers.remove(key)
-                }) { edited ->
-                    update { it.copy(entries = it.entries.map { value -> if (value.metadata.id == edited.metadata.id) edited else value }) }
+                }) { editEntry ->
+                    update { it.copy(entries = it.entries.map { value ->
+                        if (value.metadata.id == entry.metadata.id) editEntry(value) else value
+                    }) }
                 }
             }
             item {
@@ -377,7 +379,9 @@ private fun ReplaceWorkoutExercises(close: () -> Unit, replace: () -> Unit) {
 
 @Composable
 private fun WorkoutEntryCard(entry: WorkoutExerciseEntry, name: String, count: Int, move: (Int) -> Unit,
-    remove: () -> Unit, validation: (String, Boolean) -> Unit, edit: (WorkoutExerciseEntry) -> Unit) {
+    remove: () -> Unit, validation: (String, Boolean) -> Unit,
+    edit: ((WorkoutExerciseEntry) -> WorkoutExerciseEntry) -> Unit) {
+    var remarks by rememberSaveable { mutableStateOf(entry.remarks.orEmpty()) }
     var expanded by rememberSaveable { mutableStateOf(true) }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -390,49 +394,55 @@ private fun WorkoutEntryCard(entry: WorkoutExerciseEntry, name: String, count: I
                 }
                 entry.sets.forEach { set ->
                     key(set.metadata.id) {
-                        fun update(value: RecordedSet) = edit(entry.copy(sets = entry.sets.map {
-                            if (it.metadata.id == value.metadata.id) value else it
-                        }))
+                        fun update(change: (RecordedSet) -> RecordedSet) = edit { current ->
+                            current.copy(sets = current.sets.map { if (it.metadata.id == set.metadata.id) change(it) else it })
+                        }
                         Text("Set ${set.number}")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             WorkoutNumberField("Weight", set.weight?.value?.toString().orEmpty(), Modifier.weight(1f), true,
                                 invalid = { validation("${set.metadata.id}-weight", it) }) { raw ->
                                 val value = raw.toDoubleOrNull()
                                 if (raw.isBlank() || value != null && value.isFinite() && value >= 0) {
-                                    update(set.copy(weight = value?.let { WorkoutWeight(it, set.weight?.unit ?: WeightUnit.KG) }))
+                                    update { row -> row.copy(weight = value?.let { WorkoutWeight(it, row.weight?.unit ?: WeightUnit.KG) }) }
                                 }
                             }
                             WorkoutNumberField("Repetitions", set.repetitions?.toString().orEmpty(), Modifier.weight(1f),
                                 invalid = { validation("${set.metadata.id}-repetitions", it) }) { raw ->
                                 val value = raw.toIntOrNull()
-                                if (raw.isBlank() || value != null && value >= 0) update(set.copy(repetitions = value,
-                                    completed = set.completed && ((value ?: 0) > 0 || set.durationSeconds != null)))
+                                if (raw.isBlank() || value != null && value >= 0) update { row -> row.copy(repetitions = value,
+                                    completed = row.completed && ((value ?: 0) > 0 || row.durationSeconds != null)) }
                             }
                         }
                         Row {
                             WeightUnit.entries.forEach { unit ->
                                 FilterChip(set.weight?.unit == unit, {
-                                    set.weight?.let { update(set.copy(weight = it.copy(unit = unit))) }
+                                    update { row -> row.copy(weight = row.weight?.copy(unit = unit)) }
                                 }, enabled = set.weight != null, label = { Text(unit.name) }, modifier = Modifier.padding(end = 5.dp))
                             }
                             TextButton(onClick = {
                                 validation("${set.metadata.id}-weight", false)
                                 validation("${set.metadata.id}-repetitions", false)
-                                edit(entry.copy(sets = entry.sets.filterNot { it.metadata.id == set.metadata.id }
-                                    .mapIndexed { index, row -> row.copy(number = index + 1) }))
+                                edit { current -> current.copy(sets = current.sets.filterNot { it.metadata.id == set.metadata.id }
+                                    .mapIndexed { index, row -> row.copy(number = index + 1) }) }
                             }) { Text("Remove set") }
                         }
                     }
                 }
                 Row {
-                    TextButton(onClick = { edit(entry.copy(sets = entry.sets + entry.blankSet())) }) { Text("Add set") }
+                    TextButton(onClick = { edit { current -> current.copy(sets = current.sets + current.blankSet()) } }) { Text("Add set") }
                     TextButton(enabled = entry.sets.isNotEmpty(), onClick = {
-                        val last = entry.sets.last()
-                        edit(entry.copy(sets = entry.sets + entry.blankSet().copy(weight = last.weight, repetitions = last.repetitions)))
+                        edit { current ->
+                            val last = current.sets.last()
+                            current.copy(sets = current.sets + current.blankSet().copy(weight = last.weight, repetitions = last.repetitions))
+                        }
                     }) { Text("Copy previous set") }
                 }
-                OutlinedTextField(entry.remarks.orEmpty(), { if (it.length <= 4000) edit(entry.copy(remarks = it)) },
-                    label = { Text("Exercise remarks") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(remarks, { value ->
+                    if (value.length <= 4000) {
+                        remarks = value
+                        edit { it.copy(remarks = value.ifEmpty { null }) }
+                    }
+                }, label = { Text("Exercise remarks") }, modifier = Modifier.fillMaxWidth())
             }
         }
     }
