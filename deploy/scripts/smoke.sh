@@ -69,6 +69,20 @@ if [[ ${LIFEAPP_SMOKE_RESTORE:-0} == 1 ]]; then
   cmp "$work/recovery/trusted.sha256" "$work/archives/verified.sha256"
   test "$("${compose[@]}" exec -T db psql -U lifeapp_admin -d lifeapp -Atc "SELECT state FROM backup_jobs ORDER BY started_at DESC LIMIT 1")" = failed
   echo 'Verified an independent download and preserved the trusted digest after an upload failure.'
+  export LIFEAPP_BACKUP_MANAGED_ID=6413fe1e-019d-4974-a990-41c1cf63d10c
+  managed="automatic-server-$LIFEAPP_BACKUP_MANAGED_ID"
+  for generation in 1 2 3; do
+    LIFEAPP_BACKUP_PRUNE=1 python3 -B deploy/backup/automatic-server-backup.py capture
+    sleep 1
+  done
+  mapfile -t kept < <(rclone --config "$LIFEAPP_BACKUP_RCLONE_CONFIG" lsf --files-only "$LIFEAPP_BACKUP_DRIVE_REMOTE/$managed" | sort)
+  test "${#kept[@]}" = 2
+  test "$(find "$work/archives/$managed" -maxdepth 1 -name '*.tar.age' | wc -l)" = 2
+  name=${kept[1]}
+  digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$work/archives/$managed/$name.json")
+  printf '%s  %s\n' "$digest" "$name" > "$work/recovery/automatic.sha256"
+  (cd "$work/recovery" && "$download" "${LIFEAPP_DRILL_DOWNLOAD_RCLONE_CONFIG:-$LIFEAPP_BACKUP_RCLONE_CONFIG}"     "$LIFEAPP_BACKUP_DRIVE_REMOTE/$managed" automatic.sha256 "$name")
+  echo 'Automatic capture retained two verified local and remote generations.'
   restore=(docker compose -p "$restore_project" -f deploy/compose.yaml)
   "${restore[@]}" up -d --wait --wait-timeout 90 db
   python3 deploy/backup/database-backup.py --project "$restore_project" restore \

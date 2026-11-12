@@ -87,6 +87,8 @@ def capture(args, work):
                            "--no-owner", "--no-privileges", f"--snapshot={snapshot}"), stdout=output)
         session.communicate("ROLLBACK;\n")
         validate(session.returncode == 0, "Could not close the database snapshot.")
+    with dump.open("rb") as source:
+        run(db_command(args, "pg_restore", "--list"), stdin=source, stdout=subprocess.DEVNULL)
     manifest = {
         "format": "LifeAppServerBackup",
         "version": 2,
@@ -151,10 +153,10 @@ def report(args):
             f"SELECT '{job}', id, now(), 'running' FROM datasets RETURNING id"
         )
     else:
-        verified = "now()" if args.state == "verified" else "NULL"
+        verified = "coalesce(verified_at, now())" if args.state == "verified" else "NULL"
         statement = (
             f"UPDATE backup_jobs SET state = '{args.state}', verified_at = {verified} "
-            f"WHERE id = '{job}' AND state = 'running' RETURNING id"
+            f"WHERE id = '{job}' AND (state <> 'verified' OR '{args.state}' = 'verified') RETURNING id"
         )
     result = run(psql(args, "-c", statement), capture_output=True, text=True).stdout.strip()
     validate(result == job, "Could not record the backup state for the owner dataset.")
@@ -173,6 +175,7 @@ def main():
     recovery.add_argument("--identity", required=True, type=Path)
     recovery.add_argument("--sha256", required=True)
     recovery.add_argument("--input", required=True, type=Path)
+    sub.add_parser("scope")
     status = sub.add_parser("report")
     status.add_argument("--id", required=True)
     status.add_argument("--state", required=True, choices=["running", "verified", "failed"])
@@ -180,6 +183,9 @@ def main():
     if not args.release.is_file():
         args.release = None
     os.umask(0o077)
+    if args.mode == "scope":
+        print(UUID(run(psql(args, "-c", "SELECT id FROM datasets"), capture_output=True, text=True).stdout.strip()))
+        return
     if args.mode == "report":
         report(args)
         return

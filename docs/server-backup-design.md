@@ -101,3 +101,8 @@ epochs with the restored causal histories. Check readiness and task
 visibility with a fresh login. Old client checkpoints must remain blocked
 until separately reconciled. Keep the original server and backups intact
 through the drill.
+
+Phase 7G introduces an independent managed backup scope and a twice-daily
+Asia/Kolkata timer. The Phase 6E instructions above describe the legacy
+manual uploader. Use the [Phase 7G operator notes](../deploy/README.md)
+for the new scheduler and retention.

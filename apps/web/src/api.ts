@@ -160,6 +160,13 @@ export const api = {
     }));
   },
   async session() { return browserSession(await json('/v1/session')); },
+  async backupStatus() {
+    const value = object(await json('/v1/backups/status'), ['state', 'lastVerifiedAt']);
+    if (value.state !== 'never' && value.state !== 'running' && value.state !== 'verified' && value.state !== 'failed') {
+      throw new Error('Invalid backup status.');
+    }
+    return { state: value.state, lastVerifiedAt: value.lastVerifiedAt === null ? null : instant(value.lastVerifiedAt) };
+  },
   async logout(session: BrowserSession) {
     await json('/v1/session', { method: 'DELETE', headers: { 'X-CSRF-Token': session.csrfToken } }, true);
   },

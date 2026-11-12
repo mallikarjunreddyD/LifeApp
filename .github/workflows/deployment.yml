@@ -67,6 +67,7 @@ jobs:
           install -m 755 age/age-keygen rclone-v1.70.3-linux-amd64/rclone "$work/bin/"
           echo "$work/bin" >> "$GITHUB_PATH"
       - run: python3 -B deploy/backup/test-retention.py
+      - run: python3 -B deploy/backup/test-automatic-retention.py
       - run: deploy/scripts/smoke.sh
         env:
           LIFEAPP_SMOKE_RESTORE: '1'

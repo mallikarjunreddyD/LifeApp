@@ -356,7 +356,8 @@ function Settings({ view, session, busy, online, status, onLogin, onBind, onLogo
       </>}
     </article>}
     {page === 'Backup & Recovery' && <article className="card">
-      <p>Restore Android backups from the Android app. Ask the server operator for the status of server recovery copies.</p>
+      <ServerBackupStatus key={session?.scope.dataset} account={session?.scope.dataset ?? null} online={online} />
+      <p>Restore Android recovery copies from the Android app.</p>
     </article>}
     {page === 'Appearance' && <p>LifeApp uses a light paper theme.</p>}
     {page === 'About LifeApp' && <article className="card">
@@ -370,6 +371,26 @@ function Settings({ view, session, busy, online, status, onLogin, onBind, onLogo
       </dl>}
     </article>}
   </section>;
+}
+
+function ServerBackupStatus({ account, online }: { account: string | null; online: boolean }) {
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof api.backupStatus>> | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  useEffect(() => {
+    if (!account || !online) return;
+    let active = true;
+    void api.backupStatus().then(value => { if (active) setStatus(value); })
+      .catch(() => { if (active) setUnavailable(true); });
+    return () => { active = false; };
+  }, [account, online]);
+  if (!account || !online) return <p>Sign in online to check server backups.</p>;
+  if (unavailable) return <p>Server backup status is unavailable.</p>;
+  if (!status) return <p>Checking server backups…</p>;
+  return <>
+    {status.lastVerifiedAt ? <p>Last verified server Drive backup <time dateTime={status.lastVerifiedAt}>
+      {new Date(status.lastVerifiedAt).toLocaleString()}</time></p> : <p>No verified server Drive backup reported.</p>}
+    {status.state === 'failed' && <p>The latest server backup attempt needs attention.</p>}
+  </>;
 }
 
 function ReadRecords({ kind, session, online }: { kind: 'exercises' | 'workouts'; session: BrowserSession | null; online: boolean }) {

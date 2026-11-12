@@ -70,6 +70,14 @@ internal class ServerApi(
 
     suspend fun session(token: String): ServerSession = request("/v1/session", token = token).objectValue().session()
 
+    suspend fun backupStatus(token: String): Pair<String, String?> {
+        val result = request("/v1/backups/status", token = token).objectValue()
+        val state = result.getValue("state").jsonPrimitive.content
+        require(state in setOf("never", "running", "verified", "failed"))
+        return state to result.getValue("lastVerifiedAt").jsonPrimitive.contentOrNull
+            ?.let { kotlin.time.Instant.parse(it).toString() }
+    }
+
     suspend fun logout(token: String) {
         request("/v1/session", "DELETE", token)
     }

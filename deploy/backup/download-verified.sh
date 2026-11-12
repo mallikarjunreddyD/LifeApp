@@ -6,7 +6,7 @@ if [[ $# != 4 ]]; then
   exit 2
 fi
 config=$1 remote=$2 ledger=$3 name=$4
-[[ $name =~ ^lifeapp-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}\.tar\.age$ ]] || exit 2
+[[ $name =~ ^(lifeapp-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}|server-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{32})\.tar\.age$ ]] || exit 2
 expected=$(awk -v name="$name" '$2 == name {print $1}' "$ledger")
 [[ $expected =~ ^[a-f0-9]{64}$ ]] || { echo 'The trusted ledger must contain exactly one digest.' >&2; exit 1; }
 [[ ! -e "$name" ]] || { echo 'The output archive already exists.' >&2; exit 1; }

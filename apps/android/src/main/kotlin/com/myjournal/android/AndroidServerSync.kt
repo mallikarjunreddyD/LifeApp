@@ -361,18 +361,18 @@ internal class AndroidServerSync(
         }
 
     fun setAutomaticEditable(enabled: Boolean, capture: suspend () -> JournalSnapshot) = action {
-        val (credential, session, api) = currentSession()
-        val target = EditableImportQueue.Target(api.endpoint.origin, session.scope)
         if (enabled) {
+            val (credential, session, api) = currentSession()
             enableReviewedEditable(credential, session, api, capture, manual = true)
-            store.setEditablePaused(target, false)
+            store.setEditablePaused(EditableImportQueue.Target(api.endpoint.origin, session.scope), false)
         } else {
-            store.setEditablePaused(target, true)
+            val credential = store.load() ?: throw UserSyncError("Sign in to change the record sync preference.")
+            store.setEditablePaused(EditableImportQueue.Target(credential.endpoint.origin, credential.session.scope), true)
             store.setEditableEnabled(null)
             WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_WORK)
             WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_UPLOAD)
         }
-        refresh(credential)
+        refresh()
         message(if (enabled) "Automatic sync enabled for tracked and new records." else "Automatic record sync paused.")
     }
 
@@ -516,6 +516,11 @@ internal class AndroidServerSync(
           catch (_: IOException) { false }
         message(if (revoked) "Disconnected. Local records, queued tasks and the dataset binding were kept."
             else "Disconnected locally. The server could not revoke the session and it will expire.")
+    }
+
+    suspend fun verifiedBackupStatus(): Pair<String, String?> = gate.withLock {
+        val (credential, _, api) = currentSession()
+        api.backupStatus(credential.token)
     }
 
     fun syncNow() = action {

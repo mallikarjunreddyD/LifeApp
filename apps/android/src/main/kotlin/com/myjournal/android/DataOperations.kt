@@ -58,6 +58,8 @@ class DataOperations(private val app: JournalApplication, private val repository
         }
         return repository.capture()
     }
+    internal suspend fun committedBackupSnapshot() = snapshot()
+
     private fun temp(suffix: String) = File.createTempFile("lifeapp-",suffix,app.cacheDir)
     fun export(uri: Uri, format: String) = start("Waiting for saves and preparing $format…") {
         val data=snapshot()
@@ -226,26 +228,59 @@ class DataOperations(private val app: JournalApplication, private val repository
         }
     }
 
-    fun inspectDriveBackup(storage: CloudBackupStorage, version: CloudBackupVersion, passphrase: CharArray) {
+    fun inspectDriveBackup(storage: CloudBackupStorage, version: CloudBackupVersion, passphrase: CharArray) =
+        inspectEncryptedBackup(passphrase) { storage.download(version.id) }
+
+    internal fun inspectAutomaticBackup(version: LocalAutomaticBackup, passphrase: CharArray) =
+        inspectEncryptedBackup(passphrase) {
+            version.file.inputStream().use {
+                BackupArchive.boundedRead(it, CloudBackupEnvelope.MAX_ENVELOPE_BYTES.toLong())
+            }.also { check(BackupArchive.sha256(it) == version.hash) { "Local backup checksum did not match." } }
+        }
+
+    internal fun inspectEncryptedFile(uri: Uri, passphrase: CharArray) =
+        inspectEncryptedBackup(passphrase, uri) {
+            requireNotNull(app.contentResolver.openInputStream(uri)).use {
+                BackupArchive.boundedRead(it, CloudBackupEnvelope.MAX_ENVELOPE_BYTES.toLong())
+            }
+        }
+
+    internal fun saveAutomaticBackupCopy(uri: Uri, version: LocalAutomaticBackup) =
+        start("Saving an encrypted recovery copy…") {
+            withContext(Dispatchers.IO) {
+                check(version.file.length() in 1..CloudBackupEnvelope.MAX_ENVELOPE_BYTES.toLong())
+                val bytes = version.file.inputStream().use { BackupArchive.boundedRead(it, version.size) }
+                check(BackupArchive.sha256(bytes) == version.hash) { "Local backup checksum did not match." }
+                val copy = temp(".bin")
+                try {
+                    copy.writeBytes(bytes)
+                    writeVerified(copy, uri)
+                } finally {
+                    copy.delete()
+                }
+            }
+            "Encrypted recovery copy saved and verified."
+        }
+
+    private fun inspectEncryptedBackup(passphrase: CharArray, uri: Uri? = null, read: suspend () -> ByteArray) {
         if (mutable.value.busy) { passphrase.fill('\u0000'); return }
-        start("Downloading and validating encrypted backup…") {
+        start("Validating encrypted backup…") {
             try {
                 mutable.value.preview?.file?.delete()
                 mutable.value = mutable.value.copy(preview = null, pdfSnapshot = null)
                 snapshot()
-                val envelope = storage.download(version.id)
                 val file = temp(".zip")
                 try {
                     val backup = withContext(Dispatchers.IO) {
-                        val archive = try { CloudBackupEnvelope.open(envelope, passphrase) }
+                        val archive = try { CloudBackupEnvelope.open(read(), passphrase) }
                         catch (_: javax.crypto.AEADBadTagException) { error("Wrong passphrase or damaged encrypted backup.") }
                         try { file.writeBytes(archive) } finally { archive.fill(0) }
                         BackupArchive.read(file)
                     }
                     mutable.value = mutable.value.copy(
-                        preview = RestorePreview(file, backup, repository.capture().populated, null),
+                        preview = RestorePreview(file, backup, repository.capture().populated, uri),
                     )
-                    "Drive backup validated. Review its contents before confirming restore."
+                    "Encrypted backup validated. Review its contents before confirming restore."
                 } catch (failure: Throwable) {
                     file.delete()
                     throw failure

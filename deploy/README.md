@@ -116,3 +116,20 @@ LIFEAPP_SMOKE_RESTORE=1 deploy/scripts/smoke.sh
 
 The test creates disposable projects, passwords and a one-time age identity.
 Its cleanup removes only those projects and their volumes.
+
+## Phase 7G automatic server backup
+
+Review the installed schedule and preserve an independent current recovery
+copy before changing it. Configure LIFEAPP_BACKUP_MANAGED_ID with a new UUID
+for this deployment and retain it with the configuration. Use a private,
+existing LIFEAPP_BACKUP_DIRECTORY and a dedicated Drive destination.
+The script creates a child directory and remote folder named
+automatic-server-UUID. Keep the age identity off the VM.
+
+Adjust the example systemd paths to the deployed directory. Test
+`automatic-server-backup.py capture` with the operator environment. Verify
+an independent encrypted download and restore before enabling
+lifeapp-backup.timer and lifeapp-backup-retry.timer. Capture runs at
+09:00 and 21:00 Asia/Kolkata. The retry timer checks the persisted queue.
+Enable LIFEAPP_BACKUP_PRUNE=1 only after operational validation. Legacy
+manual archives are outside this scope.

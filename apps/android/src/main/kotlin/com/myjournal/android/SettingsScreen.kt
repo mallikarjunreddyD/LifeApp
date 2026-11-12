@@ -88,6 +88,7 @@ internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServe
                     OutlinedButton(enabled = !state.busy, onClick = {
                         selectRestore.launch(arrayOf("application/zip", "application/octet-stream"))
                     }) { Text("Restore from backup") }
+                    ServerBackupSummary(serverSync, server.username)
                     DriveBackupSettings(operations)
                     var formats by rememberSaveable { mutableStateOf(false) }
                     TextButton(onClick = { formats = !formats }) { Text(if (formats) "Hide export formats" else "Export data") }
@@ -194,4 +195,25 @@ internal fun ServerDiagnostics(server: AndroidServerState) {
         Text("Recovery epoch ${it.epoch}")
     }
     server.bound?.let { Text("Bound dataset ${it.scope.dataset} · applied commit ${it.sequence}") }
+}
+
+@Composable
+private fun ServerBackupSummary(sync: AndroidServerSync, account: String?) {
+    var result by remember(account) { mutableStateOf<Pair<String, String?>?>(null) }
+    var unavailable by remember(account) { mutableStateOf(false) }
+    LaunchedEffect(account) {
+        if (account != null) {
+            try { result = sync.verifiedBackupStatus() }
+            catch (failure: kotlinx.coroutines.CancellationException) { throw failure }
+            catch (_: Exception) { unavailable = true }
+        }
+    }
+    Text(when {
+        account == null -> "Sign in to check server backups."
+        unavailable -> "Server backup status is unavailable."
+        result == null -> "Checking server backups…"
+        result?.second != null -> "Last verified server Drive backup: ${readableBackupTime(requireNotNull(result?.second))}"
+        else -> "No verified server Drive backup reported."
+    })
+    if (result?.first == "failed") Text("The latest server backup attempt needs attention.")
 }

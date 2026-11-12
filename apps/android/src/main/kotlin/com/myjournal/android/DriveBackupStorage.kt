@@ -16,10 +16,17 @@ import kotlin.uuid.Uuid
 
 /** Drive files are immutable, hidden in appDataFolder and named without private content. */
 class DriveBackupStorage(private val accessToken: String) : CloudBackupStorage {
-    override suspend fun create(encryptedArchive: ByteArray) = withContext(Dispatchers.IO) {
-        require(encryptedArchive.size in 1..CloudBackupEnvelope.MAX_ENVELOPE_BYTES)
+    override suspend fun create(encryptedArchive: ByteArray) =
+        createVerified(newId(), encryptedArchive)
+
+    internal suspend fun newId() = withContext(Dispatchers.IO) {
         val ids = json(request(api("/files/generateIds", "count" to "1", "space" to "appDataFolder")).body)
-        val id = ids.getValue("ids").jsonArray.single().jsonPrimitive.content
+        ids.getValue("ids").jsonArray.single().jsonPrimitive.content.also(::validateId)
+    }
+
+    internal suspend fun createVerified(id: String, encryptedArchive: ByteArray) = withContext(Dispatchers.IO) {
+        validateId(id)
+        require(encryptedArchive.size in 1..CloudBackupEnvelope.MAX_ENVELOPE_BYTES)
         val metadata = buildJsonObject {
             put("id", id)
             put("name", "lifeapp-backup-${Uuid.random()}.bin")
@@ -79,8 +86,21 @@ class DriveBackupStorage(private val accessToken: String) : CloudBackupStorage {
 
     override suspend fun download(id: String): ByteArray = withContext(Dispatchers.IO) { readFile(id) }
 
-    private fun readFile(id: String): ByteArray {
+    internal suspend fun deleteManaged(id: String) = withContext(Dispatchers.IO) {
+        validateId(id)
+        try {
+            request(api("/files/$id"), method = "DELETE")
+        } catch (failure: DriveHttpFailure) {
+            if (failure.status != 404) throw failure
+        }
+    }
+
+    private fun validateId(id: String) {
         require(id.matches(Regex("[A-Za-z0-9_-]{1,200}"))) { "Invalid Drive file identifier" }
+    }
+
+    private fun readFile(id: String): ByteArray {
+        validateId(id)
         return request(api("/files/$id", "alt" to "media"), limit = CloudBackupEnvelope.MAX_ENVELOPE_BYTES.toLong()).body
     }
 
@@ -113,7 +133,7 @@ class DriveBackupStorage(private val accessToken: String) : CloudBackupStorage {
                 connection.outputStream.use { it.write(body) }
             }
             val code = connection.responseCode
-            if (code !in 200..299) throw IOException(when (code) {
+            if (code !in 200..299) throw DriveHttpFailure(code, when (code) {
                 401 -> "Drive authorization expired. Reauthorize your Google account."
                 403 -> "Drive denied this request. Check app consent, Drive API setup and account access."
                 429 -> "Drive is rate limiting requests. Try again later."
@@ -126,3 +146,5 @@ class DriveBackupStorage(private val accessToken: String) : CloudBackupStorage {
         }
     }
 }
+
+internal class DriveHttpFailure(val status: Int, message: String) : IOException(message)
