@@ -453,7 +453,7 @@ test('expenses create labels, edit, delete and restore across offline reloads', 
   await expect(page.getByText('Gym · ₹0.01 · 100.0%')).toBeVisible();
   await page.getByRole('button', { name: 'Yearly' }).click();
   await expect(page.getByText('Gym · ₹0.01 · 100.0%')).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('expense-analytics.png') });
+  await page.screenshot({ path: testInfo.outputPath('expense-analytics.png'), fullPage: true });
   await page.getByLabel('Year (YYYY)').fill('2023');
   await expect(page.getByText('No expenses recorded for this period.')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Expenses' }).click();
