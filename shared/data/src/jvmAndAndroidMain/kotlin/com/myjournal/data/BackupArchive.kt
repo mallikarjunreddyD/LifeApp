@@ -89,7 +89,7 @@ object BackupArchive {
             checkJsonSizeAndDepth(manifestText)
             val manifest = json.parseToJsonElement(manifestText).jsonObject
             require(manifest.getValue("format").jsonPrimitive.content == "LifeAppArchive")
-            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..8) { "Unsupported backup version" }
+            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..9) { "Unsupported backup version" }
             val kind = manifest.getValue("kind").jsonPrimitive.content; require(kind == expectedKind) { "This file is not a full backup" }
             val schema = manifest.getValue("dataSchemaVersion").jsonPrimitive.int
             val expectedSections = sectionsFor(schema)

@@ -44,3 +44,13 @@ add versioned mutations and a durable outbox per record. Apply edits to
 different sets independently and retain competing versions of the same set.
 Validate concurrent insertion and ordering, authenticated
 Android/PWA convergence and server recovery before advertising sync.
+
+## Logbook records
+
+Manual sessions set `logged` and can omit start and end timestamps.
+`routineId` and `routineName` capture the template at selection time.
+Exercise entries may carry session-specific `remarks`. Exercise definitions
+can hold a separate `description`. `deleted` is a recoverable local
+tombstone on the session UUID. Archived exercises and deleted workouts
+retain their children and historical values. Local drafts and the Android
+history view preference are excluded from portable backups.

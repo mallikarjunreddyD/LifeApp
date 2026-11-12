@@ -11,8 +11,10 @@ data class ExerciseDefinition(
     val category: String? = null,
     val equipment: String? = null,
     val archived: Boolean = false,
+    val description: String? = null,
 ) {
     init {
+        require(description == null || description.length <= 4000)
         require(name.isNotBlank() && name == name.trim() && name.length <= 120)
         require(listOfNotNull(category, equipment).all { it.isNotBlank() && it.length <= 120 })
     }
@@ -50,8 +52,10 @@ data class WorkoutExerciseEntry(
     val order: Int,
     val round: Int? = null,
     val sets: List<RecordedSet> = emptyList(),
+    val remarks: String? = null,
 ) {
     init {
+        require(remarks == null || remarks.length <= 4000)
         require(order >= 0 && (round == null || round > 0))
         require(sets.all { it.entryId == metadata.id })
         require(sets.map { it.number } == (1..sets.size).toList())
@@ -71,6 +75,10 @@ data class WorkoutSession(
     val entries: List<WorkoutExerciseEntry> = emptyList(),
     val averageHeartRateBpm: Int? = null,
     val durationManuallyEntered: Boolean = false,
+    val logged: Boolean = false,
+    val routineId: Uuid? = null,
+    val routineName: String? = null,
+    val deleted: Boolean = false,
 ) {
     init {
         require(date.year in 1..9999)
@@ -79,7 +87,9 @@ data class WorkoutSession(
         if (startedAt != null && endedAt != null) {
             require(durationSeconds != null && (durationManuallyEntered || durationSeconds.toLong() <= (endedAt - startedAt).inWholeSeconds))
         }
-        require(!completed || endedAt != null)
+        require(!completed || logged || endedAt != null)
+        require((routineId == null) == (routineName == null))
+        require(routineName == null || routineName.isNotBlank() && routineName.length <= 120)
         require(!durationManuallyEntered || durationSeconds != null)
         require(averageHeartRateBpm == null || averageHeartRateBpm in 20..250) {
             "Enter an average heart rate between 20 and 250 BPM."
@@ -137,9 +147,16 @@ data class WorkoutLog(
     )
 }
 
+data class WorkoutDraft(val session: WorkoutSession, val previousRevision: Long?)
+
 interface WorkoutRepository {
     fun observe(): kotlinx.coroutines.flow.Flow<WorkoutLog>
     suspend fun saveExercise(exercise: ExerciseDefinition)
     suspend fun saveRoutine(routine: WorkoutRoutine)
     suspend fun saveSession(session: WorkoutSession, previousRevision: Long?)
+    suspend fun loadDraft(): WorkoutDraft?
+    suspend fun saveDraft(draft: WorkoutDraft?)
+    suspend fun spreadsheetHistory(): Boolean
+    suspend fun setSpreadsheetHistory(enabled: Boolean)
+    suspend fun setSessionDeleted(id: Uuid, deleted: Boolean)
 }

@@ -99,3 +99,32 @@ test('delete and edit retain both versions, and a stale resolution restores them
     assert.deepEqual((await store.pending(scope)).map(operation => operation.operationId), [local.operationId]);
   } finally { store.close(); }
 });
+
+test('workout tombstones are idempotent and reject a stale edit after reopening', async () => {
+  const name = crypto.randomUUID();
+  const firstStore = await openStore(name);
+  const { revise } = await import('../src/workout.ts');
+  const value = { metadata: revise(), date: '2026-11-12', startedAt: null, endedAt: null,
+    durationSeconds: 4320, durationManuallyEntered: true, averageHeartRateBpm: 136,
+    caloriesKcal: null, notes: null, completed: false, logged: true, entries: [] };
+  const other = { ...value, metadata: revise() };
+  await firstStore.saveWorkout({ kind: 'session', value }, null);
+  await firstStore.saveWorkout({ kind: 'session', value: other }, null);
+  await firstStore.setWorkoutDeleted(value.metadata.id, true);
+  await firstStore.setWorkoutDeleted(value.metadata.id, true);
+  firstStore.close();
+
+  const reopened = await openStore(name);
+  try {
+    const records = (await reopened.workoutRecords()).flatMap(record => record.kind === 'session' ? [record.value] : []);
+    const deleted = records.find(record => record.metadata.id === value.metadata.id)!;
+    assert.equal(deleted.deleted, true);
+    assert.equal(deleted.metadata.revision, '2');
+    assert.deepEqual(records.find(record => record.metadata.id === other.metadata.id), other);
+    await assert.rejects(reopened.saveWorkout({ kind: 'session', value: { ...value, metadata: revise(value.metadata) } }, '1'));
+    await reopened.setWorkoutDeleted(value.metadata.id, false);
+    const restored = (await reopened.workoutRecords()).find(record => record.value.metadata.id === value.metadata.id);
+    assert.equal(restored?.kind === 'session' && restored.value.deleted, false);
+    assert.equal(restored?.value.metadata.revision, '3');
+  } finally { reopened.close(); }
+});

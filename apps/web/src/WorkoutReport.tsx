@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { today } from './protocol.ts';
+import { setSummary } from './workout.ts';
 import type { Exercise, Session } from './workout.ts';
 
 const format = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
@@ -15,20 +16,14 @@ export function WorkoutReport({ sessions, exercises, close }: {
 }) {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [compact, setCompact] = useState(false);
-  const rows = sessions.filter(session => session.completed && session.date.slice(0, 7) === month);
+  const rows = sessions.filter(session => !session.deleted && (session.completed || session.logged) && session.date.slice(0, 7) === month);
   const names = new Map(exercises.map(exercise => [exercise.metadata.id, exercise.name]));
   const minutes = measured(rows.map(session => session.durationSeconds === null ? null : session.durationSeconds / 60));
   const heartRates = measured(rows.map(session => session.averageHeartRateBpm));
   const calories = measured(rows.map(session => session.caloriesKcal));
   const total = (values: number[]) => values.reduce((sum, value) => sum + value, 0);
   const show = (value: number | null, unit: string) => value === null ? 'Unavailable' : format.format(value) + ' ' + unit;
-  const setText = (set: Session['entries'][number]['sets'][number]) => [
-    `Set ${set.number}`,
-    set.weight && `${set.weight.value} ${set.weight.unit}`,
-    set.repetitions !== null && `${set.repetitions} reps`,
-    set.durationSeconds !== null && `${set.durationSeconds} s`,
-    !set.completed && 'Incomplete',
-  ].filter(Boolean).join(' · ');
+  const setText = (set: Session['entries'][number]['sets'][number]) => `Set ${set.number} · ${setSummary(set)}`;
 
   return <section className="workout-report">
     <div className="workout-report-controls">
@@ -41,26 +36,27 @@ export function WorkoutReport({ sessions, exercises, close }: {
     <h1>LifeApp Workout Report</h1>
     <p>{month}</p>
     <dl>
-      <dt>Completed workouts</dt><dd>{rows.length}</dd>
+      <dt>Recorded workouts</dt><dd>{rows.length}</dd>
       <dt>Total duration</dt><dd>{show(minutes.length ? total(minutes) : null, 'min')}</dd>
       <dt>Average duration</dt><dd>{show(minutes.length ? total(minutes) / minutes.length : null, 'min')} · {minutes.length} measured sessions</dd>
       <dt>Average heart rate</dt><dd>{show(heartRates.length ? total(heartRates) / heartRates.length : null, 'BPM')} · {heartRates.length} measured sessions</dd>
       <dt>Recorded calories</dt><dd>{show(calories.length ? total(calories) : null, 'kcal')} · {calories.length} measured sessions</dd>
     </dl>
-    {!rows.length && <p>No completed workouts this month.</p>}
+    {!rows.length && <p>No recorded workouts this month.</p>}
     {rows.map(session => <article key={session.metadata.id}>
-      <h2>{session.date}</h2>
+      <h2>{session.date} · {session.routineName ?? 'Workout'}</h2>
       <p>{show(session.durationSeconds === null ? null : session.durationSeconds / 60, 'min')} ·
         {' '}{show(session.averageHeartRateBpm ?? null, 'BPM')} · {show(session.caloriesKcal, 'kcal')}</p>
       {compact ? <table>
-        <thead><tr><th scope="col">Exercise</th><th scope="col">Recorded sets</th></tr></thead>
+        <thead><tr><th scope="col">Exercise</th><th scope="col">Recorded sets</th><th scope="col">Remarks</th></tr></thead>
         <tbody>{session.entries.map(entry => <tr key={entry.metadata.id}>
           <th scope="row">{names.get(entry.exerciseId) ?? 'Exercise'}</th>
-          <td>{entry.sets.map(setText).join(' / ') || 'No sets recorded'}</td>
+          <td>{entry.sets.map(setText).join(' / ') || 'No sets recorded'}</td><td>{entry.remarks}</td>
         </tr>)}</tbody>
       </table> : session.entries.map(entry => <section key={entry.metadata.id} className="workout-report-exercise">
         <h3>{names.get(entry.exerciseId) ?? 'Exercise'}</h3>
         {entry.sets.length ? <ul>{entry.sets.map(set => <li key={set.metadata.id}>{setText(set)}</li>)}</ul> : <p>No sets recorded</p>}
+        {entry.remarks && <p>{entry.remarks}</p>}
       </section>)}
       {session.notes && <p className="workout-report-notes">{session.notes}</p>}
     </article>)}

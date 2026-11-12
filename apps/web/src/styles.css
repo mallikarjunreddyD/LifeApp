@@ -115,3 +115,99 @@ nav button[aria-current=page] { background: var(--active); color: var(--ink); fo
 
 .journal-preview { margin: 1rem 0; }
 .journal-preview canvas { max-width: 100%; height: auto; background: #fffdf7; border: 1px solid #d9d1c2; }
+
+.workout-logbook {
+  max-width: 76rem;
+  margin-inline: auto;
+}
+
+.workout-add {
+  min-height: 2.75rem;
+  font-weight: 700;
+}
+
+.workout-logbook details > summary {
+  cursor: pointer;
+  padding-block: .6rem;
+}
+
+.workout-exercise,
+.workout-history {
+  margin-block: .65rem;
+  padding: .75rem;
+  border: 1px solid var(--line, #d7d4cb);
+  border-radius: .5rem;
+}
+
+.workout-filters,
+.workout-set-row {
+  display: grid;
+  gap: .55rem;
+  align-items: end;
+}
+
+.workout-filters {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  margin-block: .75rem;
+}
+
+.workout-set-row {
+  grid-template-columns: auto minmax(4.5rem, 1fr) minmax(4rem, .6fr) minmax(6rem, 1fr) auto;
+  margin-block: .5rem;
+}
+
+.workout-filters label,
+.workout-set-row label {
+  display: grid;
+  gap: .2rem;
+  min-width: 0;
+}
+
+.workout-logbook select {
+  display: block;
+  width: 100%;
+  min-height: 2.65rem;
+  padding: .35rem .45rem;
+  border: 1px solid var(--line, #d7d4cb);
+  border-radius: .45rem;
+  background: var(--panel, #fcfaf4);
+  color: inherit;
+  font: inherit;
+}
+
+.workout-set-row input,
+.workout-set-row select {
+  width: 100%;
+  min-width: 0;
+}
+
+.workout-history-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: start;
+}
+
+.workout-history-table th,
+.workout-history-table td {
+  padding: .45rem .35rem;
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--line, #d7d4cb);
+}
+
+@media (max-width: 37rem) {
+  .workout-set-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .workout-set-row > span {
+    grid-column: 1 / -1;
+  }
+
+  .workout-set-row > button {
+    grid-column: span 2;
+    justify-self: start;
+  }
+}

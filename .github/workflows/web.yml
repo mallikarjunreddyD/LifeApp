@@ -41,4 +41,6 @@ jobs:
         if: always()
         with:
           name: pwa-browser-report
-          path: apps/web/test-results/browser.xml
+          path: |
+            apps/web/test-results/browser.xml
+            apps/web/test-results/**/workout-*.png
