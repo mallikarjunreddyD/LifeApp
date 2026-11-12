@@ -276,7 +276,9 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                     require(size in 1..100)
                     cursor to size
                 }
-                val rows = databaseCall { editable.versions(scope, after, limit) }
+                val kind = call.request.queryParameters["kind"]
+                validated { require(kind == null || kind == "habits") }
+                val rows = databaseCall { editable.versions(scope, after, limit, kind) }
                 val page = rows.take(limit)
                 call.json(buildJsonObject {
                     put("scope", scope.json())

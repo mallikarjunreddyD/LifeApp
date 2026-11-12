@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { commitJournalFixture } from './journal-fixture.ts';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -27,7 +26,8 @@ async function bind(page: Page) {
   await page.getByRole('button', { name: 'Back to Settings' }).click();
   await page.getByRole('button', { name: 'Synchronization' }).click();
   page.once('dialog', dialog => void dialog.accept());
-  await page.getByRole('button', { name: 'Connect To-do' }).click();
+  await page.getByRole('button', { name: 'Connect synchronization' }).click();
+  await expect(page.getByRole('button', { name: 'Connect synchronization' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled();
 }
 
@@ -166,10 +166,18 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
     await sync(page);
     await expect(page.getByText('Second offline edit', { exact: true })).toBeVisible();
 
+    async function syncExpenses(device: Page) {
+      await device.getByRole('button', { name: 'Settings', exact: true }).click();
+      if (!await device.getByRole('heading', { name: 'Synchronization' }).isVisible()) {
+        await device.getByRole('button', { name: 'Synchronization' }).click();
+      }
+      await device.getByRole('button', { name: 'Sync now', exact: true }).click();
+      await expect(device.getByRole('button', { name: 'Sync now', exact: true })).toBeEnabled();
+      await device.getByRole('button', { name: 'Expenses', exact: true }).click();
+    }
+
     for (const device of [page, second]) {
       await device.getByRole('button', { name: 'Expenses', exact: true }).click();
-      await device.getByRole('button', { name: 'Review Expense Connection' }).click();
-      await device.getByRole('button', { name: 'Connect Expenses', exact: true }).click();
       await expect(device.getByText('Expenses checked with the server.')).toBeVisible();
     }
     await context.setOffline(true);
@@ -184,12 +192,12 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
     await expect(page.getByText('1 expense changes waiting.')).toBeVisible();
     await context.setOffline(false);
     await expect(page.getByText('1 expense changes waiting.')).toHaveCount(0);
-    await second.getByRole('button', { name: 'Sync Expenses Now' }).click();
+    await syncExpenses(second);
     await expect(second.getByRole('heading', { name: 'Cross-device expense' })).toBeVisible();
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
     await page.getByRole('button', { name: 'Confirm Delete' }).click();
     await expect.poll(async () => {
-      await second.getByRole('button', { name: 'Sync Expenses Now' }).click();
+      await syncExpenses(second);
       return second.getByRole('heading', { name: 'Cross-device expense' }).count();
     }).toBe(0);
     await second.getByRole('button', { name: 'Recently Deleted' }).click();
@@ -294,20 +302,10 @@ test('workout logbook drafts, deletion and PDF work offline', async ({ page, con
   expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
 });
 
-test('record previews preserve vectors and support per-day habit edits', async ({ context, page }) => {
+test('Habits shows structured months and hides handwriting modules', async ({ context, page }) => {
   await page.goto('/');
   await signIn(page);
-  const date = '2026-11-09';
-  await commitJournalFixture(context.request, new URL(page.url()).origin, date);
-  await page.getByRole('button', { name: 'Journal' }).click();
-  await page.getByRole('button', { name: date }).click();
-  const canvas = page.getByRole('img', { name: 'Handwriting for ' + date });
-  await expect(canvas).toBeVisible();
-  const pixel = await canvas.evaluate(element => {
-    const source = element as HTMLCanvasElement;
-    return Array.from(source.getContext('2d')!.getImageData(307, 307, 1, 1).data);
-  });
-  expect(pixel).toEqual([0, 0, 0, 255]);
+  await expect(page.getByRole('navigation').getByRole('button', { name: /Journal|Planner|Notebook/ })).toHaveCount(0);
   const session = await (await context.request.get('/v1/session')).json();
   const headers = { Origin: new URL(page.url()).origin, 'X-CSRF-Token': session.csrfToken,
     'X-LifeApp-Dataset': session.scope.dataset, 'X-LifeApp-Epoch': session.scope.epoch };
@@ -323,71 +321,12 @@ test('record previews preserve vectors and support per-day habit edits', async (
     })).status()).toBe(204);
     return version;
   }
-  page.once('dialog', dialog => void dialog.accept());
-  await page.getByRole('button', { name: 'Move to server record versions' }).click();
-  await expect(page.getByText('Journal moved to Server record versions.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: date, exact: true })).toHaveCount(0);
-
-  const initialPlanner = await commitArchive('planner');
+  await commitArchive('planner');
   await commitArchive('notebook');
   await commitArchive('habits');
-
-  await page.getByText('Server record versions', { exact: true }).click();
-  await page.getByRole('button', { name: 'Journal · ' + date }).click();
-  const migrated = page.getByRole('img', { name: 'Handwriting for Page 1' });
-  await expect(migrated).toBeVisible();
-  expect(await migrated.evaluate(element => Array.from((element as HTMLCanvasElement).getContext('2d')!
-    .getImageData(307, 307, 1, 1).data))).toEqual([0, 0, 0, 255]);
-  await page.getByRole('button', { name: 'Planner · 2026-11' }).click();
-  const planner = page.getByRole('img', { name: 'Handwriting for 2026-11', exact: true });
-  await expect(planner).toBeVisible();
-  expect(await planner.evaluate(element => Array.from((element as HTMLCanvasElement).getContext('2d')!
-    .getImageData(137, 241, 1, 1).data))).toEqual([0, 0, 0, 255]);
-  await page.getByRole('button', { name: /Notebook ·/ }).click();
-  const notebook = page.getByRole('img', { name: 'Handwriting for Field notes' });
-  await expect(notebook).toBeVisible();
-  expect(await notebook.evaluate(element => Array.from((element as HTMLCanvasElement).getContext('2d')!
-    .getImageData(192, 338, 1, 1).data))).toEqual([0, 0, 0, 255]);
-  const alternativePlanner = await commitArchive('planner', true);
-  await page.getByRole('button', { name: 'Planner · 2026-11' }).click();
-  await page.getByRole('button', { name: 'Review current versions' }).click();
-  const { 'X-CSRF-Token': csrfToken, ...noCsrf } = headers;
-  expect(csrfToken).toBeTruthy();
-  expect((await context.request.post('/v1/editable/versions/' + alternativePlanner + '/resolve', {
-    headers: noCsrf, data: { id: randomUUID(), reviewed: [initialPlanner, alternativePlanner] },
-  })).status()).toBe(403);
-  const variants = page.getByRole('button', { name: /Preview version / });
-  await expect(variants).toHaveCount(2);
-  await variants.last().click();
-  await expect(planner).toBeVisible();
-  expect(await planner.evaluate(element => Array.from((element as HTMLCanvasElement).getContext('2d')!
-    .getImageData(137, 274, 1, 1).data))).toEqual([0, 0, 0, 255]);
-
-  let resolutionId: string | undefined;
-  await page.route('**/v1/editable/versions/*/resolve', async route => {
-    const { id } = route.request().postDataJSON() as { id: string };
-    if (resolutionId) {
-      expect(id).toBe(resolutionId);
-      await route.continue();
-    } else {
-      resolutionId = id;
-      expect((await route.fetch()).status()).toBe(204);
-      await route.abort();
-    }
-  });
-  page.once('dialog', dialog => void dialog.accept());
-  await page.getByRole('button', { name: 'Keep selected version' }).click();
-  await expect(page.getByRole('alert')).toContainText('Retry to check the same request');
-  page.once('dialog', dialog => void dialog.accept());
-  await page.getByRole('button', { name: 'Retry resolution' }).click();
-  await expect(page.getByText('The selected version is current.', { exact: false })).toBeVisible();
-  const feed = await (await context.request.get('/v1/editable/versions', { headers })).json();
-  const planners = feed.items.filter((row: { kind: string }) => row.kind === 'planner');
-  expect(planners.filter((row: { current: boolean }) => row.current)).toMatchObject([
-    { id: resolutionId, parents: [initialPlanner, alternativePlanner].sort() },
-  ]);
-  await page.getByRole('button', { name: /Notebook ·/ }).click();
-  await expect(notebook).toBeVisible();
+  await page.getByRole('button', { name: 'Habits', exact: true }).click();
+  await page.getByText('Habit months and versions', { exact: true }).click();
+  await expect(page.getByRole('button', { name: /Planner ·|Notebook ·/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Habits · 2026-11', exact: true }).click();
   const reading = page.getByRole('checkbox', { name: 'Reading' });
   await expect(reading).toBeVisible();
@@ -397,15 +336,11 @@ test('record previews preserve vectors and support per-day habit edits', async (
   await expect(reading).toBeChecked();
   await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('1');
   await expect(reading).not.toBeChecked();
-  await page.getByRole('button', { name: /Notebook ·/ }).click();
-  await expect(notebook).toBeVisible();
   const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
     (await (await caches.open(name)).keys()).map(item => new URL(item.url).pathname)))).flat());
   expect(cachedPaths.some(path => path.startsWith('/v1/journal/') || path.startsWith('/v1/editable/'))).toBe(false);
   await context.setOffline(true);
-  await expect(canvas).toHaveCount(0);
-  await expect(notebook).toHaveCount(0);
-  await expect(page.getByText('Connect to view committed journal pages.')).toBeVisible();
+  await expect(page.getByText('Connect to view server habit months.')).toBeVisible();
 });
 
 test('expenses create labels, edit, delete and restore across offline reloads', async ({ page, context }, testInfo) => {

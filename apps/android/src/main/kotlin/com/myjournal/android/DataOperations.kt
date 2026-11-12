@@ -12,11 +12,10 @@ import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 data class RestorePreview(val file: File, val backup: BackupArchive.Validated, val replacesData: Boolean, val sourceUri: Uri?)
-data class JournalInventoryPreview(val origin: String, val scope: SyncScope, val inventory: JournalImportInventory)
 
 data class OperationState(val busy: Boolean = false, val message: String? = null, val error: Boolean = false,
     val preview: RestorePreview? = null, val pdfSnapshot: JournalSnapshot? = null, val driveVersions: List<CloudBackupVersion>? = null,
-    val journalInventory: JournalInventoryPreview? = null, val localBackupVerifiedAt: String? = null)
+    val localBackupVerifiedAt: String? = null)
 
 internal data class EditableImportReview(
     val target: EditableImportQueue.Target,
@@ -105,56 +104,27 @@ class DataOperations(private val app: JournalApplication, private val repository
         }
     }
 
-    internal fun bindExpenses(uri: Uri, sync: AndroidExpenseSync, review: ExpenseConnectionReview) =
-        start("Verifying a recovery backup before connecting expenses…") {
-            val data = snapshot()
-            val file = temp(".zip")
-            try {
-                withContext(Dispatchers.IO) {
-                    BackupArchive.write(file, data)
-                    writeVerified(file, uri)
-                }
-                sync.bind(review, data.expenseLedger)
-                "Recovery backup verified. Expense synchronization queued."
-            } finally { file.delete() }
-        }
-
-    internal fun bindServer(uri: Uri, sync: AndroidServerSync, preview: BindingPreview) =
-        start("Creating a verified local backup before server binding…") {
-            val data = snapshot()
-            val file = temp(".zip")
-            try {
-                withContext(Dispatchers.IO) {
-                    BackupArchive.write(file, data)
-                    writeVerified(file, uri)
-                }
-                sync.bindFromVerifiedBackup(preview, data.todos)
-                "Backup verified. To-do is bound and first sync is queued."
-            } finally {
-                file.delete()
+    internal fun connectSynchronization(
+        uri: Uri,
+        todo: AndroidServerSync,
+        expenses: AndroidExpenseSync,
+        todoReview: BindingPreview?,
+        expenseReview: ExpenseConnectionReview?,
+    ) = start("Verifying a recovery backup before connecting synchronization…") {
+        require(todoReview != null || expenseReview != null)
+        val data = snapshot()
+        val file = temp(".zip")
+        try {
+            withContext(Dispatchers.IO) {
+                BackupArchive.write(file, data)
+                writeVerified(file, uri)
             }
+            if (todoReview != null) todo.bindFromVerifiedBackup(todoReview, data.todos)
+            if (expenseReview != null) expenses.bind(expenseReview, data.expenseLedger)
+            "Recovery backup verified. Synchronization queued."
+        } finally {
+            file.delete()
         }
-
-    internal fun reviewJournal(uri: Uri, sync: AndroidServerSync, origin: String, scope: SyncScope) =
-        start("Creating a verified backup before reviewing journal records…") {
-            mutable.value = mutable.value.copy(journalInventory = null)
-            val data = snapshot()
-            val file = temp(".zip")
-            try {
-                withContext(Dispatchers.IO) {
-                    BackupArchive.write(file, data)
-                    writeVerified(file, uri)
-                }
-            } finally {
-                file.delete()
-            }
-            val inventory = sync.inspectJournal(origin, scope, data)
-            mutable.value = mutable.value.copy(journalInventory = JournalInventoryPreview(origin, scope, inventory))
-            "Backup verified. Journal inventory ready to review."
-        }
-
-    fun dismissJournalInventory() {
-        if (!mutable.value.busy) mutable.value = mutable.value.copy(journalInventory = null)
     }
 
     internal fun reviewEditableImport(uri: Uri, sync: AndroidServerSync, target: EditableImportQueue.Target) =
@@ -209,7 +179,7 @@ class DataOperations(private val app: JournalApplication, private val repository
             }
             if (!enabled || importReviewMutable.value != null || mutable.value.preview != null) return@launch
             start("Checking tracked server records…") {
-                sync.syncTrackedRecords(::snapshot, ::applyRecordBatch)
+                sync.syncTrackedRecords(::snapshot, ::applyRecordBatch, habitsOnly = true)
                 "Finished checking tracked server records."
             }
         }

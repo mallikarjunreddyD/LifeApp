@@ -395,16 +395,16 @@ internal class EditableRecordStore(private val database: Database) {
         dataset, kind, key,
     ) { Variant(it.uuid(1), it.getLong(2)) }
 
-    fun versions(scope: SyncScope, after: Long, limit: Int) = database.transaction {
+    fun versions(scope: SyncScope, after: Long, limit: Int, kind: String? = null) = database.transaction {
         lockEpoch(scope)
         query(
             """SELECT v.id, v.sequence, v.kind, v.logical_key, v.root_id, v.sha256, v.parents::text[],
                       h.version_id IS NOT NULL
                FROM editable_record_versions v LEFT JOIN editable_record_heads h
                  ON h.dataset_id = v.dataset_id AND h.kind = v.kind AND h.logical_key = v.logical_key AND h.version_id = v.id
-               WHERE v.dataset_id = ? AND v.sequence > ?
+               WHERE v.dataset_id = ? AND v.sequence > ? AND v.kind = coalesce(?, v.kind)
                ORDER BY v.sequence LIMIT ?""",
-            scope.dataset.sql(), after, limit + 1,
+            scope.dataset.sql(), after, kind, limit + 1,
         ) {
             val parents = it.getArray(7)
             try {

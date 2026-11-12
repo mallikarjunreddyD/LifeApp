@@ -92,18 +92,11 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
       </article>
       {sync.status && <p role="status">{sync.status}</p>}
       {sync.state ? <div className="actions">
-        <button onClick={sync.syncNow}>Sync Expenses Now</button>
         {!!sync.state.pending.length && <span>{sync.state.pending.length} expense changes waiting.</span>}
         {!!competingExpenseHeads(sync.state).length && <button onClick={() => setReviewConflicts(!reviewConflicts)}>
           Review Expense Conflicts
         </button>}
-      </div> : <button onClick={() => void sync.reviewConnection()}>Review Expense Connection</button>}
-      {sync.review && <div role="alertdialog" aria-label="Connect Expenses" className="card">
-        <p>{sync.review.local.filter(record => record.kind === 'expense').length} local expenses and {sync.review.count} server expense records and labels.
-          Independent records will be kept, and competing versions can be reviewed.</p>
-        <button onClick={() => void sync.bind()}>Connect Expenses</button>
-        <button onClick={sync.dismissReview}>Cancel</button>
-      </div>}
+      </div> : <p>Connect under Settings → Synchronization.</p>}
       {reviewConflicts && sync.state && <section>
         <h2>Expense conflicts</h2>
         {competingExpenseHeads(sync.state).map(heads => <article className="card" key={heads[0]!.record.metadata.id}>

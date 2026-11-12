@@ -209,3 +209,29 @@ test('IndexedDB version two upgrades without dropping workouts or queued tasks',
     assert.deepEqual(view.tasks[0]?.record, first.record);
   } finally { store.close(); }
 });
+
+test('connecting synchronization preserves existing bindings and rejects stale reviews atomically', async () => {
+  const store = await openStore(crypto.randomUUID());
+  try {
+    await store.add('Pending task', '2026-11-12');
+    await store.bind(scope);
+    const todoBefore = await store.view();
+    await store.seedExpenses();
+    const records = await store.expenseRecords();
+    await assert.rejects(store.bindStructured(scope, []), /Expenses changed/);
+    assert.equal(await store.expenseSyncState(), null);
+    assert.deepEqual(await store.view(), todoBefore);
+
+    await store.bindStructured(scope, records);
+    const connected = await store.expenseSyncState();
+    assert.equal(connected?.pending.length, records.length);
+    assert.deepEqual(await store.view(), todoBefore);
+    await store.bindStructured(scope, records);
+    assert.deepEqual(await store.expenseSyncState(), connected);
+
+    await assert.rejects(store.bindStructured({ ...scope, epoch: crypto.randomUUID() }, records), /original account/);
+    assert.deepEqual(await store.expenseSyncState(), connected);
+  } finally {
+    store.close();
+  }
+});

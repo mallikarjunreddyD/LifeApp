@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from './api.ts';
 import type { BrowserSession } from './api.ts';
-import type { ExpenseRecord } from './expense.ts';
 import type { ExpenseSyncState } from './expenseSync.ts';
 import { sameScope } from './protocol.ts';
 import type { LifeStore } from './store.ts';
@@ -10,7 +9,6 @@ export function useExpenseSync(store: LifeStore, session: BrowserSession | null,
   const [state, setState] = useState<ExpenseSyncState | null>(null);
   const [status, setStatus] = useState('');
   const [generation, setGeneration] = useState(0);
-  const [review, setReview] = useState<{ count: string; local: ExpenseRecord[]; session: BrowserSession } | null>(null);
   const [retryAt, setRetryAt] = useState(0);
   const running = useRef(false);
   const failures = useRef(0);
@@ -94,25 +92,6 @@ export function useExpenseSync(store: LifeStore, session: BrowserSession | null,
     return () => window.clearTimeout(timer);
   }, [online, retryAt, sync, visible]);
 
-  async function reviewConnection() {
-    try {
-      if (!session) throw new Error('Sign in under Account & Security to connect expenses.');
-      const local = await store.expenseRecords();
-      setReview({ count: await api.expenseInventory(session), local, session });
-      setStatus('');
-    } catch (failure) { setStatus(failure instanceof Error ? failure.message : 'Could not review expenses.'); }
-  }
-
-  async function bind() {
-    if (!review || !session || !sameScope(review.session.scope, session.scope)) return;
-    try {
-      if (await api.expenseInventory(session) !== review.count) throw new Error('Server expenses changed. Review again.');
-      await store.bindExpenses(session.scope, review.local);
-      setReview(null);
-      await sync(session);
-    } catch (failure) { setStatus(failure instanceof Error ? failure.message : 'Could not connect expenses.'); }
-  }
-
   async function resolve(selected: string, heads: string[]) {
     if (!state) return;
     try {
@@ -133,6 +112,6 @@ export function useExpenseSync(store: LifeStore, session: BrowserSession | null,
     }
   }
 
-  return { state, status, generation, review, reviewConnection, bind, dismissReview: () => setReview(null), resolve,
-    committed, syncNow: () => { if (session) void sync(session); } };
+  return { state, status, generation, refresh, resolve,
+    committed, syncNow: () => session ? sync(session) : Promise.resolve() };
 }
