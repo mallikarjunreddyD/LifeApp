@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, editablePreview, editableReview, editableVersions, resolveEditable, saveHabitCheck } from './api.ts';
 import type { BrowserSession, HabitCheck } from './api.ts';
-import { drawStroke } from './journalInk.ts';
 import { object, sameScope, scopeOf, sequence, uuid } from './protocol.ts';
 import type { Scope } from './protocol.ts';
-
-const labels = { journal: 'Journal', planner: 'Planner', habits: 'Habits', notebook: 'Notebook' } as const;
 
 function array(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error('Invalid record list.');
@@ -31,22 +28,6 @@ function previewOf(value: unknown) {
   const preview = object(value, ['title', 'pages', 'habits']);
   return {
     title: text(preview.title),
-    pages: array(preview.pages).map(item => {
-      const page = object(item, ['title', 'width', 'height', 'archived', 'cells', 'strokes']);
-      const width = number(page.width);
-      const height = number(page.height);
-      if (width <= 0 || height <= 0) throw new Error('Invalid page dimensions.');
-      const cells = array(page.cells).map(item => {
-        const [day, left, top, right, bottom] = array(item);
-        return { day: number(day), left: number(left), top: number(top), right: number(right), bottom: number(bottom) };
-      });
-      const strokes = array(page.strokes).map(item => {
-        const stroke = object(item, ['color', 'width', 'points', 'day']);
-        return { color: number(stroke.color), width: number(stroke.width), points: text(stroke.points),
-          day: stroke.day === null ? null : number(stroke.day) };
-      });
-      return { title: text(page.title), width, height, archived: flag(page.archived), cells, strokes };
-    }),
     habits: array(preview.habits).map(item => {
       const fields = ['name', 'archived', 'completedDays'];
       const includesId = typeof item === 'object' && item !== null && 'id' in item;
@@ -58,7 +39,7 @@ function previewOf(value: unknown) {
 
 type Preview = ReturnType<typeof previewOf>;
 
-export function EditableRecords({ session }: { session: BrowserSession }) {
+export function Habits({ session, generation }: { session: BrowserSession; generation: number }) {
   const { dataset, epoch } = session.scope;
   const [open, setOpen] = useState(false);
   const [after, setAfter] = useState('0');
@@ -81,16 +62,16 @@ export function EditableRecords({ session }: { session: BrowserSession }) {
       const rows = array(response.items).map(item => {
         const row = object(item, ['id', 'sequence', 'kind', 'key', 'rootId', 'sha256', 'parents', 'current']);
         const kind = text(row.kind);
-        if (!Object.hasOwn(labels, kind)) throw new Error('Invalid record kind.');
+        if (kind !== 'habits') throw new Error('Invalid habit record.');
         const next = sequence(row.sequence);
         if (BigInt(next) <= BigInt(cursor)) throw new Error('Invalid record order.');
         cursor = next;
-        return { id: uuid(row.id), label: labels[kind as keyof typeof labels] + ' · ' + text(row.key), current: flag(row.current) };
+        return { id: uuid(row.id), label: 'Habits · ' + text(row.key), current: flag(row.current) };
       });
       if (!cancel.signal.aborted) setListing({ rows, next: flag(response.hasMore) && rows.length ? cursor : null });
     }).catch(() => { if (!cancel.signal.aborted) setFailure(true); });
     return () => cancel.abort();
-  }, [after, dataset, epoch, open, retry]);
+  }, [after, dataset, epoch, generation, open, retry]);
 
   function load(cursor: string) {
     setListing(null);
@@ -105,9 +86,9 @@ export function EditableRecords({ session }: { session: BrowserSession }) {
     setOpen(event.currentTarget.open);
     if (!event.currentTarget.open) { setResolved(false); load('0'); }
   }}>
-    <summary>Server record versions</summary>
+    <summary>Habit months and versions</summary>
     {open && <>
-      <p>Preview committed journals, planners, habits and notebooks and review competing versions.</p>
+      <p>Review saved habit months and competing versions.</p>
       {resolved && <p role="status">The selected version is current. Earlier versions are available in history.</p>}
       {failure ? <p role="alert">Could not load server record versions.</p> :
         !listing ? <p role="status">Loading record versions…</p> :
@@ -295,7 +276,6 @@ function RecordPreview({ scope: { dataset, epoch }, id, onReady, editor }: {
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [failed, setFailed] = useState(false);
-  const [pageIndex, setPageIndex] = useState(0);
   useEffect(() => {
     const cancel = new AbortController();
     void editablePreview({ dataset, epoch }, id, cancel.signal).then(value => {
@@ -308,65 +288,12 @@ function RecordPreview({ scope: { dataset, epoch }, id, onReady, editor }: {
   }, [dataset, epoch, id, onReady]);
   if (failed) return <p role="alert">Could not display this version. It may exceed the preview limit.</p>;
   if (!preview) return <p role="status">Loading record preview…</p>;
-  const page = preview.pages[pageIndex];
   return <section>
     <h2>{preview.title}</h2>
-    {preview.pages.length > 1 && <label>Page <select value={pageIndex} onChange={event => setPageIndex(Number(event.target.value))}>
-      {preview.pages.map((item, index) => <option key={index} value={index}>{item.title}{item.archived ? ' (archived)' : ''}</option>)}
-    </select></label>}
-    {page && <VectorPage key={pageIndex} page={page} />}
     {editor && preview.habits.length > 0 && <HabitCheckboxes preview={preview} version={id} editor={editor} />}
     {preview.habits.length > 0 && <ul>{preview.habits.map((habit, index) => <li key={habit.id ?? index}>
       {habit.name}{habit.archived ? ' (archived)' : ''} · {habit.days.length ? 'Completed days ' + habit.days.join(', ') : 'No completed days'}
     </li>)}</ul>}
-    {!page && preview.habits.length === 0 && <p>This version has no pages or habit definitions.</p>}
+    {preview.habits.length === 0 && <p>This month has no habit definitions.</p>}
   </section>;
-}
-
-function VectorPage({ page }: { page: Preview['pages'][number] }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const [failed, setFailed] = useState(false);
-  const scale = 1536 / Math.max(page.width, page.height);
-  useEffect(() => {
-    const context = canvas.current?.getContext('2d');
-    if (!context) { setFailed(true); return; }
-    try {
-      context.canvas.width = context.canvas.width;
-      context.scale(scale, scale);
-      context.beginPath();
-      context.rect(0, 0, page.width, page.height);
-      context.clip();
-      context.lineCap = context.lineJoin = 'round';
-      context.strokeStyle = '#b8b2a8';
-      context.fillStyle = '#34302d';
-      context.font = '20px sans-serif';
-      for (const cell of page.cells) {
-        context.strokeRect(cell.left, cell.top, cell.right - cell.left, cell.bottom - cell.top);
-        context.fillText(String(cell.day), cell.left + 10, cell.top + 25);
-      }
-      for (const stroke of page.strokes) {
-        const bytes = Uint8Array.from(atob(stroke.points), char => char.charCodeAt(0));
-        const cell = page.cells.find(item => item.day === stroke.day);
-        context.save();
-        try {
-          if (cell) {
-            context.beginPath();
-            context.rect(cell.left, cell.top, cell.right - cell.left, cell.bottom - cell.top);
-            context.clip();
-          }
-          drawStroke(context, bytes, stroke, page);
-        } finally {
-          context.restore();
-        }
-      }
-    } catch {
-      setFailed(true);
-    }
-  }, [page, scale]);
-  return <figure className="journal-preview">
-    <figcaption>{page.title}{page.archived ? ' (archived)' : ''}</figcaption>
-    {failed && <p role="alert">This page could not be drawn.</p>}
-    <canvas ref={canvas} hidden={failed} role="img" aria-label={'Handwriting for ' + page.title}
-      width={Math.max(1, Math.round(page.width * scale))} height={Math.max(1, Math.round(page.height * scale))} />
-  </figure>;
 }

@@ -38,6 +38,7 @@ internal class AndroidExpenseSync(
 
     fun reviewConnection() = launch {
         val (saved, session, api) = connection()
+        repository.seed()
         val local = repository.observe().first()
         reviewMutable.value = ExpenseConnectionReview(api.endpoint.origin, session.scope, local,
             api.expenseInventory(session, saved.token))

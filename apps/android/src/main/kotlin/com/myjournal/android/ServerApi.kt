@@ -139,11 +139,12 @@ internal class ServerApi(
         error("The server journal inventory exceeds 50,000 entries.")
     }
 
-    suspend fun editableVersions(session: ServerSession, token: String): List<EditableRemoteVersion> {
+    suspend fun editableVersions(session: ServerSession, token: String, habitsOnly: Boolean = false): List<EditableRemoteVersion> {
         val versions = mutableListOf<EditableRemoteVersion>()
         var cursor = 0L
         repeat(500) {
-            val page = request("/v1/editable/versions?after=$cursor&limit=100",
+            val filter = if (habitsOnly) "&kind=habits" else ""
+            val page = request("/v1/editable/versions?after=$cursor&limit=100$filter",
                 token = token, journalScope = session.scope).objectValue()
             require(page.scope() == session.scope)
             val items = page.getValue("items").jsonArray
@@ -155,6 +156,7 @@ internal class ServerApi(
                 cursor = next
                 if (item.getValue("current").jsonPrimitive.boolean) {
                     val key = EditableImportKey(item.getValue("kind").jsonPrimitive.content, item.getValue("key").jsonPrimitive.content)
+                    if (habitsOnly) require(key.kind == "habits")
                     val digest = item.getValue("sha256").jsonPrimitive.content
                     require(digest.matches(Regex("[0-9a-f]{64}")))
                     versions += EditableRemoteVersion(Uuid.parse(item.getValue("id").jsonPrimitive.content), key, digest)

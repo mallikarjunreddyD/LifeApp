@@ -139,14 +139,23 @@ export class LifeStore {
     return this.use('readonly', async tx => (await result(tx.settings.get('expense-sync'))) ?? null);
   }
 
-  async bindExpenses(scope: Scope, reviewed: ExpenseRecord[]): Promise<void> {
+  private async bindExpenseRecords(tx: Transaction, scope: Scope, reviewed: ExpenseRecord[]) {
+    const records = await result(tx.expenses.getAll()) as ExpenseRecord[];
+    if (JSON.stringify(records) !== JSON.stringify(reviewed)) throw new Error('Expenses changed. Review again.');
+    const ordered = [...records.filter(record => record.kind === 'label'), ...records.filter(record => record.kind === 'expense')];
+    const pending = ordered.map(record => newExpenseOperation(record, record.kind === 'expense' && record.value.deleted ? 'DELETE' : 'PUT'));
+    await result(tx.settings.put({ scope, cursor: '0', heads: [], pending, acknowledged: [] } satisfies ExpenseSyncState, 'expense-sync'));
+  }
+
+  async bindStructured(scope: Scope, reviewedExpenses: ExpenseRecord[]): Promise<void> {
     await this.use('readwrite', async tx => {
-      if (await result(tx.settings.get('expense-sync'))) throw new Error('Expenses are already connected.');
-      const records = await result(tx.expenses.getAll()) as ExpenseRecord[];
-      if (JSON.stringify(records) !== JSON.stringify(reviewed)) throw new Error('Expenses changed. Review again.');
-      const ordered = [...records.filter(record => record.kind === 'label'), ...records.filter(record => record.kind === 'expense')];
-      const pending = ordered.map(record => newExpenseOperation(record, record.kind === 'expense' && record.value.deleted ? 'DELETE' : 'PUT'));
-      await result(tx.settings.put({ scope, cursor: '0', heads: [], pending, acknowledged: [] } satisfies ExpenseSyncState, 'expense-sync'));
+      const todo = await tx.state();
+      const expense = await result(tx.settings.get('expense-sync')) as ExpenseSyncState | undefined;
+      if ((todo.checkpoint && !sameScope(todo.checkpoint.scope, scope)) || (expense && !sameScope(expense.scope, scope))) {
+        throw new Error('Reconnect to the original account or recovery epoch. Local changes were kept.');
+      }
+      if (!expense) await this.bindExpenseRecords(tx, scope, reviewedExpenses);
+      if (!todo.checkpoint) await tx.save({ ...todo, checkpoint: { scope, sequence: '0' } });
     });
   }
 

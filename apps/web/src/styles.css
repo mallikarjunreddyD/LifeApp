@@ -113,8 +113,6 @@ nav button[aria-current=page] { background: var(--active); color: var(--ink); fo
   .workout-report article { box-shadow: none; }
 }
 
-.journal-preview { margin: 1rem 0; }
-.journal-preview canvas { max-width: 100%; height: auto; background: #fffdf7; border: 1px solid #d9d1c2; }
 
 .workout-logbook {
   max-width: 76rem;

@@ -592,6 +592,12 @@ paths:
           minimum: 1
           maximum: 100
           default: 100
+      - name: kind
+        in: query
+        description: Restrict the version inventory to structured habit months.
+        schema:
+          type: string
+          enum: [habits]
       responses:
         '200':
           description: Committed versions after the exclusive sequence.

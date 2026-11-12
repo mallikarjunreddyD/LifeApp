@@ -58,14 +58,12 @@ class MainActivity : ComponentActivity() {
             val planner by model.planner.state.collectAsState()
             val habits by model.habits.state.collectAsState()
             val notebook by model.notebooks.state.collectAsState()
-            val editablePending = journal.pending + planner.pending + habits.pending + notebook.pending
-            var previousPending by remember { mutableIntStateOf(editablePending) }
-            LaunchedEffect(editablePending) {
-                if (previousPending > 0 && editablePending == 0 &&
-                    listOf(journal.error, planner.error, habits.error, notebook.error).all { it == null }) {
+            var previousHabitPending by remember { mutableIntStateOf(habits.pending) }
+            LaunchedEffect(habits.pending) {
+                if (previousHabitPending > 0 && habits.pending == 0 && habits.error == null) {
                     applicationState.serverSync.scheduleEditableUpload()
                 }
-                previousPending = editablePending
+                previousHabitPending = habits.pending
             }
             BackHandler(enabled = routes.size > 1 || routes.last().section == com.myjournal.domain.AppSection.NOTEBOOK && notebook.notebook != null) {
                 if (routes.last().section == com.myjournal.domain.AppSection.NOTEBOOK && notebook.notebook != null) model.openNotebook(null) else model.back()
@@ -144,7 +142,7 @@ class MainActivity : ComponentActivity() {
                 if (available && !online) {
                     app.serverSync.schedule()
                     app.serverSync.scheduleEditableUpload()
-                app.expenseSync.schedule()
+                    app.expenseSync.schedule()
                 }
                 online = available
                 app.serverSync.networkChanged(available)
