@@ -1,6 +1,9 @@
 package com.myjournal.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -12,7 +15,10 @@ import androidx.compose.ui.semantics.contentDescription
 import com.myjournal.domain.AppSection
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 private val AppSection.title: String get() = when (this) {
@@ -22,11 +28,35 @@ private val AppSection.title: String get() = when (this) {
     AppSection.HABITS -> "Habit Tracker"; AppSection.NOTEBOOK -> "Notebook"; AppSection.SETTINGS -> "Settings"; AppSection.TODO -> "To-do"
 }
 
-private val PaperColors = lightColorScheme(
-    primary = Color(0xFF52694F), onPrimary = Color.White,
-    background = Color(0xFFF8F5ED), onBackground = Color(0xFF302F2B),
-    surface = Color(0xFFFFFCF5), onSurface = Color(0xFF302F2B),
-    secondaryContainer = Color(0xFFE4EADB), onSecondaryContainer = Color(0xFF263C26),
+private val AppSection.shortLabel get() = when (this) {
+    AppSection.JOURNAL -> "Journal"
+    AppSection.PLANNER -> "Planner"
+    AppSection.HABITS -> "Habits"
+    else -> title
+}
+
+private val LifeAppColors = lightColorScheme(
+    primary = Color(0xFF144C3C), onPrimary = Color.White,
+    primaryContainer = Color(0xFFD8EAE0), onPrimaryContainer = Color(0xFF163C30),
+    secondary = Color(0xFF52665B), secondaryContainer = Color(0xFFE1ECE4),
+    onSecondaryContainer = Color(0xFF173A2D),
+    tertiary = Color(0xFF894C34), tertiaryContainer = Color(0xFFF8DFD1),
+    background = Color(0xFFF3F1E9), onBackground = Color(0xFF192721),
+    surface = Color(0xFFFFFDF6), onSurface = Color(0xFF192721),
+    surfaceVariant = Color(0xFFE8ECE3), onSurfaceVariant = Color(0xFF45584F),
+    surfaceContainer = Color(0xFFF5F4EB), surfaceContainerHigh = Color(0xFFEAECE2),
+    outline = Color(0xFF697970), outlineVariant = Color(0xFFCDD6CC),
+    error = Color(0xFF9D3930), errorContainer = Color(0xFFFFE2DA),
+)
+
+private val LifeAppShapes = Shapes(
+    small = RoundedCornerShape(10.dp), medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(22.dp),
+)
+
+private val destinationOrder = listOf(
+    AppSection.JOURNAL, AppSection.PLANNER, AppSection.NOTEBOOK, AppSection.TODO,
+    AppSection.HABITS, AppSection.WORKOUTS, AppSection.EXPENSES, AppSection.SETTINGS,
 )
 
 @Composable
@@ -36,12 +66,15 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
     selectedSection: AppSection? = null, onSectionSelected: ((AppSection) -> Unit)? = null,
     globalStatus: (@Composable () -> Unit)? = null, todo: (@Composable () -> Unit)? = null,
     workouts: (@Composable () -> Unit)? = null, expenses: (@Composable () -> Unit)? = null) {
-    MaterialTheme(colorScheme = PaperColors, typography = Typography(
-        headlineLarge = MaterialTheme.typography.headlineLarge.copy(fontFamily = FontFamily.Serif),
+    val typography = Typography()
+    MaterialTheme(colorScheme = LifeAppColors, shapes = LifeAppShapes, typography = typography.copy(
+        headlineMedium = typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
+        titleLarge = typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+        titleMedium = typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
     )) {
         var selectedName by rememberSaveable { mutableStateOf(AppSection.JOURNAL.name) }
         val selected = selectedSection ?: AppSection.valueOf(selectedName)
-        val destinations = AppSection.entries.filter {
+        val destinations = destinationOrder.filter {
             (it != AppSection.TODO || todo != null) && (it != AppSection.WORKOUTS || workouts != null) &&
                 (it != AppSection.EXPENSES || expenses != null)
         }
@@ -52,22 +85,49 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             BoxWithConstraints(Modifier.safeDrawingPadding()) {
                 val wide = maxWidth >= 720.dp
+                val compactColumns = if (maxWidth < 600.dp) 4 else destinations.size
                 Column {
-                    // Saving a gesture must not insert a row above the paper and
-                    // move the contact origin while the next gesture is underway.
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Text("My Journal", style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                        Column(Modifier.weight(1f)) { globalStatus?.invoke() }
+                    // Status stays inside a fixed region so a save never shifts the ink surface.
+                    Surface(color = MaterialTheme.colorScheme.surface) {
+                        Row(
+                            Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            LifeAppMark()
+                            Text("LifeApp", style = MaterialTheme.typography.titleLarge)
+                            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { globalStatus?.invoke() }
+                        }
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Row(Modifier.weight(1f)) {
-                        if (wide) NavigationRail {
-                            destinations.forEach { destination ->
-                                NavigationRailItem(selected == destination,
-                                    onClick = { select(destination) },
-                                    icon = { Text(destination.title.take(1)) }, label = { Text(destination.title) },
-                                    modifier = Modifier.semantics { contentDescription = "Open ${destination.title}" })
+                        if (wide) {
+                            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                                Column(
+                                    Modifier.width(174.dp).fillMaxHeight().verticalScroll(rememberScrollState())
+                                        .selectableGroup().padding(horizontal = 10.dp, vertical = 14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    destinations.forEach { destination ->
+                                        val active = selected == destination
+                                        Surface(
+                                            shape = MaterialTheme.shapes.medium,
+                                            color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                        ) {
+                                            Row(
+                                                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                                    .selectable(active, role = Role.Tab) { select(destination) }
+                                                    .semantics { contentDescription = "Open ${destination.title}" }
+                                                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                DestinationIcon(destination, active)
+                                                Text(destination.title, style = MaterialTheme.typography.labelLarge)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         val screen = when (selected) {
@@ -95,12 +155,37 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
                             else "This space is reserved for ${selected.title.lowercase()}. Writing, editing and saving are not available yet.")
                         }
                     }
-                    if (!wide) NavigationBar {
-                        destinations.forEach { destination ->
-                            NavigationBarItem(selected == destination,
-                                onClick = { select(destination) },
-                                icon = { Text(destination.title.take(1)) }, label = { Text(destination.title) },
-                                    modifier = Modifier.semantics { contentDescription = "Open ${destination.title}" })
+                    if (!wide) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Surface(color = MaterialTheme.colorScheme.surface) {
+                            Column(Modifier.fillMaxWidth().selectableGroup().padding(horizontal = 6.dp, vertical = 4.dp)) {
+                                destinations.chunked(compactColumns).forEach { row ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        row.forEach { destination ->
+                                            val active = selected == destination
+                                            Surface(
+                                                modifier = Modifier.weight(1f),
+                                                shape = MaterialTheme.shapes.medium,
+                                                color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                            ) {
+                                                Column(
+                                                    Modifier.fillMaxWidth().heightIn(min = 49.dp)
+                                                        .selectable(active, role = Role.Tab) { select(destination) }
+                                                        .semantics { contentDescription = "Open ${destination.title}" }
+                                                        .padding(horizontal = 2.dp, vertical = 4.dp),
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+                                                ) {
+                                                    DestinationIcon(destination, active)
+                                                    Text(destination.shortLabel, style = MaterialTheme.typography.labelSmall,
+                                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
+                                            }
+                                        }
+                                        repeat(compactColumns - row.size) { Spacer(Modifier.weight(1f)) }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

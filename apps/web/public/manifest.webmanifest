@@ -2,12 +2,12 @@
   "id": "/",
   "name": "LifeApp",
   "short_name": "LifeApp",
-  "description": "A personal journal and task list",
+  "description": "Tasks, habits, workouts and expenses",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f5f1e8",
-  "theme_color": "#f5f1e8",
+  "background_color": "#f3f1e9",
+  "theme_color": "#f3f1e9",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

@@ -79,8 +79,9 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
 
   return <section className="expense-module">
     {page !== 'history' && <button disabled={busy} onClick={() => navigate('history')}>Back to Expenses</button>}
-    <h1>{page === 'history' ? 'Expenses' : page === 'new' ? 'Add Expense' : page === 'CATEGORY' ? 'Manage Categories' :
+    <div className="page-heading section-heading"><h1>{page === 'history' ? 'Expenses' : page === 'new' ? 'Add Expense' : page === 'CATEGORY' ? 'Manage Categories' :
       page === 'PAYMENT' ? 'Manage Payment Methods' : page === 'analysis' ? 'Spending Analysis' : 'Edit Expense'}</h1>
+    {page === 'history' && records && <button className="primary" disabled={busy} onClick={() => navigate('new')}>Add Expense</button>}</div>
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {!records && !error && <p role="status">Loading expenses…</p>}
@@ -88,7 +89,7 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
       <article className="card expense-summary">
         <p>{month}</p>
         <strong>{formatExpensePaise(period.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</strong>
-        <p>{period.length} {period.length === 1 ? 'transaction' : 'transactions'} · Saved on this device</p>
+        <p>{period.length} {period.length === 1 ? 'transaction' : 'transactions'}</p>
       </article>
       {sync.status && <p role="status">{sync.status}</p>}
       {sync.state ? <div className="actions">
@@ -112,7 +113,6 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
           })}
         </article>)}
       </section>}
-      <button className="primary" disabled={busy} onClick={() => navigate('new')}>Add Expense</button>
       <div className="actions expense-secondary">
         <button onClick={() => navigate('analysis')}>View Spending Analysis</button>
         <button onClick={() => navigate('CATEGORY')}>Manage Categories</button>

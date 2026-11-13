@@ -53,6 +53,31 @@ test('Settings separates account controls and advanced diagnostics', async ({ pa
   await expect(page.getByText('Server origin', { exact: true })).toBeVisible();
 });
 
+test('LifeApp branding and navigation adapt to phone and desktop layouts', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await expect(page).toHaveTitle('LifeApp');
+  const brand = page.locator('.brand');
+  await expect(brand).toHaveText('LifeApp');
+  expect(await brand.locator('img').evaluate((image: HTMLImageElement) => image.decode().then(() => image.naturalWidth))).toBe(192);
+  const nav = page.getByRole('navigation', { name: 'Main navigation' });
+  await expect(nav.getByRole('button', { name: 'To-do' })).toHaveAttribute('aria-current', 'page');
+  await add(page, 'Review weekly budget');
+  await add(page, 'Prepare training plan');
+  for (const [name, width, height] of [['phone', 320, 700], ['desktop', 1366, 900]] as const) {
+    await page.setViewportSize({ width, height });
+    await expect(page.getByRole('button', { name: 'Add task' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    const bounds = await nav.boundingBox();
+    expect(bounds).toBeTruthy();
+    if (name === 'phone') expect(bounds!.y + bounds!.height).toBeCloseTo(height, 0);
+    else expect(bounds!.width).toBeLessThan(240);
+    await page.screenshot({ path: testInfo.outputPath('lifeapp-' + name + '.png') });
+  }
+  await nav.getByRole('button', { name: 'Expenses' }).click();
+  await expect(nav.getByRole('button', { name: 'Expenses' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Add Expense' })).toBeVisible();
+});
+
 test('offline Download My Data verifies hashes and describes local coverage', async ({ page, context }) => {
   await page.goto('/');
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);

@@ -117,8 +117,12 @@ export function Workouts({ store, historyOnly = false, generation, syncStatus, c
   if (reportOpen) return <WorkoutReport sessions={sessions} exercises={exercises} close={() => setReportOpen(false)} />;
 
   return <section className="workout-logbook">
-    <h1>Workouts</h1>
-    <p>Workout changes are saved on this device.</p>
+    <div className="page-heading section-heading">
+      <h1>{historyOnly ? 'History' : 'Workouts'}</h1>
+      {!historyOnly && !draft && <button className="primary workout-add" disabled={busy} onClick={() => keepDraft({ revision: null,
+        session: { metadata: revise(), date: today(), startedAt: null, endedAt: null, durationSeconds: null,
+          caloriesKcal: null, notes: null, completed: false, logged: true, entries: [] } })}>Add workout</button>}
+    </div>
     {syncStatus && <p role="status">{syncStatus}</p>}
     {!!conflicts.length && <details><summary>Review workout copies</summary>
       {conflicts.map(conflict => {
@@ -255,14 +259,12 @@ export function Workouts({ store, historyOnly = false, generation, syncStatus, c
       <label>Overall remarks<textarea maxLength={4000} value={session.notes ?? ''} onChange={event => {
         const notes = event.currentTarget.value; change(value => ({ ...value, notes }));
       }} /></label>
-      <div className="actions"><button disabled={busy}>Save workout</button>
+      <div className="actions"><button className="primary" disabled={busy}>Save workout</button>
         <button type="button" disabled={busy} onClick={() => {
           if (window.confirm('Discard this workout draft?')) keepDraft(null);
         }}>Discard draft</button></div>
     </form> : <>
-      {!historyOnly && <button className="workout-add" disabled={busy} onClick={() => keepDraft({ revision: null,
-        session: { metadata: revise(), date: today(), startedAt: null, endedAt: null, durationSeconds: null,
-          caloriesKcal: null, notes: null, completed: false, logged: true, entries: [] } })}>Add workout</button>}
+
       <h2>Workout history</h2>
       <div className="workout-filters">
         <label>Month<input type="month" value={month} onChange={event => setMonth(event.currentTarget.value)} /></label>

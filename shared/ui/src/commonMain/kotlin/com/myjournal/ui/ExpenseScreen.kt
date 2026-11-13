@@ -151,18 +151,26 @@ fun ExpenseScreen(
     LazyColumn(Modifier.fillMaxSize().imePadding().testTag("expense-history"), state = historyPosition, contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Text("Expenses", style = MaterialTheme.typography.headlineMedium)
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text("Expenses", style = MaterialTheme.typography.headlineMedium)
+                Button(enabled = !busy, onClick = { navigate("new") }) { Text("Add Expense") }
+            }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             notice?.let { Text(it) }
-            OutlinedCard(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+            )) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(month)
                     Text(formatExpensePaise(period.sumOf { it.amountMinor }), style = MaterialTheme.typography.headlineMedium)
-                    Text("${period.size} ${if (period.size == 1) "transaction" else "transactions"} · Saved on this device")
+                    Text("${period.size} ${if (period.size == 1) "transaction" else "transactions"}")
                 }
             }
             syncControls()
-            Button(enabled = !busy, onClick = { navigate("new") }) { Text("Add Expense") }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = { filters = !filters }) { Text("Filter Expenses") }
                 TextButton(onClick = { navigate("analysis") }) { Text("View Spending Analysis") }

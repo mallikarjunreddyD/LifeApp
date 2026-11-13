@@ -10,16 +10,19 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
-private enum class SettingsPage(val title: String) {
-    ACCOUNT("Account & Security"),
-    SYNC("Synchronization"),
-    BACKUP("Backup & Recovery"),
-    NOTIFICATIONS("Notifications"),
-    APPEARANCE("Appearance"),
-    ABOUT("About LifeApp"),
+private enum class SettingsPage { ACCOUNT, SYNC, BACKUP, NOTIFICATIONS, APPEARANCE, ABOUT }
+
+private val SettingsPage.title get() = when (this) {
+    SettingsPage.ACCOUNT -> "Account & Security"
+    SettingsPage.SYNC -> "Synchronization"
+    SettingsPage.BACKUP -> "Backup & Recovery"
+    SettingsPage.NOTIFICATIONS -> "Notifications"
+    SettingsPage.APPEARANCE -> "Appearance"
+    SettingsPage.ABOUT -> "About LifeApp"
 }
 
 @Composable
@@ -55,11 +58,21 @@ internal fun SettingsScreen(operations: DataOperations, serverSync: AndroidServe
             state.message?.let { Text(it, color = if (state.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
             when (page) {
                 null -> {
-                    Text(server.protectionSummary())
-                    state.localBackupVerifiedAt?.let { Text("Last verified local backup: ${readableBackupTime(it)}") }
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(server.protectionSummary(), style = MaterialTheme.typography.titleMedium)
+                            state.localBackupVerifiedAt?.let { Text("Last verified local backup: ${readableBackupTime(it)}") }
+                        }
+                    }
                     SettingsPage.entries.forEach { section ->
-                        OutlinedButton(modifier = Modifier.fillMaxWidth(), enabled = !state.busy, onClick = { page = section }) {
-                            Text(section.title)
+                        OutlinedCard(onClick = { page = section }, modifier = Modifier.fillMaxWidth(), enabled = !state.busy) {
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 54.dp).padding(horizontal = 16.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(section.title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
