@@ -1,4 +1,4 @@
-# LifeApp — My Journal
+# LifeApp
 
 An offline-first personal journal, primarily for Xiaomi Pad 7 and a compatible stylus.
 Phase 3.1 corrects tablet workspace/ink alignment and adds recoverable journal-page deletion.

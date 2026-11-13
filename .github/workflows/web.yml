@@ -45,3 +45,4 @@ jobs:
             apps/web/test-results/browser.xml
             apps/web/test-results/**/workout-*.png
             apps/web/test-results/**/expense-*.png
+            apps/web/test-results/**/lifeapp-*.png

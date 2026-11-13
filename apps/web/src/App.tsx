@@ -1,3 +1,4 @@
+import { NavigationIcon } from './NavigationIcon.tsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { ApiError, api, synchronize } from './api.ts';
@@ -250,13 +251,16 @@ export function App({ store }: { store: LifeStore }) {
     !session ? 'Signed out' : !matches ? 'Review connection' : synced ? 'To-do up to date' : 'Ready to sync';
 
   return <div className="shell">
+    <a className="skip-link" href="#workspace">Skip to content</a>
     <header className="masthead">
-      <div><p className="brand">LifeApp</p><p className="subtitle">Personal journal</p></div>
-      <div className="sync-status" aria-live="polite"><strong>{status}</strong><span>{view.pending} pending</span></div>
+      <div className="brand"><img src="/icon-192.png" width="42" height="42" alt="" /><span>LifeApp</span></div>
+      <div className="sync-status" aria-live="polite" data-offline={!online}>
+        <strong>{status}</strong><span>{view.pending} pending</span>
+      </div>
     </header>
     {worker && <aside className="banner">An app update is ready. <button onClick={worker}>Reload app</button></aside>}
     {(error || notice) && <div className={error ? 'message error' : 'message'} role={error ? 'alert' : 'status'}>{error || notice}</div>}
-    <main>
+    <main id="workspace" tabIndex={-1}>
       {tab === 'To-do' && (loaded ? <Todos view={view} change={change} store={store} /> : <p role="status">Loading local tasks…</p>)}
       {tab === 'Settings' && <Settings view={view} session={session} busy={busy || structuredBusy} online={online}
         onLogin={login} onBind={bind} onLogout={logout} status={status} expensePending={expenseSync.state?.pending.length ?? 0} expenseConnected={expenseSync.state !== null} workoutConnected={workoutConnected} workoutStatus={workoutStatus} onExport={async () => {
@@ -283,7 +287,7 @@ export function App({ store }: { store: LifeStore }) {
       </section>}
     </main>
     <nav aria-label="Main navigation">
-      {tabs.map(item => <button key={item} aria-current={tab === item ? 'page' : undefined} onClick={() => setTab(item)}>{item}</button>)}
+      {tabs.map(item => <button key={item} aria-current={tab === item ? 'page' : undefined} onClick={() => setTab(item)}><NavigationIcon name={item} /><span>{item}</span></button>)}
     </nav>
   </div>;
 }
@@ -300,7 +304,7 @@ function Todos({ view, change, store }: { view: LocalView; store: LifeStore; cha
   ] as const;
   const conflicts = view.tasks.filter(task => task.conflicts.length > 0);
   return <section>
-    <div className="section-heading"><h1>To-do</h1><button className="primary" onClick={() => setEditor('new')}>Add task</button></div>
+    <div className="section-heading page-heading"><h1>To-do</h1><button className="primary" onClick={() => setEditor('new')}>Add task</button></div>
     {editor && <TaskForm key={editor === 'new' ? 'new' : editor.record.metadata.id} task={editor === 'new' ? undefined : editor.record}
       cancel={() => setEditor(null)} save={async (name, deadline) => {
         const saved = await change(() => editor === 'new' ? store.add(name, deadline) :
@@ -312,13 +316,14 @@ function Todos({ view, change, store }: { view: LocalView; store: LifeStore; cha
       {conflicts.map(task => <Conflict key={task.record.metadata.id} task={task} change={change} store={store} />)}
     </section>}
     {!sorted.length && !conflicts.length && <p className="empty">No tasks yet. Add one to get started.</p>}
-    {groups.map(([heading, tasks]) => tasks.length > 0 && <section key={heading}>
+    {groups.map(([heading, tasks]) => tasks.length > 0 && <section key={heading} className="task-group" data-group={heading}>
       <h2>{heading}</h2>
       <ul className="tasks">{tasks.map(task => { const { record, resolving, head } = task; return <li key={record.metadata.id}>
         <label className="check"><input type="checkbox" aria-label={(record.completedAt ? 'Reopen ' : 'Complete ') + record.title} checked={!!record.completedAt}
           disabled={resolving} onChange={event => { const completed = event.currentTarget.checked;
             void change(() => store.edit(record.metadata.id, { completed }, head)); }} /></label>
-        <div className="task-label"><strong>{record.title}</strong><time dateTime={record.deadline}>{record.deadline}</time></div>
+        <div className="task-label"><strong>{record.title}</strong><time dateTime={record.deadline}>{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' })
+          .format(new Date(record.deadline + 'T00:00:00Z'))}</time></div>
         <button disabled={resolving} aria-label={'Edit ' + record.title} onClick={() => setEditor(task)}>Edit</button>
         <button disabled={resolving} aria-label={'Delete ' + record.title} onClick={() => {
           if (window.confirm('Delete this task?')) void change(() => store.edit(record.metadata.id, { delete: true }, head));
@@ -401,7 +406,7 @@ function Settings({ view, session, busy, online, status, onLogin, onBind, onLogo
       <p>{online ? status : 'Offline — changes saved on this device.'}</p>
       {view.pending > 0 && <p>{view.pending} To-do changes waiting to sync.</p>}
       <div className="settings-categories">{settingsPages.map(category =>
-        <button key={category} onClick={() => setPage(category)}>{category}</button>)}</div>
+        <button key={category} onClick={() => setPage(category)}><span>{category}</span><span aria-hidden="true">›</span></button>)}</div>
     </>}
     {page === 'Account & Security' && <article className="card">
       {!session ? <form onSubmit={submit}>

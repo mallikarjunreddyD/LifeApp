@@ -504,3 +504,12 @@ feed before and after isolated encrypted PostgreSQL recovery. These checks
 run in GitHub Actions. Physical Xiaomi Pad 7, iPhone Safari and Windows
 desktop acceptance, persistent-key in-place update, and production rollout
 are tracked in [Phase 8 acceptance](phase-8-acceptance.md).
+
+## Phase 9B interface and branding
+
+Android debug and instrumentation APK assembly, Android lint, shared JVM tests
+and desktop compilation passed locally. The browser suite checks both compact
+and desktop navigation, verifies the LifeApp icon loads, and exercises the
+existing offline and synchronization flows. Emulator reports and browser
+screenshots are attached to the PR checks. Xiaomi stylus alignment, launcher
+refresh, and physical iPhone PWA appearance require device verification.

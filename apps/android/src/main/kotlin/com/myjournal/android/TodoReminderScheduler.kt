@@ -122,9 +122,9 @@ class TodoReminderReceiver : BroadcastReceiver() {
                 val notification = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL)
                     else Notification.Builder(context)
                 val noun = if (summary.pending == 1) "task" else "tasks"
-                manager.notify(100, notification.setSmallIcon(R.drawable.ic_journal)
+                manager.notify(100, notification.setSmallIcon(R.drawable.ic_lifeapp_notification)
                     .setContentTitle("${summary.pending} pending $noun")
-                    .setContentText(if (summary.overdue > 0) "Overdue: ${summary.overdue}. Open My Journal to review." else "Open My Journal to review.")
+                    .setContentText(if (summary.overdue > 0) "Overdue: ${summary.overdue}. Open LifeApp to review." else "Open LifeApp to review.")
                     .setVisibility(Notification.VISIBILITY_PRIVATE).setContentIntent(open).setAutoCancel(true).build())
             } catch (_: Exception) {
                 android.util.Log.w("TodoReminder", "Unable to read pending tasks or post the reminder")
