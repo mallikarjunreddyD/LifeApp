@@ -421,8 +421,13 @@ test('Habits shows structured months and hides handwriting modules', async ({ co
   await expect(page.getByText('1 habit changes waiting to sync.')).toHaveCount(0, { timeout: 15_000 });
   const updated = await (await context.request.get('/v1/editable/versions?kind=habits', { headers })).json();
   const latest = updated.items.find((row: { current: boolean }) => row.current);
-  const preview = await (await context.request.get('/v1/editable/versions/' + latest.id + '/preview', { headers })).json();
-  expect(preview.habits.find((habit: { name: string }) => habit.name === 'Reading').completedDays).toContain(2);
+  await expect.poll(async () => {
+    const response = await context.request.get('/v1/editable/versions/' + latest.id + '/preview', { headers });
+    if (response.status() === 429) return [];
+    expect(response.ok()).toBe(true);
+    const preview = await response.json();
+    return preview.habits.find((habit: { name: string }) => habit.name === 'Reading').completedDays;
+  }).toContain(2);
   await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('1');
   await expect(reading).not.toBeChecked();
   const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
@@ -492,4 +497,39 @@ test('expenses create labels, edit, delete and restore across offline reloads', 
   }
   await page.getByLabel('Search expense names').fill('Other');
   await expect(page.getByRole('heading', { name: 'Training shoes' })).toHaveCount(0);
+});
+
+test('expense history limits the newest results after applying filters', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Expenses', exact: true }).click();
+  async function record(name: string, date: string, category: string) {
+    await page.getByRole('button', { name: 'Add Expense' }).click();
+    await page.getByLabel('Amount (₹)').fill('1');
+    await page.getByLabel('Expense name').fill(name);
+    await page.getByLabel('Date', { exact: true }).fill(date);
+    await page.getByRole('button', { name: /^Category ·/ }).click();
+    await page.getByLabel('Search Category').fill(category);
+    await page.getByRole('button', { name: category, exact: true }).click();
+    await page.getByRole('button', { name: /^Paid From ·/ }).click();
+    await page.getByRole('button', { name: 'Cash', exact: true }).click();
+    await page.getByRole('button', { name: 'Save Expense' }).click();
+    await expect(page.getByRole('heading', { name: 'Recent Expenses' })).toBeVisible();
+  }
+  await record('Previous month', '2026-10-31', 'Groceries');
+  await record('Early grocery trip', '2026-11-01', 'Groceries');
+  for (let day = 2; day <= 11; day++) {
+    await record('Transport ' + day, '2026-11-' + String(day).padStart(2, '0'), 'Transport');
+  }
+  const cards = page.locator('.expense-card');
+  await expect(cards).toHaveCount(10);
+  await expect(cards.first()).toContainText('Transport 11');
+  await expect(cards.last()).toContainText('Transport 2');
+  await expect(page.locator('.expense-summary strong')).toHaveText('₹11.00');
+  await page.getByText('Filter Expenses', { exact: true }).click();
+  await page.getByLabel('Category filter').selectOption({ label: 'Groceries' });
+  await expect(cards).toHaveCount(1);
+  await expect(cards.first()).toContainText('Early grocery trip');
+  await page.getByLabel('Month', { exact: true }).fill('2026-10');
+  await expect(cards).toHaveCount(1);
+  await expect(cards.first()).toContainText('Previous month');
 });

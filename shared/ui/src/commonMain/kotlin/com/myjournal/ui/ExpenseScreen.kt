@@ -138,7 +138,7 @@ fun ExpenseScreen(
     val visible = if (deleted) data.expenses.filter { it.deleted }.sortedByDescending { it.date }
     else period.filter { (query.isBlank() || it.name.contains(query.trim(), ignoreCase = true)) &&
         (category.isEmpty() || it.categoryId.toString() == category) &&
-        (payment.isEmpty() || it.paymentMethodId.toString() == payment) }
+        (payment.isEmpty() || it.paymentMethodId.toString() == payment) }.take(10)
 
     LaunchedEffect(revealId, visible) {
         val id = revealId ?: return@LaunchedEffect

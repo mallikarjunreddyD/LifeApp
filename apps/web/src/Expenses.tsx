@@ -73,7 +73,7 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
   const period = active.filter(item => item.date.startsWith(month + '-'));
   const visible = deleted ? items.filter(item => item.deleted) : period.filter(item =>
     expenseNameKey(item.name).includes(expenseNameKey(query)) && (!category || item.categoryId === category) &&
-    (!payment || item.paymentMethodId === payment));
+    (!payment || item.paymentMethodId === payment)).slice(0, 10);
   const saveLabel = (label: ExpenseLabel, expected: string | null, done?: () => void) =>
     void write(() => store.saveExpense({ kind: 'label', value: label }, expected), done);
 
