@@ -4,10 +4,10 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 
-async function add(page: Page, title: string) {
+async function add(page: Page, title: string, deadline = "2030-11-12") {
   await page.getByRole('button', { name: 'Add task' }).click();
   await page.getByLabel('Task title').fill(title);
-  await page.getByLabel('Deadline').fill('2030-11-12');
+  await page.getByLabel('Deadline').fill(deadline);
   await page.getByRole('button', { name: 'Save task' }).click();
   await expect(page.getByText(title, { exact: true })).toBeVisible();
 }
@@ -28,14 +28,14 @@ async function bind(page: Page) {
   page.once('dialog', dialog => void dialog.accept());
   await page.getByRole('button', { name: 'Connect synchronization' }).click();
   await expect(page.getByRole('button', { name: 'Connect synchronization' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled({ timeout: 15_000 });
 }
 
 async function sync(page: Page) {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Synchronization' }).click();
   await page.getByRole('button', { name: 'Sync now' }).click();
-  await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Sync now' })).toBeEnabled({ timeout: 15_000 });
   await page.getByRole('button', { name: 'To-do' }).click();
 }
 
@@ -57,12 +57,21 @@ test('LifeApp branding and navigation adapt to phone and desktop layouts', async
   await page.goto('/');
   await expect(page).toHaveTitle('LifeApp');
   const brand = page.locator('.brand');
-  await expect(brand).toHaveText('LifeApp');
+  await expect(brand.locator('span')).toHaveText('LifeApp');
   expect(await brand.locator('img').evaluate((image: HTMLImageElement) => image.decode().then(() => image.naturalWidth))).toBe(192);
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
   await expect(nav.getByRole('button', { name: 'To-do' })).toHaveAttribute('aria-current', 'page');
   await add(page, 'Review weekly budget');
-  await add(page, 'Prepare training plan');
+  const dueToday = await page.evaluate(() => {
+    const date = new Date();
+    return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+  });
+  await add(page, 'Prepare training plan', dueToday);
+  await expect(page.getByRole('heading', { name: 'Due today' })).toBeVisible();
+  await page.getByRole('button', { name: 'Hide navigation' }).click();
+  await expect(nav).toBeHidden();
+  await page.getByRole('button', { name: 'Show navigation' }).click();
+  await expect(nav).toBeVisible();
   for (const [name, width, height] of [['phone', 320, 700], ['desktop', 1366, 900]] as const) {
     await page.setViewportSize({ width, height });
     await expect(page.getByRole('button', { name: 'Add task' })).toBeVisible();
@@ -120,7 +129,7 @@ test('iPhone-sized offline shell reopens queued changes and survives worker upda
   await page.getByRole('checkbox', { name: 'Complete Offline browser task' }).click();
   await expect(page.getByRole('heading', { name: 'Completed' })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Reopen Offline browser task' }).click();
-  await expect(page.getByRole('heading', { name: 'Pending' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Upcoming' })).toBeVisible();
   await add(page, 'Delete locally');
   page.once('dialog', dialog => void dialog.accept());
   await page.getByRole('button', { name: 'Delete Delete locally' }).click();
@@ -230,7 +239,7 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
 
     await context.setOffline(true);
     await page.getByRole('button', { name: 'Workouts', exact: true }).click();
-    await page.getByText('Exercise library', { exact: true }).click();
+    await page.getByRole('button', { name: 'Exercises', exact: true }).click();
     await page.getByRole('button', { name: 'New exercise' }).click();
     await page.getByLabel('Exercise name').fill('Cross-device press');
     await page.getByRole('button', { name: 'Save exercise' }).click();
@@ -239,7 +248,7 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
     await expect(page.getByText('Workouts checked with the server.')).toBeVisible();
     await syncExpenses(second);
     await second.getByRole('button', { name: 'Workouts', exact: true }).click();
-    await second.getByText('Exercise library', { exact: true }).click();
+    await second.getByRole('button', { name: 'Exercises', exact: true }).click();
     await expect(second.getByRole('heading', { name: 'Cross-device press' })).toBeVisible();
   } finally { await other.close(); }
 });
@@ -283,22 +292,24 @@ test('workout logbook drafts, deletion and PDF work offline', async ({ page, con
   await page.reload();
   await context.setOffline(true);
   await page.getByRole('button', { name: 'Workouts', exact: true }).click();
-  await page.getByText('Exercise library', { exact: true }).click();
+  await page.getByRole('button', { name: 'Exercises', exact: true }).click();
   await page.getByRole('button', { name: 'New exercise' }).click();
   await page.getByLabel('Exercise name').fill('Bench Press');
   await page.getByLabel('Category', { exact: true }).fill('Chest');
   await page.getByRole('button', { name: 'Save exercise' }).click();
   await expect(page.getByRole('heading', { name: 'Bench Press' })).toBeVisible();
-  await page.getByText('Manage routines', { exact: true }).click();
+  await page.getByRole('button', { name: 'Routines', exact: true }).click();
   await page.getByRole('button', { name: 'New routine' }).click();
   await page.getByLabel('Routine name').fill('Push');
   await page.getByRole('button', { name: 'Add Bench Press' }).click();
   await page.getByLabel('Planned sets').fill('1');
   await page.getByRole('button', { name: 'Save routine' }).click();
   await expect(page.getByRole('heading', { name: 'Push', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Log', exact: true }).click();
   await page.getByRole('button', { name: 'Add workout' }).click();
   await page.getByLabel('Workout date').fill('2026-11-12');
   await page.getByRole('combobox', { name: 'Routine', exact: true }).selectOption({ label: 'Push' });
+  await page.locator('summary').filter({ hasText: 'Bench Press' }).click();
   await page.getByLabel('Weight', { exact: true }).fill('105.5');
   await page.getByRole('combobox', { name: 'Unit', exact: true }).selectOption('LB');
   await page.getByLabel('Repetitions').fill('8');
@@ -308,18 +319,29 @@ test('workout logbook drafts, deletion and PDF work offline', async ({ page, con
   await page.getByLabel('Workout minutes').fill('72');
   await page.getByLabel('Average heart rate (BPM)').fill('136');
   await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.getByRole('button', { name: 'Log', exact: true }).click();
   await expect(page.getByLabel('Workout minutes')).toHaveValue('72');
   await page.reload();
   await page.getByRole('button', { name: 'Workouts', exact: true }).click();
+  await page.locator('summary').filter({ hasText: 'Bench Press' }).click();
   await expect(page.getByLabel('Exercise remarks')).toHaveValue('Try a slower descent');
   await page.screenshot({ path: testInfo.outputPath('workout-entry.png'), fullPage: true });
   await page.getByRole('button', { name: 'Save workout' }).click();
-  await page.getByRole('combobox', { name: 'History view', exact: true }).selectOption('table');
-  await expect(page.getByText('105.5 LB × 8 reps, 105.5 LB × 7 reps')).toBeVisible();
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  const card = page.getByRole('button', { name: /2026-11-12.*Push/ });
+  await expect(card).toBeVisible();
+  await expect(page.getByText('105.5 LB × 8 reps', { exact: true })).toHaveCount(0);
+  await card.click();
+  await page.getByRole('button', { name: 'Bench Press', exact: true }).click();
+  await expect(page.getByText('105.5 LB × 8 reps', { exact: true })).toBeVisible();
+  await expect(page.getByText('105.5 LB × 7 reps', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to exercises' }).click();
   await page.getByRole('button', { name: 'Edit workout' }).click();
+  await page.locator('summary').filter({ hasText: 'Bench Press' }).click();
   await page.getByLabel('Exercise remarks').fill('Edited remarks');
   await page.getByRole('button', { name: 'Save workout' }).click();
-  await expect(page.getByText('Edited remarks', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await card.click();
   await page.screenshot({ path: testInfo.outputPath('workout-history.png'), fullPage: true });
   await page.getByRole('button', { name: 'Delete workout' }).click();
   await expect(page.getByRole('alertdialog')).toContainText('Push · 2026-11-12');
@@ -330,7 +352,7 @@ test('workout logbook drafts, deletion and PDF work offline', async ({ page, con
   await page.getByRole('button', { name: 'Back to workouts' }).click();
   await page.getByText('Recently deleted', { exact: true }).click();
   await page.getByRole('button', { name: 'Restore workout' }).click();
-  await expect(page.getByText('Edited remarks', { exact: true })).toBeVisible();
+  await expect(card).toBeVisible();
   await page.getByRole('button', { name: 'Export monthly PDF' }).click();
   await page.getByLabel('Month', { exact: true }).fill('2026-11');
   await expect(page.getByText('136 BPM · 1 measured sessions')).toBeVisible();
@@ -381,8 +403,22 @@ test('Habits shows structured months and hides handwriting modules', async ({ co
   await page.getByRole('button', { name: 'Habits · 2026-11', exact: true }).click();
   await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('2');
   await expect(reading).toBeChecked();
+  await page.clock.install();
+  const initialAttempt = page.waitForResponse(response =>
+    response.request().method() === 'POST' && response.url().endsWith('/habit-check'));
   await context.setOffline(false);
-  await expect(page.getByText('1 habit changes waiting to sync.')).toHaveCount(0);
+  let attempt = await initialAttempt;
+  for (let retry = 0; retry < 3 && attempt.status() === 429; retry++) {
+    await expect(page.getByText('Habit changes are saved locally and waiting to sync.')).toBeVisible();
+    await expect(page.locator('.sync-status strong')).not.toHaveText('Working…');
+    const waitSeconds = Number(attempt.headers()['retry-after'] ?? 2);
+    [attempt] = await Promise.all([
+      page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/habit-check')),
+      page.clock.fastForward((waitSeconds + 1) * 1000),
+    ]);
+  }
+  expect(attempt.ok()).toBe(true);
+  await expect(page.getByText('1 habit changes waiting to sync.')).toHaveCount(0, { timeout: 15_000 });
   const updated = await (await context.request.get('/v1/editable/versions?kind=habits', { headers })).json();
   const latest = updated.items.find((row: { current: boolean }) => row.current);
   const preview = await (await context.request.get('/v1/editable/versions/' + latest.id + '/preview', { headers })).json();

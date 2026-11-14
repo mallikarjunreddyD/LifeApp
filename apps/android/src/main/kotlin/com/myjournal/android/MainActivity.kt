@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                     com.myjournal.ui.WorkoutScreen(
                         applicationState.workouts,
                         today(),
+                        backHandler = { enabled, back -> BackHandler(enabled, onBack = back) },
                         reportStatus = operation.message?.takeIf { !operation.busy && "Workout PDF" in it },
                     ) { month, compact ->
                         reportMonth = month.toString()

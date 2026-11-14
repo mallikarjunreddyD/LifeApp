@@ -3,7 +3,7 @@ import { ApiError, editablePreview, editableReview, editableVersions, resolveEdi
 import type { BrowserSession, HabitCheck } from './api.ts';
 import { object, sameScope, scopeOf, sequence, uuid } from './protocol.ts';
 import type { Scope } from './protocol.ts';
-import { habitMonth, syncHabits } from './habitSync.ts';
+import { habitMonth } from './habitSync.ts';
 import type { HabitMonth, HabitSyncState, HabitVersionPage } from './habitSync.ts';
 import type { LifeStore } from './store.ts';
 
@@ -22,8 +22,8 @@ function flag(value: unknown): boolean {
   return value;
 }
 
-export function Habits({ scope: { dataset, epoch }, session, store, online, generation }: {
-  scope: Scope; session: BrowserSession | null; store: LifeStore; online: boolean; generation: number;
+export function Habits({ scope: { dataset, epoch }, session, store, online, generation, onSaved }: {
+  scope: Scope; session: BrowserSession | null; store: LifeStore; online: boolean; generation: number; onSaved: () => void;
 }) {
   const [cache, setCache] = useState<HabitSyncState | null>(null);
   const [syncError, setSyncError] = useState('');
@@ -40,11 +40,7 @@ export function Habits({ scope: { dataset, epoch }, session, store, online, gene
     setSyncError('');
     await store.queueHabitEdit({ dataset, epoch }, { base, check });
     await refresh();
-    if (online && session) {
-      try { await syncHabits(store, session); }
-      catch { setSyncError('Habit changes are saved here and waiting to sync.'); }
-      await refresh();
-    }
+    onSaved();
   }
   const [open, setOpen] = useState(false);
   const [after, setAfter] = useState('0');

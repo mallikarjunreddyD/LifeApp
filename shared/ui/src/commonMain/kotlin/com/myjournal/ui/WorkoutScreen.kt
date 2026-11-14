@@ -1,9 +1,11 @@
 package com.myjournal.ui
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,11 +27,11 @@ fun WorkoutScreen(
     repository: WorkoutRepository,
     today: LocalDate,
     reportStatus: String? = null,
+    backHandler: @Composable (Boolean, () -> Unit) -> Unit = { _, _ -> },
     exportReport: ((JournalMonth, Boolean) -> Unit)? = null,
 ) {
     var log by remember { mutableStateOf<WorkoutLog?>(null) }
     var draft by remember { mutableStateOf<WorkoutDraft?>(null) }
-    var spreadsheet by remember { mutableStateOf(false) }
     var ready by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -37,13 +39,12 @@ fun WorkoutScreen(
     val invalidNumbers = remember(draft?.session?.metadata?.id) { mutableStateMapOf<String, Boolean>() }
     var editor by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
     var pendingDelete by remember { mutableStateOf<WorkoutSession?>(null) }
-    var library by rememberSaveable { mutableStateOf(false) }
-    var routines by rememberSaveable { mutableStateOf(false) }
     var deleted by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    var month by rememberSaveable { mutableStateOf("") }
-    var date by rememberSaveable { mutableStateOf("") }
-    var routineFilter by rememberSaveable { mutableStateOf("") }
+    var tab by rememberSaveable { mutableStateOf("Log") }
+    var historyId by rememberSaveable { mutableStateOf<String?>(null) }
+    var entryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showAll by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val historyPosition = rememberLazyListState()
     val draftPosition = key(draft?.session?.metadata?.id) { rememberLazyListState() }
@@ -51,7 +52,6 @@ fun WorkoutScreen(
     LaunchedEffect(repository) {
         try {
             draft = repository.loadDraft()
-            spreadsheet = repository.spreadsheetHistory()
             ready = true
             repository.observe().collect { log = it }
         } catch (failure: CancellationException) {
@@ -118,15 +118,19 @@ fun WorkoutScreen(
     fun editRoutine(routine: WorkoutRoutine?) {
         editor = {
             RoutineDialog(routine, data.exercises, busy, error, { editor = null }) { name, order, plans ->
-                save { repository.saveRoutine(WorkoutRoutine(routine?.metadata?.edit() ?: newRecordMetadata(), name, order, plans)) }
+                save { repository.saveRoutine(WorkoutRoutine(routine?.metadata?.edit() ?: newRecordMetadata(), name, order, plans, routine?.archived == true)) }
             }
         }
     }
 
     val sessions = data.sessions.sortedWith(compareByDescending<WorkoutSession> { it.date }
         .thenByDescending { it.metadata.createdAt })
-    val visible = sessions.filter { !it.deleted && it.date.toString().startsWith(month.trim()) &&
-        it.date.toString().startsWith(date.trim()) && (routineFilter.isEmpty() || it.routineName == routineFilter) }
+    val visible = sessions.filterNot { it.deleted }
+    val selectedHistory = visible.find { it.metadata.id.toString() == historyId }
+    val selectedEntry = selectedHistory?.entries?.find { it.metadata.id.toString() == entryId }
+    backHandler(tab == "History" && selectedHistory != null) {
+        if (entryId != null) entryId = null else historyId = null
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().imePadding().testTag("workout-logbook"),
@@ -136,10 +140,18 @@ fun WorkoutScreen(
     ) {
         item {
             Text("Workouts", style = MaterialTheme.typography.headlineMedium)
-            Text("Saved on this device")
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("Log", "History", "Routines", "Exercises").forEach { section ->
+                    FilterChip(tab == section, {
+                        tab = section
+                        historyId = null
+                        entryId = null
+                    }, label = { Text(section) })
+                }
+            }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
-        if (current != null) {
+        if (current != null && tab == "Log") {
             val session = current.session
             val routine = data.routines.find { it.metadata.id == session.routineId }
             item(key = "workout-header-${session.metadata.id}") {
@@ -166,7 +178,7 @@ fun WorkoutScreen(
                                 editor = null
                             } }
                         })
-                        data.routines.forEach { choice ->
+                        data.routines.filterNot { it.archived }.forEach { choice ->
                             DropdownMenuItem(text = { Text(choice.name) }, onClick = {
                                 close()
                                 val apply = {
@@ -264,88 +276,115 @@ fun WorkoutScreen(
                     }) { Text("Discard draft") }
                 }
             }
-        } else {
+        } else if (tab == "Log") {
             item {
                 Button(enabled = !busy, onClick = {
                     draft = WorkoutDraft(WorkoutSession(newRecordMetadata(), today, null, null, null, logged = true), null)
                 }) { Text("Add workout") }
-                Text("Workout history", style = MaterialTheme.typography.titleLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(!spreadsheet, {
-                        spreadsheet = false
-                        save { repository.setSpreadsheetHistory(false) }
-                    }, label = { Text("Workout cards") })
-                    FilterChip(spreadsheet, {
-                        spreadsheet = true
-                        save { repository.setSpreadsheetHistory(true) }
-                    }, label = { Text("Spreadsheet") })
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(month, { month = it }, Modifier.weight(1f), label = { Text("Month (YYYY-MM)") }, singleLine = true)
-                    OutlinedTextField(date, { date = it }, Modifier.weight(1f), label = { Text("Date (YYYY-MM-DD)") }, singleLine = true)
-                }
-                WorkoutChoice(routineFilter.ifEmpty { "All routines" }) { close ->
-                    DropdownMenuItem(text = { Text("All routines") }, onClick = { routineFilter = ""; close() })
-                    sessions.mapNotNull { it.routineName }.distinct().sorted().forEach { name ->
-                        DropdownMenuItem(text = { Text(name) }, onClick = { routineFilter = name; close() })
-                    }
-                }
-                if (exportReport != null) TextButton(onClick = {
-                    editor = {
-                        var reportMonth by remember { mutableStateOf(month.ifEmpty { JournalMonth.from(today).toString() }) }
-                        var compact by remember { mutableStateOf(false) }
-                        val parsed = runCatching { JournalMonth.parse(reportMonth.trim()) }.getOrNull()
-                        AlertDialog(onDismissRequest = { editor = null }, title = { Text("Export monthly PDF") }, text = {
-                            Column {
-                                OutlinedTextField(reportMonth, { reportMonth = it }, label = { Text("Month (YYYY-MM)") }, singleLine = true)
-                                FilterChip(compact, { compact = !compact }, label = { Text("Compact landscape") })
-                            }
-                        }, confirmButton = { TextButton(enabled = parsed != null, onClick = {
-                            exportReport(requireNotNull(parsed), compact); editor = null
-                        }) { Text("Save PDF") } }, dismissButton = { TextButton(onClick = { editor = null }) { Text("Cancel") } })
-                    }
-                }) { Text("Export monthly PDF") }
-                reportStatus?.let { Text(it) }
-                if (visible.isEmpty()) Text("No workouts match these filters.")
+                Text("Choose a saved routine to load its exercises.")
             }
-            items(visible, key = { it.metadata.id.toString() }) { session ->
-                WorkoutHistoryCard(session, names, spreadsheet, busy,
-                    { draft = WorkoutDraft(session, session.metadata.revision) }, { pendingDelete = session })
-            }
-            if (sessions.any { it.deleted }) {
-                item { TextButton(onClick = { deleted = !deleted }) { Text("Recently deleted") } }
-                if (deleted) items(sessions.filter { it.deleted }, key = { "deleted-${it.metadata.id}" }) { session ->
-                    Text(session.title())
-                    TextButton(enabled = !busy, onClick = { save { repository.setSessionDeleted(session.metadata.id, false) } }) {
-                        Text("Restore workout")
-                    }
-                }
-            }
-            item { TextButton(onClick = { library = !library }) { Text("Exercise library") } }
-            if (library) {
+        } else if (tab == "History") {
+            if (selectedHistory != null) {
                 item {
-                    OutlinedTextField(query, { query = it }, label = { Text("Search exercises") }, singleLine = true)
-                    TextButton(onClick = { editExercise(null) }) { Text("New exercise") }
+                    TextButton(onClick = { if (selectedEntry != null) entryId = null else historyId = null }) {
+                        Text(if (selectedEntry != null) "Back to exercises" else "Back to history")
+                    }
+                    Text(selectedEntry?.let { names[it.exerciseId] } ?: selectedHistory.title(),
+                        style = MaterialTheme.typography.titleLarge)
                 }
-                items(data.exercises.filter { it.name.contains(query, ignoreCase = true) }.sortedBy { it.name },
-                    key = { it.metadata.id.toString() }) { exercise ->
-                    Text(exercise.name + if (exercise.archived) " (archived)" else "")
-                    listOfNotNull(exercise.category, exercise.description).forEach { Text(it) }
-                    Row {
-                        TextButton(onClick = { editExercise(exercise) }) { Text("Edit exercise") }
-                        TextButton(enabled = !busy, onClick = {
-                            save { repository.saveExercise(exercise.copy(metadata = exercise.metadata.edit(), archived = !exercise.archived)) }
-                        }) { Text(if (exercise.archived) "Restore exercise" else "Archive exercise") }
+                if (selectedEntry != null) item {
+                    selectedEntry.sets.forEach { Text("Set ${it.number} · ${it.summary()}") }
+                    selectedEntry.remarks?.let { Text(it) }
+                } else {
+                    items(selectedHistory.entries, key = { it.metadata.id.toString() }) { entry ->
+                        OutlinedCard(onClick = { entryId = entry.metadata.id.toString() }, modifier = Modifier.fillMaxWidth()) {
+                            Text(names[entry.exerciseId] ?: "Exercise", Modifier.padding(16.dp))
+                        }
+                    }
+                    item {
+                        Row {
+                            TextButton(enabled = !busy && current == null, onClick = {
+                                draft = WorkoutDraft(selectedHistory, selectedHistory.metadata.revision)
+                                tab = "Log"
+                            }) { Text("Edit workout") }
+                            TextButton(enabled = !busy, onClick = { pendingDelete = selectedHistory }) { Text("Delete workout") }
+                        }
+                    }
+                }
+            } else {
+                if (exportReport != null) item {
+                    TextButton(onClick = {
+                        editor = {
+                            var reportMonth by remember { mutableStateOf(JournalMonth.from(today).toString()) }
+                            var compact by remember { mutableStateOf(false) }
+                            val parsed = runCatching { JournalMonth.parse(reportMonth.trim()) }.getOrNull()
+                            AlertDialog(onDismissRequest = { editor = null }, title = { Text("Export monthly PDF") }, text = {
+                                Column {
+                                    OutlinedTextField(reportMonth, { reportMonth = it }, label = { Text("Month (YYYY-MM)") })
+                                    FilterChip(compact, { compact = !compact }, label = { Text("Compact landscape") })
+                                }
+                            }, confirmButton = { TextButton(enabled = parsed != null, onClick = {
+                                exportReport(requireNotNull(parsed), compact)
+                                editor = null
+                            }) { Text("Save PDF") } }, dismissButton = { TextButton(onClick = { editor = null }) { Text("Cancel") } })
+                        }
+                    }) { Text("Export monthly PDF") }
+                    reportStatus?.let { Text(it) }
+                    if (visible.isEmpty()) Text("No workouts yet.")
+                }
+                items(if (showAll) visible else visible.take(10), key = { it.metadata.id.toString() }) { session ->
+                    OutlinedCard(onClick = { historyId = session.metadata.id.toString() }, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(session.date.toString())
+                            Text(session.routineName ?: "Workout")
+                        }
+                    }
+                }
+                if (visible.size > 10) item {
+                    TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show latest 10" else "Show all workouts") }
+                }
+                if (sessions.any { it.deleted }) {
+                    item { TextButton(onClick = { deleted = !deleted }) { Text("Recently deleted") } }
+                    if (deleted) items(sessions.filter { it.deleted }, key = { "deleted-${it.metadata.id}" }) { session ->
+                        Text(session.title())
+                        TextButton(enabled = !busy, onClick = { save { repository.setSessionDeleted(session.metadata.id, false) } }) {
+                            Text("Restore workout")
+                        }
                     }
                 }
             }
-            item { TextButton(onClick = { routines = !routines }) { Text("Manage routines") } }
-            if (routines) {
-                item { TextButton(onClick = { editRoutine(null) }) { Text("New routine") } }
-                items(data.routines, key = { it.metadata.id.toString() }) { routine ->
-                    Text(routine.name)
-                    Text(routine.exerciseOrder.mapNotNull(names::get).joinToString(" · "))
-                    TextButton(onClick = { editRoutine(routine) }) { Text("Edit routine") }
+        } else if (tab == "Exercises") {
+            item {
+                OutlinedTextField(query, { query = it }, label = { Text("Search exercises") }, singleLine = true)
+                Button(onClick = { editExercise(null) }) { Text("New exercise") }
+            }
+            items(data.exercises.filter { it.name.contains(query, ignoreCase = true) }.sortedBy { it.name },
+                key = { it.metadata.id.toString() }) { exercise ->
+                OutlinedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(exercise.name + if (exercise.archived) " (archived)" else "")
+                        listOfNotNull(exercise.category, exercise.description).forEach { Text(it) }
+                        Row {
+                            TextButton(onClick = { editExercise(exercise) }) { Text("Edit exercise") }
+                            TextButton(enabled = !busy, onClick = {
+                                save { repository.saveExercise(exercise.copy(metadata = exercise.metadata.edit(), archived = !exercise.archived)) }
+                            }) { Text(if (exercise.archived) "Restore exercise" else "Archive exercise") }
+                        }
+                    }
+                }
+            }
+        } else {
+            item { Button(onClick = { editRoutine(null) }) { Text("New routine") } }
+            items(data.routines, key = { it.metadata.id.toString() }) { routine ->
+                OutlinedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(routine.name + if (routine.archived) " (archived)" else "")
+                        Text(routine.exerciseOrder.mapNotNull(names::get).joinToString(" · "))
+                        TextButton(onClick = { editRoutine(routine) }) { Text("Edit routine") }
+                        TextButton(enabled = !busy, onClick = {
+                            save { repository.saveRoutine(routine.copy(metadata = routine.metadata.edit(), archived = !routine.archived)) }
+                        }) { Text(if (routine.archived) "Restore routine" else "Archive routine") }
+                    }
                 }
             }
         }
@@ -354,7 +393,7 @@ fun WorkoutScreen(
         AlertDialog(onDismissRequest = { pendingDelete = null }, title = { Text("Delete workout?") },
             text = { Text("Move ${session.title()} to Recently deleted?") },
             confirmButton = { TextButton(enabled = !busy, onClick = {
-                save { repository.setSessionDeleted(session.metadata.id, true); pendingDelete = null }
+                save { repository.setSessionDeleted(session.metadata.id, true); pendingDelete = null; historyId = null }
             }) { Text("Delete workout") } },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } })
     }
@@ -382,10 +421,10 @@ private fun WorkoutEntryCard(entry: WorkoutExerciseEntry, name: String, count: I
     remove: () -> Unit, validation: (String, Boolean) -> Unit,
     edit: ((WorkoutExerciseEntry) -> WorkoutExerciseEntry) -> Unit) {
     var remarks by rememberSaveable { mutableStateOf(entry.remarks.orEmpty()) }
-    var expanded by rememberSaveable { mutableStateOf(true) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide $name" else "Show $name") }
+            TextButton(onClick = { expanded = !expanded }) { Text(name) }
             if (expanded) {
                 Row {
                     TextButton(enabled = entry.order > 0, onClick = { move(-1) }) { Text("Move up") }
@@ -467,39 +506,6 @@ private fun WorkoutNumberField(
         isError = !valid, supportingText = if (valid) null else {
             { Text(if (decimal) "Enter a nonnegative weight." else "Enter a whole number from $minimum to $maximum.") }
         }, keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number))
-}
-
-@Composable
-private fun WorkoutHistoryCard(session: WorkoutSession, names: Map<Uuid, String>, spreadsheet: Boolean,
-    busy: Boolean, edit: () -> Unit, delete: () -> Unit) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    OutlinedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(session.title(), style = MaterialTheme.typography.titleMedium)
-            Text(listOfNotNull("${session.entries.size} exercises", session.durationSeconds?.let { "${it / 60.0} min" },
-                session.averageHeartRateBpm?.let { "$it BPM" }, session.caloriesKcal?.let { "$it kcal" }).joinToString(" · "))
-            if (!spreadsheet) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide exercises" else "Show exercises") }
-            if (spreadsheet || expanded) {
-                Row {
-                    Text("Exercise", Modifier.weight(1f))
-                    Text("Weight × reps", Modifier.weight(1f))
-                    Text("Remarks", Modifier.weight(1f))
-                }
-                session.entries.forEach { entry ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(names[entry.exerciseId] ?: "Exercise", Modifier.weight(1f))
-                        Text(entry.sets.joinToString(", ") { it.summary() }.ifEmpty { "—" }, Modifier.weight(1f))
-                        Text(entry.remarks.orEmpty().ifEmpty { "—" }, Modifier.weight(1f))
-                    }
-                }
-                session.notes?.takeIf { it.isNotBlank() }?.let { Text(it) }
-            }
-            Row {
-                TextButton(enabled = !busy, onClick = edit) { Text("Edit workout") }
-                TextButton(enabled = !busy, onClick = delete) { Text("Delete workout") }
-            }
-        }
-    }
 }
 
 private fun WorkoutSession.fromRoutine(routine: WorkoutRoutine) = copy(routineId = routine.metadata.id, routineName = routine.name,

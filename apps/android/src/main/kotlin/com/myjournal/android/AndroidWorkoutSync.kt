@@ -5,6 +5,7 @@ import androidx.work.*
 import com.myjournal.data.RoomWorkoutRepository
 import com.myjournal.data.WorkoutSyncRecord
 import com.myjournal.data.WorkoutSyncVersion
+import com.myjournal.data.syncRecords
 import com.myjournal.domain.WorkoutLog
 import com.myjournal.domain.SyncScope
 import kotlinx.coroutines.CancellationException
@@ -41,8 +42,10 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
     init {
         scope.launch {
             connected.value = repository.syncBinding() != null
+            if (connected.value) schedule()
             repository.observe().map { it.canonical() }.distinctUntilChanged().collect {
-                if (connected.value) schedule()
+                val binding = repository.syncBinding()
+                if (binding != null && it.syncRecords().any { record -> binding.versions[record.id]?.record != record }) schedule()
             }
         }
     }
@@ -58,7 +61,7 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
 
     fun schedule() {
         if (!connected.value) return
-        WorkManager.getInstance(app).enqueueUniqueWork("lifeapp-workout-sync", ExistingWorkPolicy.KEEP,
+        WorkManager.getInstance(app).enqueueUniqueWork("lifeapp-workout-sync", ExistingWorkPolicy.APPEND_OR_REPLACE,
             OneTimeWorkRequestBuilder<WorkoutSyncWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)

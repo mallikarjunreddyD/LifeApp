@@ -138,7 +138,7 @@ internal class AndroidServerSync(
         val remote = api.editableVersions(session, token, habitsOnly).groupBy { it.key }
         val excluded = if (trackedOnly) editableBaselines.excluded(target) else emptySet()
         val known = editableBaselines.load(target)
-        fun includesNew(key: EditableImportKey) = excluded != null && key !in excluded
+        fun includesNew(key: EditableImportKey) = habitsOnly || excluded != null && key !in excluded
         val legacy = if (habitsOnly || excluded == null) emptySet() else api.journalEntries(session, token)
             .map { EditableImportKey("journal", it.date.toString()) }.toSet()
         val serverKeys = remote.keys + legacy
@@ -262,7 +262,7 @@ internal class AndroidServerSync(
         val (credential, session, api) = currentSession()
         requireImportTarget(review.target, api, session)
         val count = applyTrackedDownloads(review, credential, session, api, apply)
-        if (capture != null) enableReviewedEditable(credential, session, api, capture)
+        if (capture != null) enableReviewedEditable(session, api)
         refresh(credential)
         count
     }
@@ -300,7 +300,7 @@ internal class AndroidServerSync(
         try {
             val conflicts = sendEditableQueue(credential, session, api, habitsOnly = true)
             if (conflicts == 0) {
-                if (capture != null) enableReviewedEditable(credential, session, api, capture)
+                if (capture != null) enableReviewedEditable(session, api)
                 message("Approved record uploads completed. Local records were kept.")
             } else throw UserSyncError("$conflicts uploads need conflict review. Their local copies are still queued.")
         } finally {
@@ -318,7 +318,6 @@ internal class AndroidServerSync(
             for (file in batch.files) {
                 currentCoroutineContext().ensureActive()
                 if (habitsOnly && BackupArchive.read(file).snapshot.editableImportRecords().single().key.kind != "habits") {
-                    rejected++
                     continue
                 }
                 check(file.length() in 1..EditableImportQueue.MAX_ARCHIVE_BYTES)
@@ -350,10 +349,10 @@ internal class AndroidServerSync(
             rejected
         }
 
-    fun setAutomaticEditable(enabled: Boolean, capture: suspend () -> JournalSnapshot) = action {
+    fun setAutomaticEditable(enabled: Boolean) = action {
         if (enabled) {
-            val (credential, session, api) = currentSession()
-            enableReviewedEditable(credential, session, api, capture, manual = true)
+            val (_, session, api) = currentSession()
+            enableReviewedEditable(session, api, manual = true)
             store.setEditablePaused(EditableImportQueue.Target(api.endpoint.origin, session.scope), false)
         } else {
             val credential = store.load() ?: throw UserSyncError("Sign in to change the record sync preference.")
@@ -367,21 +366,12 @@ internal class AndroidServerSync(
     }
 
     private suspend fun enableReviewedEditable(
-        credential: ServerCredential, session: ServerSession, api: ServerApi,
-        capture: suspend () -> JournalSnapshot, manual: Boolean = false,
+        session: ServerSession, api: ServerApi, manual: Boolean = false,
     ) {
         val target = EditableImportQueue.Target(api.endpoint.origin, session.scope)
         if (store.editableEnabled(target) || (!manual && store.editablePaused(target))) return
-        val known = withContext(Dispatchers.IO) { editableBaselines.load(target).filterKeys { it.kind == "habits" } }
-        if (known.isEmpty()) {
-            if (manual) throw UserSyncError("Confirm a shared record through the backup-verified transfer first.")
-            return
-        }
-        val local = capture().editableImportRecords().map { it.key }.filter { it.kind == "habits" }
-        withContext(Dispatchers.IO) {
-            val remote = api.editableVersions(session, credential.token, habitsOnly = true).map { it.key }
-            editableBaselines.excludeExisting(target, (local + remote).toSet() - known.keys)
-        }
+        val known = withContext(Dispatchers.IO) { editableBaselines.load(target).keys.any { it.kind == "habits" } }
+        if (!known && !manual) return
         store.setEditableEnabled(target)
         ensureEditableWork()
     }
@@ -429,7 +419,8 @@ internal class AndroidServerSync(
                 }
             }
             var review = plan()
-            if (review.eligible.isNotEmpty()) {
+            val canQueue = !habitsOnly || withContext(Dispatchers.IO) { importQueue.load() == null }
+            if (review.eligible.isNotEmpty() && canQueue) {
                 withContext(Dispatchers.IO) { importQueue.enqueue(target, review.eligible, review.uploadParents, review.habitChecks) }
                 if (sendEditableQueue(credential, session, api, habitsOnly) > 0) {
                     mutable.update { it.copy(editableStatus = "Queued record uploads need review.") }
@@ -440,8 +431,13 @@ internal class AndroidServerSync(
             if (apply != null && review.downloadable.isNotEmpty()) {
                 applyTrackedDownloads(review, credential, session, api) { records -> apply(records, review.replaceExpected) }
             }
-            mutable.update { it.copy(editableStatus = if (review.conflicted.isEmpty() && review.overlaps.isEmpty())
-                "Records checked." else "Overlapping records or competing versions need review.") }
+            val status = when {
+                review.conflicted.isNotEmpty() || review.overlaps.isNotEmpty() ->
+                    "Overlapping habit months or competing versions need review."
+                !canQueue && review.eligible.isNotEmpty() -> "Clear legacy upload copies to send pending habit months."
+                else -> "Habit months checked."
+            }
+            mutable.update { it.copy(editableStatus = status) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {

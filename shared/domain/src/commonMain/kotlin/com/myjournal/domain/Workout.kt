@@ -114,6 +114,7 @@ data class WorkoutRoutine(
     val name: String,
     val exerciseOrder: List<Uuid>,
     val plannedSetCounts: List<Int?> = emptyList(),
+    val archived: Boolean = false,
 ) {
     init {
         require(name.isNotBlank() && name.length <= 120 && exerciseOrder.isNotEmpty())

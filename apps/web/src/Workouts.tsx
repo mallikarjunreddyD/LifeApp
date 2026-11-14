@@ -18,8 +18,8 @@ function move<T>(items: T[], index: number, offset: number): T[] {
   return next;
 }
 
-export function Workouts({ store, historyOnly = false, generation, syncStatus, conflicts, onSaved, onResolve }: {
-  store: LifeStore; historyOnly?: boolean; generation: number; syncStatus: string;
+export function Workouts({ store, generation, syncStatus, conflicts, onSaved, onResolve }: {
+  store: LifeStore; generation: number; syncStatus: string;
   conflicts: WorkoutConflict[]; onSaved: () => void;
   onResolve: (conflict: WorkoutConflict, keepLocal: boolean) => Promise<void>;
 }) {
@@ -27,13 +27,11 @@ export function Workouts({ store, historyOnly = false, generation, syncStatus, c
   const [draft, setDraft] = useState<Draft | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
-  const [library, setLibrary] = useState(false);
-  const [routinesOpen, setRoutinesOpen] = useState(false);
+  const [tab, setTab] = useState('Log');
+  const [historyId, setHistoryId] = useState<string | null>(null);
+  const [entryId, setEntryId] = useState<string | null>(null);
+  const [showMore, setShowMore] = useState(false);
   const [query, setQuery] = useState('');
-  const [month, setMonth] = useState('');
-  const [day, setDay] = useState('');
-  const [routineFilter, setRoutineFilter] = useState('');
-  const [view, setView] = useState(() => localStorage.getItem('lifeapp-workout-view') === 'table' ? 'table' : 'cards');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<Session | null>(null);
@@ -95,35 +93,33 @@ export function Workouts({ store, historyOnly = false, generation, syncStatus, c
   const available = exercises.filter(exercise => !exercise.archived);
   const names = new Map(exercises.map(exercise => [exercise.metadata.id, exercise.name]));
   const byId = (id: string) => names.get(id) ?? 'Exercise';
-  const visible = sessions.filter(value => !value.deleted && (!month || value.date.startsWith(month)) &&
-    (!day || value.date === day) && (!routineFilter || value.routineName === routineFilter));
+  const visible = sessions.filter(value => !value.deleted);
+  const selectedHistory = visible.find(value => value.metadata.id === historyId);
+  const selectedEntry = selectedHistory?.entries.find(entry => entry.metadata.id === entryId);
   const session = draft?.session;
   const selectedRoutine = routines.find(value => value.metadata.id === session?.routineId);
-  const summary = (value: Session) => [
-    `${value.entries.length} ${value.entries.length === 1 ? 'exercise' : 'exercises'}`,
-    value.durationSeconds !== null && `${+(value.durationSeconds / 60).toFixed(1)} min`,
-    value.averageHeartRateBpm !== undefined && `${value.averageHeartRateBpm} BPM`,
-    value.caloriesKcal !== null && `${value.caloriesKcal} kcal`,
-  ].filter(Boolean).join(' · ');
   const title = (value: Session) => `${value.routineName ?? 'Workout'} · ${value.date}`;
-  const rows = (value: Session) => <table className="workout-history-table">
-    <thead><tr><th>Exercise</th><th>Weight × reps</th><th>Remarks</th></tr></thead>
-    <tbody>{value.entries.map(entry => <tr key={entry.metadata.id}>
-      <th scope="row">{byId(entry.exerciseId)}</th><td>{entry.sets.map(setSummary).join(', ') || '—'}</td>
-      <td>{entry.remarks ?? '—'}</td>
-    </tr>)}</tbody>
-  </table>;
+  function selectTab(next: string) {
+    setTab(next);
+    setHistoryId(null);
+    setEntryId(null);
+    setEditor(null);
+  }
 
   if (reportOpen) return <WorkoutReport sessions={sessions} exercises={exercises} close={() => setReportOpen(false)} />;
 
   return <section className="workout-logbook">
     <div className="page-heading section-heading">
-      <h1>{historyOnly ? 'History' : 'Workouts'}</h1>
-      {!historyOnly && !draft && <button className="primary workout-add" disabled={busy} onClick={() => keepDraft({ revision: null,
+      <h1>Workouts</h1>
+      {tab === 'Log' && !draft && <button className="primary workout-add" disabled={busy} onClick={() => keepDraft({ revision: null,
         session: { metadata: revise(), date: today(), startedAt: null, endedAt: null, durationSeconds: null,
           caloriesKcal: null, notes: null, completed: false, logged: true, entries: [] } })}>Add workout</button>}
     </div>
     {syncStatus && <p role="status">{syncStatus}</p>}
+    <div className="workout-tabs" role="group" aria-label="Workout sections">
+      {['Log', 'History', 'Routines', 'Exercises'].map(section =>
+        <button key={section} aria-pressed={tab === section} onClick={() => selectTab(section)}>{section}</button>)}
+    </div>
     {!!conflicts.length && <details><summary>Review workout copies</summary>
       {conflicts.map(conflict => {
         const { local, remote } = conflict;
@@ -144,7 +140,7 @@ export function Workouts({ store, historyOnly = false, generation, syncStatus, c
     </details>}
     {error && <p role="alert">{error}</p>}
     {!records && !error && <p role="status">Loading workouts…</p>}
-    {records && (session && draft ? <form className="editor" onSubmit={event => {
+    {records && (tab === 'Log' && session && draft ? <form className="editor" onSubmit={event => {
       event.preventDefault();
       void write(async () => {
         const prior = sessions.find(value => value.metadata.id === session.metadata.id);
@@ -172,7 +168,7 @@ export function Workouts({ store, historyOnly = false, generation, syncStatus, c
         if (session.entries.length && !window.confirm('Replace the exercises and sets in this draft?')) return;
         change(value => ({ ...value, routineId: routine?.metadata.id, routineName: routine?.name,
           entries: routineEntries(value.metadata.id, routine) }));
-      }}><option value="">No routine</option>{routines.map(value =>
+      }}><option value="">No routine</option>{routines.filter(value => !value.archived).map(value =>
         <option key={value.metadata.id} value={value.metadata.id}>{value.name}</option>)}</select></label>}
       {draft.revision && session.routineName && <p>{session.routineName}</p>}
       <div className="actions">
@@ -186,7 +182,7 @@ export function Workouts({ store, historyOnly = false, generation, syncStatus, c
             plannedSetCounts: session.entries.map(entry => entry.sets.length || null),
           } }, selectedRoutine.metadata.revision))}>Save changes to routine</button>}
       </div>
-      {session.entries.map((entry, position) => <details key={entry.metadata.id} open className="workout-exercise">
+      {session.entries.map((entry, position) => <details key={entry.metadata.id} className="workout-exercise">
         <summary>{byId(entry.exerciseId)}</summary>
         <div className="actions">
           <button type="button" disabled={!position} onClick={() => change(value => ({ ...value,
@@ -265,58 +261,67 @@ export function Workouts({ store, historyOnly = false, generation, syncStatus, c
         }}>Discard draft</button></div>
     </form> : <>
 
-      <h2>Workout history</h2>
-      <div className="workout-filters">
-        <label>Month<input type="month" value={month} onChange={event => setMonth(event.currentTarget.value)} /></label>
-        <label>Workout date<input type="date" value={day} onChange={event => setDay(event.currentTarget.value)} /></label>
-        <label>Routine<select value={routineFilter} onChange={event => setRoutineFilter(event.currentTarget.value)}>
-          <option value="">All routines</option>{[...new Set(sessions.flatMap(value => value.routineName ? [value.routineName] : []))]
-            .sort().map(name => <option key={name}>{name}</option>)}</select></label>
-        <label>History view<select value={view} onChange={event => {
-          const next = event.currentTarget.value === 'table' ? 'table' : 'cards';
-          setView(next); localStorage.setItem('lifeapp-workout-view', next);
-        }}><option value="cards">Workout cards</option><option value="table">Spreadsheet</option></select></label>
-      </div>
-      <button type="button" onClick={() => setReportOpen(true)}>Export monthly PDF</button>
-      {!visible.length && <p>No workouts match these filters.</p>}
-      {visible.map(value => <article key={value.metadata.id} className="workout-history">
-        {view === 'table' ? <><h3>{title(value)}</h3><p>{summary(value)}</p>{rows(value)}</> :
-          <details><summary>{title(value)} · {summary(value)}</summary>{rows(value)}{value.notes && <p>{value.notes}</p>}</details>}
-        <div className="actions"><button disabled={busy} onClick={() => keepDraft({ session: value,
-          revision: value.metadata.revision })}>Edit workout</button>
-          <button disabled={busy} onClick={() => setConfirm(value)}>Delete workout</button></div>
-      </article>)}
-      {confirm && <div role="alertdialog" aria-label="Delete workout confirmation" className="editor">
-        <p>Move {title(confirm)} to Recently deleted?</p>
-        <button disabled={busy} onClick={() => void write(async () => {
-          await store.setWorkoutDeleted(confirm.metadata.id, true); setConfirm(null);
-        })}>Confirm delete</button>
-        <button disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
-      </div>}
-      {sessions.some(value => value.deleted) && <details><summary>Recently deleted</summary>
-        {sessions.filter(value => value.deleted).map(value => <article key={value.metadata.id}>{title(value)}
-          <button disabled={busy} onClick={() => void write(() => store.setWorkoutDeleted(value.metadata.id, false))}>Restore workout</button>
-        </article>)}</details>}
-      {!historyOnly && <>
-        <details open={library} onToggle={event => setLibrary(event.currentTarget.open)}><summary>Exercise library</summary>
-          {library && <><label>Search exercises<input type="search" value={query} onChange={event => setQuery(event.currentTarget.value)} /></label>
-            <button onClick={() => setEditor({ kind: 'exercise' })}>New exercise</button>
-            {exercises.filter(value => value.name.toLowerCase().includes(query.toLowerCase())).map(value =>
-              <article key={value.metadata.id}><h3>{value.name}{value.archived && ' (archived)'}</h3>
-                <p>{value.category} {value.description}</p>
-                <button onClick={() => setEditor({ kind: 'exercise', value })}>Edit exercise</button>
-                <button disabled={busy} onClick={() => void write(() => store.saveWorkout({ kind: 'exercise',
-                  value: { ...value, metadata: revise(value.metadata), archived: !value.archived } }, value.metadata.revision))}>
-                  {value.archived ? 'Restore exercise' : 'Archive exercise'}</button></article>)}</>}
-        </details>
-        <details open={routinesOpen} onToggle={event => setRoutinesOpen(event.currentTarget.open)}><summary>Manage routines</summary>
-          {routinesOpen && <><button onClick={() => setEditor({ kind: 'routine' })}>New routine</button>
-            {routines.map(value => <article key={value.metadata.id}><h3>{value.name}</h3>
-              <p>{value.exerciseOrder.map(byId).join(' · ')}</p>
-              <button onClick={() => setEditor({ kind: 'routine', value })}>Edit routine</button></article>)}</>}
-        </details>
+      {tab === 'Log' && <p>Start a workout and choose a routine to load its exercises.</p>}
+      {tab === 'History' && (selectedHistory ? <section>
+        <button onClick={() => selectedEntry ? setEntryId(null) : setHistoryId(null)}>{selectedEntry ? 'Back to exercises' : 'Back to history'}</button>
+        <h2>{selectedEntry ? byId(selectedEntry.exerciseId) : title(selectedHistory)}</h2>
+        {selectedEntry ? <>
+          <ol>{selectedEntry.sets.map(set => <li key={set.metadata.id}>{setSummary(set)}</li>)}</ol>
+          {selectedEntry.remarks && <p>{selectedEntry.remarks}</p>}
+        </> : <>
+          {selectedHistory.entries.map(entry => <button className="workout-history-link" key={entry.metadata.id}
+            onClick={() => setEntryId(entry.metadata.id)}>{byId(entry.exerciseId)}</button>)}
+          <div className="actions">
+            <button disabled={busy || !!draft} onClick={() => {
+              keepDraft({ session: selectedHistory, revision: selectedHistory.metadata.revision });
+              selectTab('Log');
+            }}>Edit workout</button>
+            <button disabled={busy} onClick={() => setConfirm(selectedHistory)}>Delete workout</button>
+          </div>
+        </>}
+      </section> : <>
+        <button type="button" onClick={() => setReportOpen(true)}>Export monthly PDF</button>
+        {!visible.length && <p>No workouts yet.</p>}
+        {(showMore ? visible : visible.slice(0, 10)).map(value => <button key={value.metadata.id}
+          className="workout-history-link" onClick={() => setHistoryId(value.metadata.id)}>
+          <time dateTime={value.date}>{value.date}</time><span>{value.routineName ?? 'Workout'}</span>
+        </button>)}
+        {visible.length > 10 && <button onClick={() => setShowMore(!showMore)}>{showMore ? 'Show latest 10' : 'Show all workouts'}</button>}
+        {sessions.some(value => value.deleted) && <details><summary>Recently deleted</summary>
+          {sessions.filter(value => value.deleted).map(value => <article key={value.metadata.id}>{title(value)}
+            <button disabled={busy} onClick={() => void write(() => store.setWorkoutDeleted(value.metadata.id, false))}>Restore workout</button>
+          </article>)}</details>}
+      </>)}
+      {tab === 'Exercises' && <>
+        <label>Search exercises<input type="search" value={query} onChange={event => setQuery(event.currentTarget.value)} /></label>
+        <button className="primary" onClick={() => setEditor({ kind: 'exercise' })}>New exercise</button>
+        {exercises.filter(value => value.name.toLowerCase().includes(query.toLowerCase())).map(value =>
+          <article className="card" key={value.metadata.id}><h3>{value.name}{value.archived && ' (archived)'}</h3>
+            <p>{value.category} {value.description}</p>
+            <button onClick={() => setEditor({ kind: 'exercise', value })}>Edit exercise</button>
+            <button disabled={busy} onClick={() => void write(() => store.saveWorkout({ kind: 'exercise',
+              value: { ...value, metadata: revise(value.metadata), archived: !value.archived } }, value.metadata.revision))}>
+              {value.archived ? 'Restore exercise' : 'Archive exercise'}</button></article>)}
+      </>}
+      {tab === 'Routines' && <>
+        <button className="primary" onClick={() => setEditor({ kind: 'routine' })}>New routine</button>
+        {routines.map(value => <article className="card" key={value.metadata.id}><h3>{value.name}{value.archived && " (archived)"}</h3>
+          <p>{value.exerciseOrder.map(byId).join(' · ')}</p>
+          <button onClick={() => setEditor({ kind: 'routine', value })}>Edit routine</button>
+          <button disabled={busy} onClick={() => {
+            if (!value.archived && !window.confirm('Archive this routine? Saved workout history will remain available.')) return;
+            void write(() => store.saveWorkout({ kind: 'routine', value: { ...value, metadata: revise(value.metadata),
+              archived: !value.archived } }, value.metadata.revision));
+          }}>{value.archived ? 'Restore routine' : 'Archive routine'}</button></article>)}
       </>}
     </>)}
+    {confirm && <div role="alertdialog" aria-label="Delete workout confirmation" className="card">
+      <p>Move {title(confirm)} to Recently deleted?</p>
+      <button disabled={busy} onClick={() => void write(async () => {
+        await store.setWorkoutDeleted(confirm.metadata.id, true); setConfirm(null); setHistoryId(null);
+      })}>Confirm delete</button>
+      <button disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
+    </div>}
     {editor?.kind === 'exercise' && <form key={editor.value?.metadata.id ?? 'new-exercise'} className="editor" onSubmit={event => {
       event.preventDefault();
       const values = new FormData(event.currentTarget);
@@ -338,7 +343,7 @@ export function Workouts({ store, historyOnly = false, generation, syncStatus, c
         const prior = editor.value;
         void write(async () => {
           await store.saveWorkout({ kind: 'routine', value: { metadata: revise(prior?.metadata), name,
-            exerciseOrder, plannedSetCounts } }, prior?.metadata.revision ?? null);
+            exerciseOrder, plannedSetCounts, archived: prior?.archived } }, prior?.metadata.revision ?? null);
           setEditor(null);
         });
       }} />}
