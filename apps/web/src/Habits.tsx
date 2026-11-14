@@ -42,8 +42,10 @@ export function Habits({ scope: { dataset, epoch }, session, store, online, gene
     await refresh();
     onSaved();
   }
-  const [open, setOpen] = useState(false);
-  const [after, setAfter] = useState('0');
+  const [month, setMonth] = useState(() => {
+    const now = new Date();
+    return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  });
   const [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [failure, setFailure] = useState(false);
@@ -51,69 +53,81 @@ export function Habits({ scope: { dataset, epoch }, session, store, online, gene
   const [listing, setListing] = useState<HabitVersionPage | null>(null);
 
   useEffect(() => {
-    if (!open || !online || !session) return;
+    if (!online || !session) return;
     const cancel = new AbortController();
     const requested = { dataset, epoch };
-    void editableVersions(requested, after, cancel.signal).then(async value => {
-      const response = object(value, ['scope', 'items', 'hasMore']);
-      if (!sameScope(requested, scopeOf(response.scope))) throw new Error('The record scope changed.');
-      let cursor = after;
-      const rows = array(response.items).map(item => {
-        const row = object(item, ['id', 'sequence', 'kind', 'key', 'rootId', 'sha256', 'parents', 'current']);
-        const kind = text(row.kind);
-        if (kind !== 'habits') throw new Error('Invalid habit record.');
-        const next = sequence(row.sequence);
-        if (BigInt(next) <= BigInt(cursor)) throw new Error('Invalid record order.');
-        cursor = next;
-        return { id: uuid(row.id), label: 'Habits · ' + text(row.key), current: flag(row.current) };
-      });
-      const page = { rows, next: flag(response.hasMore) && rows.length ? cursor : null };
-      if (cancel.signal.aborted) return;
-      await store.saveHabitPage(requested, after, page);
-      if (!cancel.signal.aborted) { setListing(page); setFailure(false); }
-    }).catch(() => { if (!cancel.signal.aborted) setFailure(true); });
+    async function refreshMonths() {
+      const rows: HabitVersionPage['rows'] = [];
+      let cursor = '0';
+      for (let page = 0; page < 2000; page++) {
+        const value = await editableVersions(requested, cursor, cancel.signal);
+        const response = object(value, ['scope', 'items', 'hasMore']);
+        if (!sameScope(requested, scopeOf(response.scope))) throw new Error('The record scope changed.');
+        const items = array(response.items);
+        for (const item of items) {
+          const row = object(item, ['id', 'sequence', 'kind', 'key', 'rootId', 'sha256', 'parents', 'current']);
+          const next = sequence(row.sequence);
+          if (row.kind !== 'habits' || BigInt(next) <= BigInt(cursor)) throw new Error('Invalid habit record.');
+          cursor = next;
+          rows.push({ id: uuid(row.id), label: 'Habits · ' + text(row.key), current: flag(row.current) });
+        }
+        if (!flag(response.hasMore)) {
+          const result = { rows, next: null };
+          if (cancel.signal.aborted) return;
+          await store.saveHabitPage(requested, '0', result);
+          if (!cancel.signal.aborted) { setListing(result); setFailure(false); }
+          return;
+        }
+        if (!items.length) break;
+      }
+      throw new Error('Habit history exceeds the refresh limit.');
+    }
+    void refreshMonths().catch(() => { if (!cancel.signal.aborted) setFailure(true); });
     return () => cancel.abort();
-  }, [after, dataset, epoch, generation, online, open, retry, session, store]);
+  }, [dataset, epoch, generation, online, retry, session, store]);
 
-  function load(cursor: string) {
-    setListing(null);
-    setFailure(false);
-    setSelected(null);
-    if (after === cursor) setRetry(value => value + 1);
-    else setAfter(cursor);
+  function moveMonth(offset: number) {
+    const date = new Date(month + '-01T00:00:00Z');
+    date.setUTCMonth(date.getUTCMonth() + offset);
+    const next = date.toISOString().slice(0, 7);
+    if (/^\d{4}-/.test(next) && !next.startsWith('0000')) { setMonth(next); setSelected(null); setResolved(false); }
   }
 
-  const shown = listing ?? cache?.pages[after] ?? null;
-  const next = shown?.next;
-  return <details onToggle={event => {
-    setOpen(event.currentTarget.open);
-    if (!event.currentTarget.open) { setResolved(false); load('0'); }
-  }}>
-    <summary>Habit months and versions</summary>
-    {open && <>
-      <p>Review saved habit months and competing versions.</p>
-      {resolved && <p role="status">The selected version is current. Earlier versions are available in history.</p>}
-      {syncError && <p role="status">{syncError}</p>}
-      {!!cache?.edits.length && <p role="status">{cache.edits.length} habit changes waiting to sync.</p>}
-      {failure && <p role="alert">Could not refresh habit months.</p>}
-      {!shown ? <p role="status">{online && session ? 'Loading record versions…' : 'Open a habit month while online to make it available here.'}</p> :
-        shown.rows.length === 0 ? <p>No committed record versions.</p> :
-        <ul>{shown.rows.map(row => <li key={row.id}>
-          <button aria-pressed={selected === row.id} onClick={() => { setResolved(false); setSelected(row.id); }}>
-            {row.label}{row.current ? '' : ' (history)'}
-          </button>
-        </li>)}</ul>}
-      {after !== '0' && <button onClick={() => load('0')}>First versions</button>}
-      {next && <button onClick={() => load(next)}>Next versions</button>}
-      {(failure || listing) && <button onClick={() => load(after)}>{failure ? 'Retry' : 'Refresh versions'}</button>}
-      {selected && <SelectedRecord key={selected} scope={{ dataset, epoch }} session={online ? session : null} id={selected}
-        store={store} cache={cache} save={save} refresh={refresh}
-        currentVersions={new Set(shown?.rows.filter(row => row.current).map(row => row.id))} onResolved={() => {
-        load(after);
-        setResolved(true);
+  const shown = listing ?? cache?.pages['0'];
+  const monthRows = shown?.rows.filter(row => row.label === 'Habits · ' + month) ?? [];
+  const current = monthRows.filter(row => row.current);
+  const selectedRow = monthRows.find(row => row.id === selected);
+  const version = selectedRow ?? current.at(-1);
+  return <section aria-label="Monthly habit tracker">
+    <div className="habit-month-controls">
+      <button aria-label="Previous month" onClick={() => moveMonth(-1)}>‹</button>
+      <label>Month <input type="month" value={month} onChange={event => {
+        if (/^\d{4}-(0[1-9]|1[0-2])$/.test(event.target.value) && !event.target.value.startsWith('0000')) {
+          setMonth(event.target.value); setSelected(null); setResolved(false);
+        }
+      }} /></label>
+      <button aria-label="Next month" onClick={() => moveMonth(1)}>›</button>
+    </div>
+    {resolved && <p role="status">The selected version is current. Earlier versions are available in history.</p>}
+    {syncError && <p role="status">{syncError}</p>}
+    {!!cache?.edits.length && <p role="status">{cache.edits.length} habit changes waiting to sync.</p>}
+    {failure && <p role="alert">Could not refresh habit months. <button onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
+    {!shown && !failure && <p role="status">{online ? 'Loading habit months…' : 'Open a habit month while online to make it available here.'}</p>}
+    {shown && !version && <p>No synced habits for this month. Create or copy a ledger in LifeApp on Android.</p>}
+    {version && <SelectedRecord key={version.id} scope={{ dataset, epoch }} session={online ? session : null}
+      id={version.id} store={store} cache={cache} save={save} refresh={refresh}
+      currentVersions={new Set(current.length === 1 ? current.map(row => row.id) : [])} onResolved={() => {
+        setSelected(null); setRetry(value => value + 1); setResolved(true);
       }} />}
-    </>}
-  </details>;
+    {monthRows.length > 0 && <details>
+      <summary>Habit months and versions</summary>
+      <ul>{[...monthRows].reverse().map(row => <li key={row.id}>
+        <button aria-pressed={version?.id === row.id} onClick={() => { setResolved(false); setSelected(row.id); }}>
+          {row.label}{row.current ? '' : ' (history)'}
+        </button>
+      </li>)}</ul>
+    </details>}
+  </section>;
 }
 
 function SelectedRecord({ scope, session, id, currentVersions, store, cache, save, refresh, onResolved }: {
@@ -121,7 +135,6 @@ function SelectedRecord({ scope, session, id, currentVersions, store, cache, sav
   save: (version: string, check: HabitCheck) => Promise<void>; refresh: () => Promise<void>; onResolved: () => void;
 }) {
   const [reviewing, setReviewing] = useState(false);
-  const [day, setDay] = useState(1);
   let version = id;
   let conflicted = false;
   const seen = new Set<string>();
@@ -132,7 +145,7 @@ function SelectedRecord({ scope, session, id, currentVersions, store, cache, sav
     conflicted = receipt.conflicted;
     if (conflicted) break;
   }
-  const editor = (currentVersions.has(id) || currentVersions.has(version)) && !conflicted ? { day, setDay, save, refresh, cache } : undefined;
+  const editor = (currentVersions.has(id) || currentVersions.has(version)) && !conflicted ? { save, refresh, cache } : undefined;
   if (reviewing && session) {
     return <ConflictReview session={session} id={version} onClose={() => setReviewing(false)} onResolved={onResolved} />;
   }
@@ -225,8 +238,6 @@ function ConflictReview({ session, id, onClose, onResolved }: {
 }
 
 interface HabitEditor {
-  day: number;
-  setDay: (day: number) => void;
   save: (base: string, check: HabitCheck) => Promise<void>;
   refresh: () => Promise<void>;
   cache: HabitSyncState | null;
@@ -240,9 +251,8 @@ function HabitCheckboxes({ preview, version, editor, scope, store }: {
   const monthEnd = new Date(preview.title + '-01T00:00:00Z');
   monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1, 0);
   const days = monthEnd.getUTCDate();
-  const date = preview.title + '-' + String(editor.day).padStart(2, '0');
 
-  async function submit(habitId: string, checked: boolean) {
+  async function submit(habitId: string, date: string, checked: boolean) {
     setSaving(true);
     setError('');
     try { await editor.save(version, { id: crypto.randomUUID(), habitId, date, checked }); }
@@ -255,23 +265,35 @@ function HabitCheckboxes({ preview, version, editor, scope, store }: {
       await editor.refresh();
     } catch { setError('Could not update the saved change.'); }
   }
-  const editable = preview.habits.filter(habit => !habit.archived).flatMap(habit => habit.id === null ? [] : [{ ...habit, id: habit.id }]);
-  if (!Number.isInteger(days) || editable.length === 0) return null;
-  return <fieldset>
-    <legend>Daily habit completions</legend>
-    <label>Day <select value={editor.day} onChange={event => editor.setDay(Number(event.target.value))}>
-      {Array.from({ length: days }, (_, index) => index + 1).map(day => <option key={day} value={day}>{day}</option>)}
-    </select></label>
-    {editable.map(habit => {
-      const pending = editor.cache?.edits.find(item => item.check.habitId === habit.id && item.check.date === date);
-      return <div key={habit.id}>
-        <label><input type="checkbox" checked={pending?.check.checked ?? habit.days.includes(editor.day)}
-          disabled={saving || pending !== undefined} onChange={event => void submit(habit.id, event.target.checked)} /> {habit.name}</label>
-        {pending?.blocked && <p>The server needs a fresh review. <button onClick={() => void discard(pending.check.id)}>Discard this queued change</button></p>}
-      </div>;
-    })}
+  const active = preview.habits.filter(habit => !habit.archived);
+  if (!Number.isInteger(days) || !active.length) return <p>No active habits for this month.</p>;
+  const dates = Array.from({ length: days }, (_, index) => preview.title + '-' + String(index + 1).padStart(2, '0'));
+  const pending = new Map(editor.cache?.edits.map(item => [item.check.habitId + '/' + item.check.date, item]));
+  return <>
+    <div className="habit-grid" tabIndex={0} aria-label="Scrollable habit grid" role="region">
+      <table aria-label={preview.title + ' habit completions'}>
+        <thead><tr><th scope="col">Day</th>{active.map((habit, index) =>
+          <th key={habit.id ?? index} scope="col">{habit.name}</th>)}</tr></thead>
+        <tbody>{dates.map((date, index) => <tr key={date}><th scope="row">{index + 1}</th>
+          {active.map((habit, column) => {
+            const queued = pending.get(habit.id + '/' + date);
+            return <td key={habit.id ?? column}><input type="checkbox" aria-label={habit.name + ', ' + date}
+              checked={queued?.check.checked ?? habit.days.includes(index + 1)}
+              disabled={saving || queued !== undefined || habit.id === null}
+              onChange={event => { if (habit.id) void submit(habit.id, date, event.target.checked); }} /></td>;
+          })}
+        </tr>)}</tbody>
+        <tfoot><tr><th scope="row">Totals</th>{active.map((habit, index) => {
+          const total = dates.filter((date, day) =>
+            pending.get(habit.id + '/' + date)?.check.checked ?? habit.days.includes(day + 1)).length;
+          return <td key={habit.id ?? index}>{total} / {days} days<br />{Math.round(total / days * 1000) / 10}%</td>;
+        })}</tr></tfoot>
+      </table>
+    </div>
+    {editor.cache?.edits.filter(item => item.blocked && item.check.date.startsWith(preview.title + '-')).map(item =>
+      <p key={item.check.id}>{item.check.date} needs review. <button onClick={() => void discard(item.check.id)}>Discard this queued change</button></p>)}
     {error && <p role="alert">{error}</p>}
-  </fieldset>;
+  </>;
 }
 
 function RecordPreview({ scope: { dataset, epoch }, id, onReady, editor, store, cache, online }: {
@@ -298,7 +320,7 @@ function RecordPreview({ scope: { dataset, epoch }, id, onReady, editor, store, 
   return <section>
     <h2>{preview.title}</h2>
     {editor && preview.habits.length > 0 && <HabitCheckboxes preview={preview} version={id} editor={editor} scope={{ dataset, epoch }} store={store} />}
-    {preview.habits.length > 0 && <ul>{preview.habits.map((habit, index) => <li key={habit.id ?? index}>
+    {!editor && preview.habits.length > 0 && <ul>{preview.habits.map((habit, index) => <li key={habit.id ?? index}>
       {habit.name}{habit.archived ? ' (archived)' : ''} · {habit.days.length ? 'Completed days ' + habit.days.join(', ') : 'No completed days'}
     </li>)}</ul>}
     {preview.habits.length === 0 && <p>This month has no habit definitions.</p>}

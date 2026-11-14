@@ -81,6 +81,7 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
             val remote = api.workoutVersions(session, credential.token).associateBy { it.record.id }
             val local = repository.syncRecords().associateBy { it.id }
             val conflicts = mutableListOf<WorkoutSyncConflict>()
+            var oversized = 0
             val ids = (remote.keys + local.keys).sortedBy { id ->
                 when (local[id]?.kind ?: remote[id]?.record?.kind) {
                     "exercise" -> 0
@@ -107,6 +108,10 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
                             check(receipt.record == saved) { "The workout receipt did not match the saved record." }
                             repository.applySyncVersion(binding, receipt, saved, download = false)
                         } catch (failure: ServerHttpFailure) {
+                            if (failure.status == 413) {
+                                oversized++
+                                continue
+                            }
                             if (failure.code != "WORKOUT_CHANGED") throw failure
                             val latest = api.workoutHead(session, credential.token, id)
                             conflicts += WorkoutSyncConflict(saved, latest)
@@ -117,8 +122,11 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
                 }
             }
             review.value = conflicts
-            message.value = if (conflicts.isEmpty()) "Workouts checked with the server."
-                else "${conflicts.size} workout records need review. Both copies were kept."
+            message.value = buildList {
+                if (conflicts.isNotEmpty()) add("${conflicts.size} workout records need review. Both copies were kept.")
+                if (oversized > 0) add("$oversized workout records exceed the server upload limit and are saved on this device.")
+                if (isEmpty()) add("Workouts checked with the server.")
+            }.joinToString(" ")
             val unchanged = repository.syncRecords().all { record -> local[record.id] == record || remote[record.id]?.record == record }
             unchanged
         } catch (cancelled: CancellationException) {
