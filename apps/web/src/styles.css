@@ -364,3 +364,13 @@ nav button[aria-current=page] { background: var(--active); color: var(--ink); fo
 .expense-summary p { margin-block: .25rem; color: var(--muted); }
 .expense-module > details { margin-block: .75rem; }
 .expense-module > details label { display: block; margin-bottom: .65rem; }
+
+nav[hidden] { display: none; }
+.shell[data-nav-hidden=true] main { padding-bottom: 1.5rem; }
+@media (min-width: 760px) {
+  .shell[data-nav-hidden=true] { grid-template-columns: 0 minmax(0, 1fr); }
+}
+.brand > button { min-width: 44px; padding: .2rem; }
+.workout-tabs { display: flex; flex-wrap: wrap; gap: .35rem; margin-block: .5rem 1rem; }
+.workout-tabs button[aria-pressed=true] { background: var(--active); font-weight: 700; }
+.workout-history-link { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: .75rem; margin-block: .5rem; text-align: start; }

@@ -70,6 +70,7 @@ fun WorkoutRoutine.workoutJson() = buildJsonObject {
     put("metadata", metadata.json())
     put("name", name)
     put("exerciseOrder", JsonArray(exerciseOrder.map { JsonPrimitive(it.toString()) }))
+    if (archived) put("archived", true)
     if (plannedSetCounts.isNotEmpty()) put("plannedSetCounts", JsonArray(plannedSetCounts.map(::JsonPrimitive)))
 }
 
@@ -82,6 +83,7 @@ object WorkoutJson {
         WorkoutRoutine(
             metadata(), text("name")!!, getValue("exerciseOrder").jsonArray.map { Uuid.parse(it.jsonPrimitive.content) },
             get("plannedSetCounts")?.jsonArray?.map { item -> if (item == JsonNull) null else item.jsonPrimitive.int }.orEmpty(),
+            get("archived")?.jsonPrimitive?.boolean ?: false,
         )
     }
 

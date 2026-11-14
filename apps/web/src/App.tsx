@@ -17,8 +17,8 @@ import { useWorkerUpdate } from './worker.ts';
 import packageInfo from '../package.json';
 import { browserExport, downloadExport } from './export.ts';
 
-type Tab = 'To-do' | 'Workouts' | 'History' | 'Habits' | 'Expenses' | 'Settings';
-const tabs: Tab[] = ['To-do', 'Workouts', 'History', 'Habits', 'Expenses', 'Settings'];
+type Tab = 'To-do' | 'Workouts' | 'Habits' | 'Expenses' | 'Settings';
+const tabs: Tab[] = ['To-do', 'Workouts', 'Habits', 'Expenses', 'Settings'];
 const ACTIVE_SYNC_INTERVAL = 5 * 60 * 1000;
 const blank: LocalView = { tasks: [], pending: 0, checkpoint: null, lastSync: null };
 
@@ -30,6 +30,8 @@ export function App({ store }: { store: LifeStore }) {
   const [online, setOnline] = useState(navigator.onLine);
   const [busy, setBusy] = useState(false);
   const [synced, setSynced] = useState(false);
+  const [habitSyncError, setHabitSyncError] = useState('');
+  const [navHidden, setNavHidden] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const running = useRef(false);
@@ -65,6 +67,11 @@ export function App({ store }: { store: LifeStore }) {
   const matches = session !== null && sameScope(scope, session.scope);
   const habitScope = session?.scope ?? scope;
 
+  const rememberSession = useCallback((current: BrowserSession) => {
+    setSession(previous => previous && sameScope(previous.scope, current.scope) &&
+      previous.csrfToken === current.csrfToken && previous.expiresAt === current.expiresAt ? previous : current);
+  }, []);
+
   const refresh = useCallback(async () => {
     const [local, workout] = await Promise.all([store.view(), store.workoutBinding()]);
     setView(local);
@@ -81,26 +88,45 @@ export function App({ store }: { store: LifeStore }) {
     setNotice('');
     try {
       const verified = await api.session();
-      setSession(verified);
+      rememberSession(verified);
       if (!sameScope(current.scope, verified.scope)) {
         throw new Error('Review your connection before syncing again. Your local changes were kept.');
       }
-      const complete = await synchronize(store, verified);
+      const local = await store.view();
+      const complete = !local.checkpoint || await synchronize(store, verified).catch(failure => {
+        if (failure instanceof ApiError
+          ? failure.status === 401 || failure.status === 429 || failure.status >= 500
+          : failure instanceof Error && failure.cause !== undefined) throw failure;
+        setError(message(failure));
+        return false;
+      });
       setSynced(complete);
       failures.current = 0;
       serverDeadline.current = 0;
-      scheduleRetry(complete ? 0 : Date.now() + 1000);
-      setNotice(complete ? 'To-do synchronization complete.' : 'Checking the remaining To-do changes.');
-      try { await syncHabits(store, verified); }
-      catch { setNotice('To-do checked. Habit changes are saved locally and waiting to sync.'); }
-      finally { setHabitGeneration(generation => generation + 1); }
+      scheduleRetry(complete ? 0 : Date.now() + 5000);
+      try {
+        await syncHabits(store, verified);
+        setHabitSyncError('');
+        setHabitGeneration(generation => generation + 1);
+      }
+      catch (failure) {
+        setHabitSyncError('Habit changes are saved locally and waiting to sync.');
+        if (failure instanceof ApiError && failure.status === 429) {
+          scheduleRetry(Math.max(retryDeadline.current, failure.retryAfter ?? Date.now() + 2000));
+        }
+      }
       try {
         if (await store.workoutBinding()) {
           const conflicts = await syncWorkouts(store, verified);
           setWorkoutConflicts(conflicts);
           setWorkoutStatus(conflicts.length ? `${conflicts.length} workout records need review. Both copies were kept.` : 'Workouts checked with the server.');
         }
-      } catch (failure) { setWorkoutStatus(message(failure)); }
+      } catch (failure) {
+        setWorkoutStatus(message(failure));
+        if (failure instanceof ApiError && failure.status === 429) {
+          scheduleRetry(Math.max(retryDeadline.current, failure.retryAfter ?? Date.now() + 2000));
+        }
+      }
       finally { setWorkoutGeneration(generation => generation + 1); }
 
     } catch (failure) {
@@ -122,7 +148,7 @@ export function App({ store }: { store: LifeStore }) {
       setBusy(false);
       channel.current?.postMessage('refresh');
     }
-  }, [refresh, scheduleRetry, store]);
+  }, [refresh, rememberSession, scheduleRetry, store]);
 
   useEffect(() => {
     let active = true;
@@ -136,8 +162,8 @@ export function App({ store }: { store: LifeStore }) {
         if (!navigator.onLine) return;
         const current = await api.session();
         if (!active) return;
-        setSession(current);
-        if (sameScope(local.checkpoint?.scope ?? null, current.scope)) await sync(current);
+        rememberSession(current);
+        if (local.checkpoint || workout) await sync(current);
       } catch (failure) {
         if (!active) return;
         if (failure instanceof ApiError && failure.status === 401) {
@@ -173,15 +199,15 @@ export function App({ store }: { store: LifeStore }) {
       window.removeEventListener('online', network);
       window.removeEventListener('offline', network);
     };
-  }, [refresh, store, sync]);
+  }, [refresh, rememberSession, store, sync]);
 
   useEffect(() => {
-    if (!session || !matches || !visible || !online) return;
+    if (!session || (!matches && !workoutConnected) || !visible || !online) return;
     const timeout = window.setTimeout(() => void sync(session), retryAt
       ? Math.min(2_147_483_647, Math.max(0, retryAt - Date.now()))
       : ACTIVE_SYNC_INTERVAL);
     return () => window.clearTimeout(timeout);
-  }, [matches, online, retryAt, session, sync, visible]);
+  }, [matches, online, retryAt, session, sync, visible, workoutConnected]);
 
   async function change(action: () => Promise<void>) {
     setError('');
@@ -250,10 +276,10 @@ export function App({ store }: { store: LifeStore }) {
     view.tasks.some(task => task.conflicts.length > 0) ? 'Conflict needs review' :
     !session ? 'Signed out' : !matches ? 'Review connection' : synced ? 'To-do up to date' : 'Ready to sync';
 
-  return <div className="shell">
+  return <div className="shell" data-nav-hidden={navHidden}>
     <a className="skip-link" href="#workspace">Skip to content</a>
     <header className="masthead">
-      <div className="brand"><img src="/icon-192.png" width="42" height="42" alt="" /><span>LifeApp</span></div>
+      <div className="brand"><button type="button" aria-label={navHidden ? 'Show navigation' : 'Hide navigation'} aria-expanded={!navHidden} aria-controls="main-navigation" onClick={() => setNavHidden(!navHidden)}>☰</button><img src="/icon-192.png" width="42" height="42" alt="" /><span>LifeApp</span></div>
       <div className="sync-status" aria-live="polite" data-offline={!online}>
         <strong>{status}</strong><span>{view.pending} pending</span>
       </div>
@@ -267,26 +293,27 @@ export function App({ store }: { store: LifeStore }) {
           if (session && matches && navigator.onLine) await sync(session);
           downloadExport(await browserExport(store));
         }} onConflicts={() => setTab('To-do')} onSync={() => session && void syncStructured(session)} />}
-      {(tab === 'Workouts' || tab === 'History') && <>
-        <Workouts key={tab} store={store} historyOnly={tab === 'History'} generation={workoutGeneration}
+      {(tab === 'Workouts') && <>
+        <Workouts key={tab} store={store} generation={workoutGeneration}
           syncStatus={workoutStatus} conflicts={matches ? workoutConflicts : []}
           onResolve={async (conflict, keepLocal) => {
             if (!session || !matches || !online || busy) throw new Error('Wait for synchronization and try again.');
             await resolveWorkoutConflict(store, session, conflict, keepLocal);
             await sync(session, true);
           }}
-          onSaved={() => { if (session && matches && navigator.onLine) void sync(session); }} />
+          onSaved={() => { if (session && workoutConnected && navigator.onLine) void sync(session); }} />
         {matches && <details><summary>Read-only server records</summary><ReadRecords key={tab}
-          kind={tab === 'Workouts' ? 'exercises' : 'workouts'} session={session} online={online} /></details>}
+          kind="workouts" session={session} online={online} /></details>}
       </>}
       {tab === 'Expenses' && <Expenses store={store} sync={expenseSync} />}
-      {tab === 'Habits' && <section><h1>Habits</h1>
+      {tab === 'Habits' && <section><h1>Habits</h1>{habitSyncError && <p role="status">{habitSyncError}</p>}
         {habitScope ? <Habits key={habitScope.dataset + '/' + habitScope.epoch} scope={habitScope}
-          session={session} online={online} store={store} generation={habitGeneration} />
+          session={session} online={online} store={store} generation={habitGeneration}
+          onSaved={() => { if (session && navigator.onLine) void sync(session); }} />
           : <p>{online ? 'Sign in to view server habit months.' : 'Connect to view server habit months.'}</p>}
       </section>}
     </main>
-    <nav aria-label="Main navigation">
+    <nav id="main-navigation" aria-label="Main navigation" hidden={navHidden}>
       {tabs.map(item => <button key={item} aria-current={tab === item ? 'page' : undefined} onClick={() => setTab(item)}><NavigationIcon name={item} /><span>{item}</span></button>)}
     </nav>
   </div>;
@@ -299,7 +326,8 @@ function Todos({ view, change, store }: { view: LocalView; store: LifeStore; cha
     .sort((a, b) => a.record.deadline.localeCompare(b.record.deadline) || a.record.title.localeCompare(b.record.title));
   const groups = [
     ['Overdue', sorted.filter(task => !task.record.completedAt && task.record.deadline < date)],
-    ['Pending', sorted.filter(task => !task.record.completedAt && task.record.deadline >= date)],
+    ['Due today', sorted.filter(task => !task.record.completedAt && task.record.deadline === date)],
+    ['Upcoming', sorted.filter(task => !task.record.completedAt && task.record.deadline > date)],
     ['Completed', sorted.filter(task => task.record.completedAt)],
   ] as const;
   const conflicts = view.tasks.filter(task => task.conflicts.length > 0);
@@ -433,7 +461,7 @@ function Settings({ view, session, busy, online, status, onLogin, onBind, onLogo
       {!session ? <button onClick={() => setPage('Account & Security')}>Sign in again</button> : <>
         {(!view.checkpoint || !expenseConnected || !workoutConnected) && <button className="primary" disabled={busy || !online} onClick={() => void onBind()}>Connect synchronization</button>}
         {view.checkpoint && !match && <p role="alert">Reconnect to the original account or contact the server operator for recovery. Local changes were kept.</p>}
-        <button disabled={!match || !online || busy} onClick={onSync}>Sync now</button>
+        <button disabled={(!match && !workoutConnected) || !online || busy} onClick={onSync}>Sync now</button>
       </>}
     </article>}
     {page === 'Backup & Recovery' && <article className="card">

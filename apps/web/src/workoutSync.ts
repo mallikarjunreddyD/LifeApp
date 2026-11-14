@@ -24,6 +24,7 @@ export function workoutMatches(a?: WorkoutRecord, b?: WorkoutRecord): boolean {
     if (record.kind === 'session') {
       for (const key of ['deleted', 'logged', 'durationManuallyEntered']) if (value[key] === false) delete value[key];
     }
+    if (record.kind === 'routine' && value.archived === false) delete value.archived;
     if (record.kind === 'routine' && Array.isArray(value.plannedSetCounts) && !value.plannedSetCounts.length) {
       delete value.plannedSetCounts;
     }

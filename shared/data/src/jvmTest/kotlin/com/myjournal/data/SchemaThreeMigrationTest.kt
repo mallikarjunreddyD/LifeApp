@@ -26,6 +26,7 @@ class SchemaThreeMigrationTest {
         val driver=BundledSQLiteDriver()
         driver.open(sourceFile.path).use { old -> driver.open(legacyFile.path).use { legacy ->
             legacy.execSQL("PRAGMA foreign_keys=OFF")
+            legacy.execSQL("BEGIN")
             schema.getValue("entities").jsonArray.forEach { entity ->
                 val value=entity.jsonObject;val table=value.getValue("tableName").jsonPrimitive.content
                 legacy.execSQL(value.getValue("createSql").jsonPrimitive.content.replace("${'$'}{TABLE_NAME}",table))
@@ -47,6 +48,7 @@ class SchemaThreeMigrationTest {
             }
             schema.getValue("setupQueries").jsonArray.forEach { legacy.execSQL(it.jsonPrimitive.content) }
             legacy.execSQL("PRAGMA user_version=3")
+            legacy.execSQL("COMMIT")
         } }
         val migrated=open(legacyFile)
         try {

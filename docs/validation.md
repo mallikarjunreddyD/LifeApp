@@ -513,3 +513,17 @@ and desktop navigation, verifies the LifeApp icon loads, and exercises the
 existing offline and synchronization flows. Emulator reports and browser
 screenshots are attached to the PR checks. Xiaomi stylus alignment, launcher
 refresh, and physical iPhone PWA appearance require device verification.
+
+## Phase 9C workouts and synchronization
+
+Local validation passed 102 shared JVM tests, including the Room workout and
+backup round-trip tests. Android lint and assembly of the debug and
+instrumentation APKs passed. Web type checking, lint, nine unit tests and nine
+Chromium tests against disposable Ktor and PostgreSQL passed. Browser coverage
+includes compact navigation, Due today, workout entry and history drill-down,
+and replaying an offline habit edit after reconnecting.
+
+The Android instrumentation suite was compiled. Running it and the Android
+browser bridge still requires a booted emulator. Production account sync,
+in-place update with the persistent signer, and the workout layout on the Xiaomi
+Pad 7 still require device validation.

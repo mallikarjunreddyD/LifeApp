@@ -52,6 +52,11 @@ class RoomWorkoutLogbookTest {
             val restored = BackupArchive.read(archive).snapshot
             assertEquals(9, restored.dataSchemaVersion)
             assertEquals(log.canonical(), restored.workoutLog.canonical())
+            val archived = log.copy(routines = log.routines.map { it.copy(archived = true) })
+            BackupArchive.write(archive, JournalSnapshot(workoutLog = archived))
+            val recovered = BackupArchive.read(archive).snapshot
+            assertEquals(12, recovered.dataSchemaVersion)
+            assertEquals(archived.canonical(), recovered.workoutLog.canonical())
             repository.setSessionDeleted(metadata.id, false)
             val restoredSession = repository.observe().first().sessions.single { it.metadata.id == metadata.id }
             assertFalse(restoredSession.deleted)

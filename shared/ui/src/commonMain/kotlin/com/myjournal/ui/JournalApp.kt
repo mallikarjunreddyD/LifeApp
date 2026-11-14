@@ -78,6 +78,7 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
             (it != AppSection.TODO || todo != null) && (it != AppSection.WORKOUTS || workouts != null) &&
                 (it != AppSection.EXPENSES || expenses != null)
         }
+        var navigationVisible by rememberSaveable { mutableStateOf(true) }
         val holder = rememberSaveableStateHolder()
         fun select(section: AppSection) {
             if (onSectionSelected != null) onSectionSelected(section) else selectedName = section.name
@@ -94,6 +95,9 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            IconButton(onClick = { navigationVisible = !navigationVisible }, modifier = Modifier.semantics {
+                                contentDescription = if (navigationVisible) "Hide navigation" else "Show navigation"
+                            }) { Text("☰") }
                             LifeAppMark()
                             Text("LifeApp", style = MaterialTheme.typography.titleLarge)
                             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { globalStatus?.invoke() }
@@ -101,7 +105,7 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Row(Modifier.weight(1f)) {
-                        if (wide) {
+                        if (wide && navigationVisible) {
                             Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
                                 Column(
                                     Modifier.width(174.dp).fillMaxHeight().verticalScroll(rememberScrollState())
@@ -155,7 +159,7 @@ fun JournalApp(dailyJournal: (@Composable () -> Unit)? = null,
                             else "This space is reserved for ${selected.title.lowercase()}. Writing, editing and saving are not available yet.")
                         }
                     }
-                    if (!wide) {
+                    if (!wide && navigationVisible) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Surface(color = MaterialTheme.colorScheme.surface) {
                             Column(Modifier.fillMaxWidth().selectableGroup().padding(horizontal = 6.dp, vertical = 4.dp)) {

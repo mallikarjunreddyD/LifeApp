@@ -39,7 +39,7 @@ object BackupArchive {
                 val manifest = buildJsonObject {
                     put("format", "LifeAppArchive"); put("backupFormatVersion", 1); put("kind", kind)
                     put("appVersion", appVersion); put("createdAt", Clock.System.now().toString()); put("dataSchemaVersion", snapshot.dataSchemaVersion)
-                    put("sections", JsonArray(sectionsFor(snapshot.dataSchemaVersion).map(::JsonPrimitive)))
+                    put("sections", JsonArray(sectionsFor(snapshot.dataSchemaVersion, snapshot.expenseSync != null).map(::JsonPrimitive)))
                     put("counts", buildJsonObject { snapshot.counts().forEach { (name, count) -> put(name, count) } })
                     put("files", JsonArray(items.map { item -> buildJsonObject {
                         put("path", item.path); put("size", item.size); put("sha256", item.hash)
@@ -57,11 +57,11 @@ object BackupArchive {
             require(SnapshotJson.encode(verified.snapshot) == SnapshotJson.encode(snapshot)) { "Backup verification mismatch" }
         } catch (failure: Throwable) { file.delete(); throw failure }
     }
-    private fun sectionsFor(schema: Int) = sections +
+    private fun sectionsFor(schema: Int, expenseSync: Boolean) = sections +
         (if (schema >= 6) listOf("todos") else emptyList()) +
         (if (schema >= 7) listOf("workouts") else emptyList()) +
         (if (schema >= 10) listOf("expenses") else emptyList()) +
-        (if (schema >= 11) listOf("expenseSync") else emptyList())
+        (if (expenseSync) listOf("expenseSync") else emptyList())
 
     fun read(file: File, expectedKind: String = "backup"): Validated {
         require(file.length() in 1..MAX_ARCHIVE_BYTES) { "Archive is empty or exceeds 64 MiB" }
@@ -91,11 +91,12 @@ object BackupArchive {
             checkJsonSizeAndDepth(manifestText)
             val manifest = json.parseToJsonElement(manifestText).jsonObject
             require(manifest.getValue("format").jsonPrimitive.content == "LifeAppArchive")
-            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..11) { "Unsupported backup version" }
+            require(manifest.getValue("backupFormatVersion").jsonPrimitive.int == 1 && manifest.getValue("dataSchemaVersion").jsonPrimitive.int in 4..12) { "Unsupported backup version" }
             val kind = manifest.getValue("kind").jsonPrimitive.content; require(kind == expectedKind) { "This file is not a full backup" }
             val schema = manifest.getValue("dataSchemaVersion").jsonPrimitive.int
-            val expectedSections = sectionsFor(schema)
-            require(manifest.getValue("sections").jsonArray.map { it.jsonPrimitive.content } == expectedSections)
+            val sections = manifest.getValue("sections").jsonArray.map { it.jsonPrimitive.content }
+            val expectedSections = sectionsFor(schema, schema == 11 || schema >= 12 && "expenseSync" in sections)
+            require(sections == expectedSections)
             val created = Instant.parse(manifest.getValue("createdAt").jsonPrimitive.content)
             val version = manifest.getValue("appVersion").jsonPrimitive.content; require(version.length in 1..80)
             val files = manifest.getValue("files").jsonArray
@@ -114,6 +115,7 @@ object BackupArchive {
             val snapshot = SnapshotJson.decode(read("data.json", MAX_JSON_BYTES).decodeToString(throwOnInvalidSequence = true), expectedDataSchemaVersion = manifest.getValue("dataSchemaVersion").jsonPrimitive.int) { path ->
                 require(used.add(path)) { "Duplicate ink reference" }; read(path, MAX_FILE_BYTES)
             }
+            require(("expenseSync" in sections) == (snapshot.expenseSync != null))
             require(used == declared.keys) { "Unreferenced archive data" }
             val counts = manifest.getValue("counts").jsonObject.mapValues { it.value.jsonPrimitive.int }
             require(counts == if (schema >= 6) snapshot.counts() else snapshot.counts() - "todos") { "Record counts do not match manifest" }

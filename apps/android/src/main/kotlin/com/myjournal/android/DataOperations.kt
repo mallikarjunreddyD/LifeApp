@@ -169,7 +169,7 @@ class DataOperations(private val app: JournalApplication, private val repository
     internal fun resumeEditableUploads(sync: AndroidServerSync) = sync.resumeEditableImport(::snapshot)
 
     internal fun setAutomaticEditable(sync: AndroidServerSync, enabled: Boolean) {
-        sync.setAutomaticEditable(enabled, ::snapshot)
+        sync.setAutomaticEditable(enabled)
     }
 
     internal fun syncTrackedOnForeground(sync: AndroidServerSync) {

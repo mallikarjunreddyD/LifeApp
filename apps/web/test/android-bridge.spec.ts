@@ -60,7 +60,7 @@ test('browser exchanges task changes with the Android HTTPS client', async ({ pa
   await page.getByRole('button', { name: 'Sync now', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Workouts', exact: true }).click();
-  await page.getByText('Exercise library', { exact: true }).click();
+  await page.getByRole('button', { name: 'Exercises', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Android bridge press' })).toBeVisible();
   await page.getByRole('button', { name: 'Edit exercise', exact: true }).click();
   await page.getByLabel('Exercise name').fill('Browser bridge press');

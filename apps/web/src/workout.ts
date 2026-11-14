@@ -4,7 +4,7 @@ import type { Metadata } from './protocol.ts';
 export interface Exercise {
   metadata: Metadata; name: string; category: string | null; equipment: string | null; archived: boolean; description?: string;
 }
-export interface Routine { metadata: Metadata; name: string; exerciseOrder: string[]; plannedSetCounts?: (number | null)[] }
+export interface Routine { metadata: Metadata; name: string; exerciseOrder: string[]; plannedSetCounts?: (number | null)[]; archived?: boolean }
 export interface RecordedSet {
   metadata: Metadata; entryId: string; number: number; weight: { value: number; unit: 'KG' | 'LB' } | null;
   repetitions: number | null; durationSeconds: number | null; restSeconds: number | null; completed: boolean;
