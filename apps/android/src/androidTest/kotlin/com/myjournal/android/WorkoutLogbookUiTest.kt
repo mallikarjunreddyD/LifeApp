@@ -60,7 +60,15 @@ class WorkoutLogbookUiTest {
         rule.onNodeWithText("Delete workout").performClick()
         rule.onNode(hasText("Delete workout") and hasAnyAncestor(isDialog())).performClick()
         rule.waitUntil(15_000) { runBlocking { repository.observe().first().sessions.single { it.metadata.id == recorded.metadata.id }.deleted } }
-        scrollTo("Recently deleted")
+        // Room's commit can be visible before Compose receives the updated history list.
+        rule.waitUntil(15_000) {
+            try {
+                scrollTo("Recently deleted")
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
         rule.onNodeWithText("Recently deleted").performClick()
         scrollTo("Restore workout")
         rule.onNodeWithText("Restore workout").performClick()
