@@ -421,8 +421,13 @@ test('Habits shows structured months and hides handwriting modules', async ({ co
   await expect(page.getByText('1 habit changes waiting to sync.')).toHaveCount(0, { timeout: 15_000 });
   const updated = await (await context.request.get('/v1/editable/versions?kind=habits', { headers })).json();
   const latest = updated.items.find((row: { current: boolean }) => row.current);
-  const preview = await (await context.request.get('/v1/editable/versions/' + latest.id + '/preview', { headers })).json();
-  expect(preview.habits.find((habit: { name: string }) => habit.name === 'Reading').completedDays).toContain(2);
+  await expect.poll(async () => {
+    const response = await context.request.get('/v1/editable/versions/' + latest.id + '/preview', { headers });
+    if (response.status() === 429) return [];
+    expect(response.ok()).toBe(true);
+    const preview = await response.json();
+    return preview.habits.find((habit: { name: string }) => habit.name === 'Reading').completedDays;
+  }).toContain(2);
   await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('1');
   await expect(reading).not.toBeChecked();
   const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
