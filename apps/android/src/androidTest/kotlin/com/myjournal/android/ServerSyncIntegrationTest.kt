@@ -141,6 +141,25 @@ class ServerSyncIntegrationTest {
                 WorkoutSyncVersion(Uuid.random(), exerciseRecord), parent = null)
             assertTrue(workouts.applySyncVersion(requireNotNull(workouts.syncBinding()), firstWorkout, exerciseRecord, download = false))
 
+            val sessionMetadata = newRecordMetadata()
+            val largeWorkout = WorkoutSession(
+                metadata = sessionMetadata,
+                date = LocalDate(2026, 11, 9),
+                startedAt = null,
+                endedAt = null,
+                durationSeconds = null,
+                logged = true,
+                entries = List(6) { order ->
+                    WorkoutExerciseEntry(newRecordMetadata(), sessionMetadata.id, exercise.metadata.id,
+                        order, sets = emptyList(), remarks = "x".repeat(3_000))
+                },
+            )
+            val largeRecord = WorkoutSyncRecord("session", largeWorkout.workoutJson())
+            assertTrue(largeRecord.value.toString().encodeToByteArray().size > 16 * 1024)
+            val uploaded = api.pushWorkout(credential.session, credential.token,
+                WorkoutSyncVersion(Uuid.random(), largeRecord), parent = null)
+            assertEquals(uploaded, api.workoutHead(credential.session, credential.token, sessionMetadata.id))
+
             val expenses = RoomExpenseRepository(database)
             expenses.seed()
             val ledger = RoomSnapshotRepository(database).capture().expenseLedger

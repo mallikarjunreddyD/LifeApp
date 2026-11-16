@@ -50,6 +50,31 @@ stroke_id = "71000000-0000-4000-8000-000000000003"
 version_id = "72000000-0000-4000-8000-000000000001"
 record_path = f"/v1/editable/versions/{version_id}"
 scope_headers = {**auth, "X-LifeApp-Dataset": session["scope"]["dataset"], "X-LifeApp-Epoch": session["scope"]["epoch"]}
+if sys.argv[1] == "seed":
+    def workout_metadata():
+        return {"id": str(uuid.uuid4()), "createdAt": "2026-11-09T12:00:00Z",
+                "updatedAt": "2026-11-09T12:00:00Z", "schemaVersion": 1, "revision": "1"}
+
+    def push_workout(kind, value):
+        entry = {"version": str(uuid.uuid4()), "record": {"kind": kind, "value": value}}
+        body = {"entry": entry, "parent": None}
+        response = call("/v1/structured/workouts", method="POST", headers=scope_headers, body=body)[0]
+        assert json.loads(response) == entry
+        return body
+
+    exercise = workout_metadata()
+    push_workout("exercise", {"metadata": exercise, "name": "Large workout fixture",
+                              "category": None, "equipment": None, "archived": False})
+    workout = workout_metadata()
+    entries = [{"metadata": workout_metadata(), "sessionId": workout["id"], "exerciseId": exercise["id"],
+                "order": index, "round": None, "sets": [], "remarks": "x" * 3000} for index in range(6)]
+    body = push_workout("session", {"metadata": workout, "date": "2026-11-09", "startedAt": None,
+                                    "endedAt": None, "durationSeconds": None, "caloriesKcal": None,
+                                    "notes": None, "completed": True, "logged": True, "entries": entries})
+    assert len(json.dumps(body).encode()) > 16 * 1024
+    retrieved = call(f"/v1/structured/workouts/{workout['id']}", headers=scope_headers)[0]
+    assert json.loads(retrieved) == body["entry"]
+
 if sys.argv[1] == "hold":
     scope = session["scope"]
     digest = hashlib.sha256(points).hexdigest()

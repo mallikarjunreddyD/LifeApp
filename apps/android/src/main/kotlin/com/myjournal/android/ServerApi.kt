@@ -94,7 +94,7 @@ internal class ServerApi(
         WorkoutSyncVersion.parse(request("/v1/structured/workouts", "POST", token, buildJsonObject {
             put("entry", entry.json())
             put("parent", parent?.toString())
-        }, session.scope).objectValue())
+        }, session.scope, maxBodyBytes = 512 * 1024).objectValue())
 
     suspend fun expenseInventory(session: ServerSession, token: String): Long =
         request("/v1/expenses/inventory", token = token, journalScope = session.scope).objectValue()
@@ -250,7 +250,7 @@ internal class ServerApi(
 
     private suspend fun request(
         path: String, method: String = "GET", token: String? = null, body: JsonObject? = null, journalScope: SyncScope? = null,
-        archive: File? = null, digest: String? = null, download: File? = null,
+        archive: File? = null, digest: String? = null, download: File? = null, maxBodyBytes: Int = 16_384,
     ): String =
         withContext(Dispatchers.IO) {
             val conn = connection(URI(endpoint.origin + path).toURL())
@@ -268,7 +268,7 @@ internal class ServerApi(
                 }
                 if (body != null) {
                     val bytes = body.toString().encodeToByteArray()
-                    require(bytes.size <= 16_384) { "Request exceeds the LifeApp limit" }
+                    if (bytes.size > maxBodyBytes) throw ServerHttpFailure(413, "LIMIT_EXCEEDED", null)
                     conn.doOutput = true
                     conn.setRequestProperty("Content-Type", "application/json")
                     conn.setFixedLengthStreamingMode(bytes.size)

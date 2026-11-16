@@ -527,3 +527,17 @@ The Android instrumentation suite was compiled. Running it and the Android
 browser bridge still requires a booted emulator. Production account sync,
 in-place update with the persistent signer, and the workout layout on the Xiaomi
 Pad 7 still require device validation.
+
+### Phase 9C follow-up
+
+The browser habit grid passed Chromium checks for month navigation, completion
+totals, offline edits and replay on reconnect. Web type checking, lint, nine
+unit tests and all nine Chromium tests passed. Android lint and both debug APK
+builds passed, including compilation of the large-workout HTTPS regression test.
+The Android bridge requires a disposable emulator and was not run locally.
+
+Production returned HTTP 413 for a synthetic workout request above 16 KiB.
+The updated gateway accepted and returned a valid session above 16 KiB against
+disposable Ktor and PostgreSQL. The Android client and gateway now use the
+workout API's 512 KiB limit for this route. Production rollout and retesting
+with existing Android and browser workout records remain pending.

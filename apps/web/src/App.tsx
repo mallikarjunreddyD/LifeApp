@@ -117,9 +117,12 @@ export function App({ store }: { store: LifeStore }) {
       }
       try {
         if (await store.workoutBinding()) {
-          const conflicts = await syncWorkouts(store, verified);
+          const { conflicts, oversized } = await syncWorkouts(store, verified);
           setWorkoutConflicts(conflicts);
-          setWorkoutStatus(conflicts.length ? `${conflicts.length} workout records need review. Both copies were kept.` : 'Workouts checked with the server.');
+          const warnings = [];
+          if (conflicts.length) warnings.push(`${conflicts.length} workout records need review. Both copies were kept.`);
+          if (oversized) warnings.push(`${oversized} workout records exceed the server upload limit and are saved on this device.`);
+          setWorkoutStatus(warnings.join(' ') || 'Workouts checked with the server.');
         }
       } catch (failure) {
         setWorkoutStatus(message(failure));

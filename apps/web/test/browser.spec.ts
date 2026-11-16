@@ -388,20 +388,16 @@ test('Habits shows structured months and hides handwriting modules', async ({ co
   await commitArchive('notebook');
   await commitArchive('habits');
   await page.getByRole('button', { name: 'Habits', exact: true }).click();
-  await page.getByText('Habit months and versions', { exact: true }).click();
   await expect(page.getByRole('button', { name: /Planner ·|Notebook ·/ })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Habits · 2026-11', exact: true }).click();
-  const reading = page.getByRole('checkbox', { name: 'Reading' });
+  await page.getByLabel('Month', { exact: true }).fill('2026-11');
+  const reading = page.getByRole('checkbox', { name: 'Reading, 2026-11-02', exact: true });
   await expect(reading).toBeVisible();
-  await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('2');
   await context.setOffline(true);
   await reading.click();
   await expect(page.getByText('1 habit changes waiting to sync.')).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: 'Habits', exact: true }).click();
-  await page.getByText('Habit months and versions', { exact: true }).click();
-  await page.getByRole('button', { name: 'Habits · 2026-11', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('2');
+  await page.getByLabel('Month', { exact: true }).fill('2026-11');
   await expect(reading).toBeChecked();
   await page.clock.install();
   const initialAttempt = page.waitForResponse(response =>
@@ -428,8 +424,14 @@ test('Habits shows structured months and hides handwriting modules', async ({ co
     const preview = await response.json();
     return preview.habits.find((habit: { name: string }) => habit.name === 'Reading').completedDays;
   }).toContain(2);
-  await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('1');
-  await expect(reading).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Reading, 2026-11-01', exact: true })).not.toBeChecked();
+  await expect(reading).toBeChecked();
+  await expect(page.getByRole('table', { name: '2026-11 habit completions' })).toContainText('1 / 30 days');
+  await page.getByRole('button', { name: 'Next month' }).click();
+  await expect(page.getByLabel('Month', { exact: true })).toHaveValue('2026-12');
+  await expect(page.getByText('No synced habits for this month.')).toBeVisible();
+  await page.getByRole('button', { name: 'Previous month' }).click();
+  await expect(reading).toBeChecked();
   const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
     (await (await caches.open(name)).keys()).map(item => new URL(item.url).pathname)))).flat());
   expect(cachedPaths.some(path => path.startsWith('/v1/journal/') || path.startsWith('/v1/editable/'))).toBe(false);

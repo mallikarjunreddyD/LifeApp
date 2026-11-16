@@ -49,9 +49,9 @@ export function workoutVersion(value: unknown): WorkoutVersion {
   return { version, record: record as unknown as WorkoutRecord };
 }
 
-export async function syncWorkouts(store: LifeStore, session: BrowserSession): Promise<WorkoutConflict[]> {
+export async function syncWorkouts(store: LifeStore, session: BrowserSession): Promise<{ conflicts: WorkoutConflict[]; oversized: number }> {
   const binding = await store.workoutBinding();
-  if (!binding) return [];
+  if (!binding) return { conflicts: [], oversized: 0 };
   if (!sameScope(binding.scope, session.scope)) throw new Error('Workouts are connected to another account or recovery epoch.');
   const remote = new Map<string, WorkoutVersion>();
   let cursor: string | null = null;
@@ -71,6 +71,7 @@ export async function syncWorkouts(store: LifeStore, session: BrowserSession): P
   const kind = (id: string) => local.get(id)?.kind ?? remote.get(id)!.record.kind;
   const ids = [...new Set([...remote.keys(), ...local.keys()])].sort((a, b) => order.indexOf(kind(a)) - order.indexOf(kind(b)));
   const conflicts: WorkoutConflict[] = [];
+  let oversized = 0;
   for (const id of ids) {
     const saved = local.get(id);
     const server = remote.get(id);
@@ -86,6 +87,10 @@ export async function syncWorkouts(store: LifeStore, session: BrowserSession): P
         if (!workoutMatches(saved, receipt.record)) throw new Error('Workout receipt does not match the local record.');
         await store.applyWorkoutVersion(session.scope, prior, receipt, saved, false);
       } catch (failure) {
+        if (failure instanceof ApiError && failure.status === 413) {
+          oversized++;
+          continue;
+        }
         if (!(failure instanceof ApiError && failure.code === 'WORKOUT_CHANGED')) throw failure;
         throw new Error('A workout changed while syncing. Local records were kept. Sync again.');
       }
@@ -95,7 +100,7 @@ export async function syncWorkouts(store: LifeStore, session: BrowserSession): P
       throw new Error('The server workout inventory changed. Local records were kept.');
     }
   }
-  return conflicts;
+  return { conflicts, oversized };
 }
 
 export async function resolveWorkoutConflict(store: LifeStore, session: BrowserSession, conflict: WorkoutConflict, keepLocal: boolean) {
