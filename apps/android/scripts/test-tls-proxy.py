@@ -14,7 +14,13 @@ class Proxy(BaseHTTPRequestHandler):
             return
         size = int(self.headers.get("Content-Length", "0"))
         archive_upload = self.command == "PUT" and self.path.startswith("/v1/editable/staged/")
-        if not 0 <= size <= (16 * 1024 * 1024 if archive_upload else 16_384):
+        workout_upload = self.command == "POST" and self.path == "/v1/structured/workouts"
+        max_size = 16_384
+        if archive_upload:
+            max_size = 16 * 1024 * 1024
+        elif workout_upload:
+            max_size = 512 * 1024
+        if not 0 <= size <= max_size:
             self.send_error(413)
             return
         content = self.rfile.read(size) if size else None
