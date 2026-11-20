@@ -61,3 +61,17 @@ seed.
 Verify both clients on private HTTPS, the rejection of the old username, and
 the rejection of a missing or reused factor before approving public Funnel
 access. [TOTP specification](https://www.rfc-editor.org/rfc/rfc6238.html)
+
+## Staying signed in
+
+New sessions remain valid until logout or server-side revocation. Android keeps
+its bearer credential encrypted with Keystore and retains it across normal app
+updates. Browser and PWA sessions use a Secure, HttpOnly, SameSite cookie with
+a 400-day lifetime renewed on authenticated requests. Browser data clearing,
+cookie eviction, or more than 400 days without use can require another sign-in.
+
+After upgrading from time-limited sessions, sign in once to create a persistent
+session. Existing expired or revoked credentials stay invalid. The API retains
+its expiresAt field for older clients, using 9999-12-31T23:59:59Z for sessions
+whose database expiry is NULL. Logout, owner security changes and recovery
+procedures continue to revoke sessions.

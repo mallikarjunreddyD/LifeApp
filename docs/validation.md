@@ -541,3 +541,18 @@ The updated gateway accepted and returned a valid session above 16 KiB against
 disposable Ktor and PostgreSQL. The Android client and gateway now use the
 workout API's 512 KiB limit for this route. Production rollout and retesting
 with existing Android and browser workout records remain pending.
+
+## Persistent sign-in sessions
+
+The disposable PostgreSQL suite passed all 12 server tests. Authentication
+coverage advances the server clock by 800 days for browser and Android
+credentials, checks browser cookie renewal, verifies logout revocation, and
+rejects an expired legacy credential. Packaged-server health and readiness
+checks passed. Web type checking, lint, nine unit tests and ten Chromium
+integration tests passed.
+
+Server migration V12 allows NULL session expiry. New sessions use NULL and
+retain the existing API expiry field with a far-future compatibility marker.
+The browser cookie persists for 400 days and renews on authenticated requests.
+Existing time-limited sessions require one fresh sign-in. Production deployment
+and physical Android/PWA acceptance remain pending.

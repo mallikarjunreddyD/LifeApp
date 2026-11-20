@@ -107,7 +107,7 @@ internal fun Application.lifeApp(database: Database, auth: Authentication, origi
                 } finally {
                     password.fill('\u0000')
                 }
-                if (browser) call.sessionCookie(token, 43_200)
+                if (browser) call.sessionCookie(token, 34_560_000)
                 call.json(session.json(if (browser) null else token))
             }
             get("/session") { call.json(call.authenticate(auth).second.json()) }
@@ -545,7 +545,11 @@ private suspend fun ApplicationCall.authenticate(auth: Authentication): Pair<Str
     val bearer = request.headers[HttpHeaders.Authorization]
     if (cookie != null && bearer != null) unauthorized()
     val token = cookie ?: bearer?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }?.substring(7) ?: unauthorized()
-    return token to databaseCall { auth.session(token, cookie != null) }
+    val session = databaseCall { auth.session(token, cookie != null) }
+    if (cookie != null && session.expiresAt == java.time.Instant.parse("9999-12-31T23:59:59Z")) {
+        sessionCookie(token, 34_560_000)
+    }
+    return token to session
 }
 
 private fun ApplicationCall.requireOrigin(origin: String) {
