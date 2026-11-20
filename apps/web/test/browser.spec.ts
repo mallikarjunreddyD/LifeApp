@@ -25,6 +25,7 @@ async function signIn(page: Page) {
     const wait = Number(result.headers()['retry-after'] ?? 60) * 1000;
     test.setTimeout(test.info().timeout + wait + 10_000);
     await delay(wait + 1000);
+    await page.getByLabel('Password').fill('disposable browser test password');
     await page.getByRole('button', { name: 'Sign in' }).click();
   }
   await expect(page.getByText('Signed in to this server.')).toBeVisible();
