@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
             val originalGeneration = remember { applicationState.generation.value }
             val generation by applicationState.generation.collectAsState()
             val operation by applicationState.operations.state.collectAsState()
+            val syncState by applicationState.unifiedSync.state.collectAsState()
             LaunchedEffect(generation) {
                 if(generation != originalGeneration) { viewModelStore.clear();recreate() }
             }
@@ -61,7 +62,7 @@ class MainActivity : ComponentActivity() {
             var previousHabitPending by remember { mutableIntStateOf(habits.pending) }
             LaunchedEffect(habits.pending) {
                 if (previousHabitPending > 0 && habits.pending == 0 && habits.error == null) {
-                    applicationState.serverSync.scheduleEditableUpload()
+                    applicationState.unifiedSync.schedule()
                 }
                 previousHabitPending = habits.pending
             }
@@ -101,6 +102,7 @@ class MainActivity : ComponentActivity() {
                 todo = { TodoScreen(applicationState.todos, applicationState.todoActions) },
                 selectedSection = routes.last().section, onSectionSelected = model::selectSection,
                 globalStatus = {
+                    Text(syncState.status, Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.labelSmall)
                     listOf(Triple("Journal", journal.error, model.editor::retry),
                         Triple("Planner", planner.error, model.planner::retry), Triple("Habits", habits.error, model.habits::retry), Triple("Notebook", notebook.error, model.notebooks::retry))
                         .forEach { (name, error, retry) -> if (error != null) Row(Modifier.padding(horizontal = 12.dp)) {
@@ -118,17 +120,10 @@ class MainActivity : ComponentActivity() {
         val app = application as JournalApplication
         observeSyncConnectivity(app)
         app.serverSync.onForeground()
-        app.expenseSync.schedule()
-        app.workoutSync.schedule()
-        app.operations.syncTrackedOnForeground(app.serverSync)
         activeSync = lifecycleScope.launch {
             while (true) {
                 delay(5 * 60 * 1000L)
-                app.serverSync.schedule()
-                app.serverSync.scheduleEditableUpload()
-                app.expenseSync.schedule()
-                app.workoutSync.schedule()
-                app.operations.syncTrackedOnForeground(app.serverSync)
+                app.unifiedSync.schedule()
             }
         }
     }
@@ -139,17 +134,12 @@ class MainActivity : ComponentActivity() {
             ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         var online = connected()
         app.serverSync.networkChanged(online)
+        app.unifiedSync.networkChanged(online)
         val callback = object : ConnectivityManager.NetworkCallback() {
             private fun update() = runOnUiThread {
                 if (networkCallback !== this) return@runOnUiThread
                 val available = connected()
-                if (available && !online) {
-                    app.serverSync.schedule()
-                    app.serverSync.scheduleEditableUpload()
-                    app.expenseSync.schedule()
-                    app.workoutSync.schedule()
-                    app.operations.syncTrackedOnForeground(app.serverSync)
-                }
+                app.unifiedSync.networkChanged(available)
                 online = available
                 app.serverSync.networkChanged(available)
             }

@@ -23,7 +23,6 @@ import kotlinx.serialization.json.*
 import java.io.IOException
 import kotlin.time.Clock
 import kotlin.time.Instant
-import java.util.concurrent.TimeUnit
 import kotlin.uuid.Uuid
 
 internal data class WorkoutSyncConflict(val local: WorkoutSyncRecord, val remote: WorkoutSyncVersion)
@@ -36,6 +35,8 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
     val conflicts = review.asStateFlow()
     private val message = MutableStateFlow<String?>(null)
     val status = message.asStateFlow()
+    var needsAttention = false
+        private set
     private val connected = MutableStateFlow(false)
     val bound = connected.asStateFlow()
 
@@ -59,16 +60,10 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
         schedule()
     }
 
-    fun schedule() {
-        if (!connected.value) return
-        WorkManager.getInstance(app).enqueueUniqueWork("lifeapp-workout-sync", ExistingWorkPolicy.APPEND_OR_REPLACE,
-            OneTimeWorkRequestBuilder<WorkoutSyncWorker>()
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-                .build())
-    }
+    fun schedule() = app.unifiedSync.schedule()
 
     suspend fun synchronize(): Boolean = gate.withLock {
+        needsAttention = true
         val binding = repository.syncBinding() ?: return@withLock true
         try {
             review.value = emptyList()
@@ -82,6 +77,7 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
             val local = repository.syncRecords().associateBy { it.id }
             val conflicts = mutableListOf<WorkoutSyncConflict>()
             var oversized = 0
+            var deferred = 0
             val ids = (remote.keys + local.keys).sortedBy { id ->
                 when (local[id]?.kind ?: remote[id]?.record?.kind) {
                     "exercise" -> 0
@@ -98,8 +94,9 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
                         if (baseline?.version != server.version) repository.applySyncVersion(binding, server, saved, download = false)
                     }
                     server != null && (saved == null || saved == baseline?.record) -> {
-                        if (!repository.applySyncVersion(binding, server, saved, download = true) && saved != null) {
-                            conflicts += WorkoutSyncConflict(saved, server)
+                        if (!repository.applySyncVersion(binding, server, saved, download = true)) {
+                            if (saved != null) conflicts += WorkoutSyncConflict(saved, server)
+                            else deferred++
                         }
                     }
                     saved != null && server?.version == baseline?.version -> {
@@ -125,14 +122,17 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
             message.value = buildList {
                 if (conflicts.isNotEmpty()) add("${conflicts.size} workout records need review. Both copies were kept.")
                 if (oversized > 0) add("$oversized workout records exceed the server upload limit and are saved on this device.")
+                if (deferred > 0) add("Finish the open workout draft to download its server version.")
                 if (isEmpty()) add("Workouts checked with the server.")
             }.joinToString(" ")
             val unchanged = repository.syncRecords().all { record -> local[record.id] == record || remote[record.id]?.record == record }
+            needsAttention = conflicts.isNotEmpty() || oversized > 0 || deferred > 0 || !unchanged
             unchanged
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             message.value = failure.message ?: "Workout synchronization needs attention."
+            if (failure is ServerHttpFailure && failure.retryable) throw failure
             failure !is IOException || failure is ServerHttpFailure && !failure.retryable
         }
     }
@@ -183,9 +183,10 @@ internal class AndroidWorkoutSync(private val app: JournalApplication, private v
 
 }
 
+// A queued request from an older app version joins the unified queue.
 class WorkoutSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
-        val sync = (applicationContext as JournalApplication).workoutSync
-        return if (sync.synchronize() || runAttemptCount >= 7) Result.success() else Result.retry()
+        (applicationContext as JournalApplication).unifiedSync.schedule()
+        return Result.success()
     }
 }

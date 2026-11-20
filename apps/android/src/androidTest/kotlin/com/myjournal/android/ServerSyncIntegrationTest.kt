@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.LocalDate
@@ -267,6 +268,8 @@ class ServerSyncIntegrationTest {
 
             verifyAutomaticTransfer(app, database, directory, api, credential, updated, updateId, journal.date, taskId)
 
+            verifyUnifiedController(app.applicationContext as JournalApplication, credential, tls)
+
             val wrong = transport.scope.copy(epoch = Uuid.random())
             try {
                 transport.pull(SyncCheckpoint(wrong))
@@ -372,6 +375,46 @@ class ServerSyncIntegrationTest {
             automaticScope.cancel()
             credentials.setEditableEnabled(null)
             credentials.clear()
+        }
+    }
+
+    private suspend fun verifyUnifiedController(
+        app: JournalApplication,
+        credential: ServerCredential,
+        tls: SSLContext,
+    ) {
+        val controller = app.unifiedSync
+        val previousAutomatic = controller.state.value.automatic
+        val previousTls = HttpsURLConnection.getDefaultSSLSocketFactory()
+        val credentials = ServerCredentialStore(app)
+        try {
+            controller.setAutomatic(false)
+            HttpsURLConnection.setDefaultSSLSocketFactory(tls.socketFactory)
+            credentials.save(credential)
+            val target = EditableImportQueue.Target(credential.endpoint.origin, credential.session.scope)
+            credentials.setEditableEnabled(target)
+            app.todos.bindEndpoint(credential.session.scope, credential.endpoint, emptyList(), remoteHasHistory = true)
+            app.expenses.seed()
+            app.expenses.bind(credential.session.scope, credential.endpoint.origin, app.expenses.observe().first())
+            app.workouts.bindSync(credential.session.scope, credential.endpoint.origin, WorkoutLog())
+
+            controller.synchronize(manual = false)
+            assertTrue(app.workouts.observe().first().exercises.isEmpty())
+            controller.synchronize(manual = true)
+
+            // To-do contains an intentional conflict from the earlier test. It must not block other adapters.
+            assertTrue(app.todos.allConflicts().isNotEmpty())
+            assertTrue(app.expenses.observe().first().expenses.any { it.name == "Android offline expense" })
+            assertTrue(app.workouts.observe().first().exercises.any { it.name == "Browser bridge press" })
+            assertTrue(app.snapshots.capture().habits.any { it.month == JournalMonth(2027, 1) })
+            assertEquals("Needs attention", controller.state.value.status)
+            assertTrue(controller.state.value.issues.any { it.startsWith("To-do") })
+            assertFalse(controller.state.value.running)
+        } finally {
+            credentials.setEditableEnabled(null)
+            credentials.clear()
+            HttpsURLConnection.setDefaultSSLSocketFactory(previousTls)
+            controller.setAutomatic(previousAutomatic)
         }
     }
 

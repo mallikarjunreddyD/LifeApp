@@ -5,7 +5,6 @@ import androidx.work.*
 import com.myjournal.data.RoomExpenseRepository
 import com.myjournal.domain.*
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -24,6 +23,8 @@ internal class AndroidExpenseSync(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutable = MutableStateFlow<String?>(null)
     val status = mutable.asStateFlow()
+    var needsAttention = false
+        private set
     private val reviewMutable = MutableStateFlow<ExpenseConnectionReview?>(null)
     val review = reviewMutable.asStateFlow()
     val state = repository.observeSync()
@@ -62,15 +63,10 @@ internal class AndroidExpenseSync(
         schedule()
     }
 
-    fun schedule() {
-        WorkManager.getInstance(app).enqueueUniqueWork("lifeapp-expense-sync", ExistingWorkPolicy.KEEP,
-            OneTimeWorkRequestBuilder<ExpenseSyncWorker>()
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setInitialDelay(1, TimeUnit.SECONDS)
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
-    }
+    fun schedule() = app.unifiedSync.schedule()
 
     suspend fun synchronize(): Boolean = gate.withLock {
+        needsAttention = true
         val initial = repository.syncState() ?: return@withLock true
         try {
             val (saved, session, api) = connection()
@@ -98,6 +94,7 @@ internal class AndroidExpenseSync(
                 require(entries.size <= 32 && (entries.isNotEmpty() || !more))
                 repository.replay(state.scope, cursor, entries)
                 if (!more && requireNotNull(repository.syncState()).pending.isEmpty()) {
+                    needsAttention = reviewChanged || repository.syncState()?.effectiveHeads()?.values?.any { versions -> versions.map { it.record }.distinct().size > 1 } == true
                     mutable.value = if (reviewChanged) "Expense versions changed. Review them again." else "Expenses checked with the server."
                     return@withLock true
                 }
@@ -137,11 +134,10 @@ internal class AndroidExpenseSync(
     }
 }
 
+// A queued request from an older app version joins the unified queue.
 class ExpenseSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
-        val app = applicationContext as JournalApplication
-        val until = app.getSharedPreferences("expense-sync-retry", Context.MODE_PRIVATE).getLong("until", 0)
-        if (until > System.currentTimeMillis()) return Result.retry()
-        return if (app.expenseSync.synchronize() || runAttemptCount >= 7) Result.success() else Result.retry()
+        (applicationContext as JournalApplication).unifiedSync.schedule()
+        return Result.success()
     }
 }

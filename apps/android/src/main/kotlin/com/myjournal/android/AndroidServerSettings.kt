@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -27,16 +28,16 @@ internal fun AndroidServerSettings(
     operations: DataOperations,
     accountPage: Boolean,
 ) {
+    val controller = (LocalContext.current.applicationContext as JournalApplication).unifiedSync
+    val unified by controller.state.collectAsState()
     val server = sync.state.collectAsState().value
     val workoutBound by workouts.bound.collectAsState()
-    val workoutStatus by workouts.status.collectAsState()
     val workoutConflicts by workouts.conflicts.collectAsState()
     var selectedWorkout by remember { mutableStateOf<WorkoutSyncConflict?>(null) }
     var reviewHabits by remember { mutableStateOf<String?>(null) }
     var reviewWorkouts by remember { mutableStateOf<String?>(null) }
     val expenseReview by expenses.review.collectAsState()
     val expenseState by expenses.state.collectAsState(initial = null)
-    val expenseStatus by expenses.status.collectAsState()
     val backupState = operations.state.collectAsState().value
     var origin by rememberSaveable { mutableStateOf(server.origin.orEmpty()) }
     var user by rememberSaveable { mutableStateOf("") }
@@ -77,8 +78,8 @@ internal fun AndroidServerSettings(
             operations.dismissEditableImport()
         }
     }
-    val enabled = !server.working && !backupState.busy
-    server.message?.let { Text(it, color = if (server.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
+    val enabled = !unified.running && !server.working && !backupState.busy
+    server.message?.takeIf { accountPage || server.error }?.let { Text(it, color = if (server.error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) }
     if (accountPage) {
         var connection by rememberSaveable { mutableStateOf(false) }
         TextButton(onClick = { connection = !connection }) { Text("Review connection") }
@@ -122,6 +123,13 @@ internal fun AndroidServerSettings(
         }
         return
     }
+    Text(unified.status)
+    unified.lastChecked?.let { Text("Last successful sync $it") }
+    Row {
+        Switch(checked = unified.automatic, onCheckedChange = controller::setAutomatic)
+        Text("Automatic synchronization")
+    }
+    unified.issues.forEach { Text(it) }
     Text(server.protectionSummary())
     Text("Sync now checks connected To-do, Expenses, Workouts and tracked Habits. Journal, planner and notebook stay on Android.")
     if (server.username == null) Text("Sign in under Account & Security.")
@@ -136,29 +144,19 @@ internal fun AndroidServerSettings(
         }
         if (server.bound != null || expenseState != null || workoutBound || server.automaticEditable) {
             Button(enabled = enabled, onClick = {
-                if (server.bound?.scope == server.accountScope && server.bound != null) sync.syncNow()
-                expenses.schedule()
-                workouts.schedule()
-                operations.syncTrackedOnForeground(sync)
+                controller.schedule(manual = true)
             }) { Text("Sync now") }
         }
-        expenseStatus?.let { Text(it) }
-        workoutStatus?.let { Text(it) }
         for (conflict in workoutConflicts) {
             val description = conflict.local.value["name"] ?: conflict.local.value["date"]
             TextButton(enabled = enabled, onClick = { selectedWorkout = conflict }) {
                 Text("Review workout ${description?.toString()?.trim('"').orEmpty()}")
             }
         }
-        Row {
-            Switch(checked = server.automaticEditable, enabled = enabled, onCheckedChange = { operations.setAutomaticEditable(sync, it) })
-            Text("Automatically sync reviewed habit months")
-        }
         OutlinedButton(enabled = enabled && server.pendingImport == 0 && !server.importQueueUnreadable && currentTarget != null, onClick = {
             importTarget = currentTarget
             selectImportBackup.launch(exportName("LifeApp-BeforeHabitSync", "zip"))
         }) { Text("Back up and review Habits") }
-        server.editableStatus?.let { Text(it) }
         if (server.pendingImport > 0) {
             Text("${server.pendingImport} saved record upload copies")
             OutlinedButton(enabled = enabled, onClick = { operations.resumeEditableUploads(sync) }) { Text("Resume habit uploads") }

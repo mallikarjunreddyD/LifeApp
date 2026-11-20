@@ -16,13 +16,11 @@ import com.myjournal.ui.ExpenseScreen
 internal fun AndroidExpenses(app: JournalApplication) {
     val sync = app.expenseSync
     val state by sync.state.collectAsState(initial = null)
-    val status by sync.status.collectAsState()
     var showConflicts by remember { mutableStateOf(false) }
     val conflicts = remember(state) { state?.effectiveHeads()?.values.orEmpty().filter { versions ->
         versions.map { it.record }.distinct().size > 1
     } }
     ExpenseScreen(app.expenses, today(), syncControls = {
-        status?.let { Text(it) }
         val connected = state
         if (connected == null) Text("Connect under Settings → Synchronization.")
         else {

@@ -14,7 +14,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 import kotlin.random.Random
 import kotlin.time.Clock
@@ -77,13 +76,12 @@ internal class AndroidServerSync(
             try {
                 gate.withLock { refresh() }
                 schedule()
-                if (mutable.value.automaticEditable) ensureEditableWork()
             } catch (failure: Exception) { report(failure) }
         }
     }
 
     /** Queue the trigger after a committed edit. Work itself requires a network. */
-    fun onLocalCommit() = schedule(uploadOnly = true)
+    fun onLocalCommit() = schedule()
 
     fun testConnection(origin: String) = action {
         val api = apiFor(endpoint(origin))
@@ -349,20 +347,12 @@ internal class AndroidServerSync(
             rejected
         }
 
-    fun setAutomaticEditable(enabled: Boolean) = action {
-        if (enabled) {
-            val (_, session, api) = currentSession()
-            enableReviewedEditable(session, api, manual = true)
-            store.setEditablePaused(EditableImportQueue.Target(api.endpoint.origin, session.scope), false)
-        } else {
-            val credential = store.load() ?: throw UserSyncError("Sign in to change the record sync preference.")
-            store.setEditablePaused(EditableImportQueue.Target(credential.endpoint.origin, credential.session.scope), true)
-            store.setEditableEnabled(null)
-            WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_WORK)
-            WorkManager.getInstance(context).cancelUniqueWork(EDITABLE_UPLOAD)
-        }
+    suspend fun connectReviewedHabits(target: EditableImportQueue.Target) = gate.withLock {
+        val (_, session, api) = currentSession()
+        requireImportTarget(target, api, session)
+        enableReviewedEditable(session, api, manual = true)
+        store.setEditablePaused(target, false)
         refresh()
-        message(if (enabled) "Automatic sync enabled for tracked and new records." else "Automatic record sync paused.")
     }
 
     private suspend fun enableReviewedEditable(
@@ -376,21 +366,9 @@ internal class AndroidServerSync(
         ensureEditableWork()
     }
 
-    fun scheduleEditableUpload() {
-        if (!mutable.value.automaticEditable) return
-        val request = OneTimeWorkRequestBuilder<EditableSyncWorker>()
-            .setInitialDelay(2, TimeUnit.SECONDS)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(EDITABLE_UPLOAD, ExistingWorkPolicy.KEEP, request)
-    }
+    fun scheduleEditableUpload() = (context.applicationContext as JournalApplication).unifiedSync.schedule()
 
-    private fun ensureEditableWork() {
-        val request = PeriodicWorkRequestBuilder<EditableSyncWorker>(15, TimeUnit.MINUTES)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(EDITABLE_WORK, ExistingPeriodicWorkPolicy.KEEP, request)
-    }
+    private fun ensureEditableWork() = (context.applicationContext as JournalApplication).unifiedSync.schedule()
 
     suspend fun automaticEditableEnabled(): Boolean = gate.withLock {
         val credential = store.load() ?: return@withLock false
@@ -401,16 +379,16 @@ internal class AndroidServerSync(
         capture: suspend () -> JournalSnapshot,
         apply: (suspend (List<EditableImportRecord>, Map<EditableImportKey, JournalSnapshot>) -> Unit)? = null,
         habitsOnly: Boolean = false,
-    ) = gate.withLock {
-        val saved = store.load() ?: return@withLock
+    ): Boolean = gate.withLock {
+        val saved = store.load() ?: return@withLock false
         val target = EditableImportQueue.Target(saved.endpoint.origin, saved.session.scope)
-        if (!store.editableEnabled(target) || saved.session.expiresAt <= Clock.System.now()) return@withLock
+        if (!store.editableEnabled(target) || saved.session.expiresAt <= Clock.System.now()) return@withLock false
         try {
             val (credential, session, api) = currentSession()
             requireImportTarget(target, api, session)
             if (sendEditableQueue(credential, session, api, habitsOnly) > 0) {
                 mutable.update { it.copy(editableStatus = "Queued record uploads need review.") }
-                return@withLock
+                return@withLock false
             }
             suspend fun plan(): EditableImportReview {
                 val snapshot = capture()
@@ -424,7 +402,7 @@ internal class AndroidServerSync(
                 withContext(Dispatchers.IO) { importQueue.enqueue(target, review.eligible, review.uploadParents, review.habitChecks) }
                 if (sendEditableQueue(credential, session, api, habitsOnly) > 0) {
                     mutable.update { it.copy(editableStatus = "Queued record uploads need review.") }
-                    return@withLock
+                    return@withLock false
                 }
                 if (apply != null) review = plan()
             }
@@ -438,6 +416,7 @@ internal class AndroidServerSync(
                 else -> "Habit months checked."
             }
             mutable.update { it.copy(editableStatus = status) }
+            review.conflicted.isEmpty() && review.overlaps.isEmpty() && (canQueue || review.eligible.isEmpty())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -501,7 +480,7 @@ internal class AndroidServerSync(
         } catch (_: ServerHttpFailure) { false }
           catch (_: IOException) { false }
         message(if (revoked) "Disconnected. Local records, queued tasks and the dataset binding were kept."
-            else "Disconnected locally. The server could not revoke the session and it will expire.")
+            else "Disconnected locally. The server could not revoke the session. Retry server revocation when connected.")
     }
 
     suspend fun verifiedBackupStatus(): Pair<String, String?> = gate.withLock {
@@ -646,15 +625,8 @@ internal class AndroidServerSync(
         }
     }
 
-    internal fun schedule(uploadOnly: Boolean = false) {
-        val state = mutable.value
-        if (state.bound?.scope == null || state.bound.scope != state.accountScope || state.pinnedOrigin == null) return
-        val request = OneTimeWorkRequestBuilder<ServerSyncWorker>()
-            .setInputData(workDataOf("uploadOnly" to uploadOnly))
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(WORK, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+    internal fun schedule() {
+        (context.applicationContext as JournalApplication).unifiedSync.schedule()
     }
 
     private fun message(value: String) = mutable.update { it.copy(message = value, error = false) }
@@ -677,39 +649,17 @@ internal class AndroidServerSync(
     }
 }
 
+// Retain old worker class names so queued work from earlier app versions can migrate.
 class ServerSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
-        val sync = (applicationContext as JournalApplication).serverSync
-        return when (sync.work(inputData.getBoolean("uploadOnly", false))) {
-            SyncOutcome.DONE -> Result.success()
-            SyncOutcome.RETRY -> if (runAttemptCount < 7) Result.retry() else Result.success()
-            SyncOutcome.CONTINUE -> {
-                sync.schedule()
-                Result.success()
-            }
-        }
+        (applicationContext as JournalApplication).unifiedSync.schedule()
+        return Result.success()
     }
 }
 
-
 class EditableSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
-        val app = applicationContext as JournalApplication
-        return try {
-            app.serverSync.syncTrackedRecords(app.snapshots::capture, habitsOnly = true)
-            Result.success()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: ServerHttpFailure) {
-            if (failure.retryable && runAttemptCount < 5) Result.retry() else Result.success()
-        } catch (_: SSLException) {
-            Result.success()
-        } catch (_: IOException) {
-            if (runAttemptCount < 5) Result.retry() else Result.success()
-        } catch (_: IllegalStateException) {
-            Result.success()
-        } catch (_: IllegalArgumentException) {
-            Result.success()
-        }
+        (applicationContext as JournalApplication).unifiedSync.schedule()
+        return Result.success()
     }
 }

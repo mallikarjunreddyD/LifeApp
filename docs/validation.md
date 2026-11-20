@@ -556,3 +556,18 @@ retain the existing API expiry field with a far-future compatibility marker.
 The browser cookie persists for 400 days and renews on authenticated requests.
 Existing time-limited sessions require one fresh sign-in. Production deployment
 and physical Android/PWA acceptance remain pending.
+
+## Phase 9D unified synchronization
+
+Local verification passed 102 shared JVM tests, Android debug and instrumentation
+APK assembly, Android lint, web type checking, lint and eleven web unit tests.
+The Chromium suite covers repeated shared polling, automatic-sync pause persistence,
+manual synchronization while paused, module failure isolation and updates to the
+open Habit grid.
+
+The local Android SDK has no emulator binary, and this user cannot write to
+/dev/kvm. Android input and the disposable HTTPS Android/browser bridge therefore
+run in the hosted Android verification jobs. The bridge includes a manual unified
+pass that downloads Expenses, Workouts and Habits while retaining a To-do conflict.
+Use the PR checks for the hosted execution result. Physical Xiaomi background
+scheduling, in-place APK update and production activation remain pending.

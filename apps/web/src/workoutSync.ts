@@ -49,9 +49,9 @@ export function workoutVersion(value: unknown): WorkoutVersion {
   return { version, record: record as unknown as WorkoutRecord };
 }
 
-export async function syncWorkouts(store: LifeStore, session: BrowserSession): Promise<{ conflicts: WorkoutConflict[]; oversized: number }> {
+export async function syncWorkouts(store: LifeStore, session: BrowserSession): Promise<{ conflicts: WorkoutConflict[]; oversized: number; deferred: number }> {
   const binding = await store.workoutBinding();
-  if (!binding) return { conflicts: [], oversized: 0 };
+  if (!binding) return { conflicts: [], oversized: 0, deferred: 0 };
   if (!sameScope(binding.scope, session.scope)) throw new Error('Workouts are connected to another account or recovery epoch.');
   const remote = new Map<string, WorkoutVersion>();
   let cursor: string | null = null;
@@ -72,6 +72,7 @@ export async function syncWorkouts(store: LifeStore, session: BrowserSession): P
   const ids = [...new Set([...remote.keys(), ...local.keys()])].sort((a, b) => order.indexOf(kind(a)) - order.indexOf(kind(b)));
   const conflicts: WorkoutConflict[] = [];
   let oversized = 0;
+  let deferred = 0;
   for (const id of ids) {
     const saved = local.get(id);
     const server = remote.get(id);
@@ -80,7 +81,10 @@ export async function syncWorkouts(store: LifeStore, session: BrowserSession): P
       if (prior?.version !== server.version) await store.applyWorkoutVersion(session.scope, prior, server, saved, false);
     } else if (server && (!saved || workoutMatches(saved, prior?.record))) {
       const applied = await store.applyWorkoutVersion(session.scope, prior, server, saved, true);
-      if (!applied && saved) conflicts.push({ local: saved, remote: server });
+      if (!applied) {
+        if (saved) conflicts.push({ local: saved, remote: server });
+        else deferred++;
+      }
     } else if (saved && server?.version === prior?.version) {
       try {
         const receipt = await api.pushWorkout(session, { version: crypto.randomUUID(), record: saved }, prior?.version ?? null);
@@ -100,7 +104,7 @@ export async function syncWorkouts(store: LifeStore, session: BrowserSession): P
       throw new Error('The server workout inventory changed. Local records were kept.');
     }
   }
-  return { conflicts, oversized };
+  return { conflicts, oversized, deferred };
 }
 
 export async function resolveWorkoutConflict(store: LifeStore, session: BrowserSession, conflict: WorkoutConflict, keepLocal: boolean) {

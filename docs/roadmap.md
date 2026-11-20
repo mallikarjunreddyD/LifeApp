@@ -48,3 +48,7 @@ and independent recovery must pass [operational acceptance](phase-7g-acceptance.
 Phase 8A introduces the offline [Expense Tracker](phase-8-expense-tracker.md).
 8B adds authenticated synchronization, 8C adds spending charts, and 8D adds
 unified export and recovery coverage. See [Phase 8 acceptance](phase-8-acceptance.md).
+
+Phase 9D unifies structured-data synchronization on Android and the web/PWA.
+See [unified synchronization](phase-9d-unified-sync.md) for scheduling, independent
+retries, draft protection and device acceptance.

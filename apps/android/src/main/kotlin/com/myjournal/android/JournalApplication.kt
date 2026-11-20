@@ -31,8 +31,10 @@ class JournalApplication : Application() {
             else if (entry.name.endsWith(".export")) entry.deleteRecursively()
         }
         automaticBackup.schedule()
+        unifiedSync.initialize()
     }
     private val database by lazy { openJournalDatabase(this) }
+    internal val unifiedSync by lazy { AndroidUnifiedSync(this) }
     internal val workoutSync by lazy { AndroidWorkoutSync(this, workouts) }
     internal val expenseSync by lazy { AndroidExpenseSync(this, expenses) }
     val expenses by lazy { RoomExpenseRepository(database) }

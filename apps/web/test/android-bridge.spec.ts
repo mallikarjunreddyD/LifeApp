@@ -31,7 +31,7 @@ test('browser exchanges task changes with the Android HTTPS client', async ({ pa
 
   await syncUntil('Android offline import');
   await page.getByRole('button', { name: 'Expenses', exact: true }).click();
-  await expect(page.getByText('Expenses checked with the server.')).toBeVisible();
+  await expect(page.locator('.sync-status strong')).toHaveText('Up to date');
   await page.getByText('Filter Expenses', { exact: true }).click();
   await page.getByLabel('Month', { exact: true }).fill('2026-11');
   const expense = page.locator('.expense-card').filter({ hasText: 'Android offline expense' });
