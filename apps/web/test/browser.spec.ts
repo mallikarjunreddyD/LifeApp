@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 
 async function add(page: Page, title: string, deadline = "2030-11-12") {
   await page.getByRole('button', { name: 'Add task' }).click();
@@ -17,7 +18,15 @@ async function signIn(page: Page) {
   await page.getByRole('button', { name: 'Account & Security' }).click();
   await page.getByLabel('Username').fill('browser-test-owner');
   await page.getByLabel('Password').fill('disposable browser test password');
+  const response = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/v1/session');
   await page.getByRole('button', { name: 'Sign in' }).click();
+  const result = await response;
+  if (result.status() === 429) {
+    const wait = Number(result.headers()['retry-after'] ?? 60) * 1000;
+    test.setTimeout(test.info().timeout + wait + 10_000);
+    await delay(wait + 1000);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+  }
   await expect(page.getByText('Signed in to this server.')).toBeVisible();
   await expect(page.getByText('Recovery epoch', { exact: true })).toHaveCount(0);
 }
@@ -212,7 +221,7 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
 
     for (const device of [page, second]) {
       await device.getByRole('button', { name: 'Expenses', exact: true }).click();
-      await expect(device.getByText('Expenses checked with the server.')).toBeVisible();
+      await expect(device.locator('.sync-status strong')).toHaveText('Up to date');
     }
     await context.setOffline(true);
     await page.getByRole('button', { name: 'Add Expense' }).click();
@@ -245,7 +254,7 @@ test('two browser stores exchange tasks and resolve offline conflicts against Kt
     await page.getByRole('button', { name: 'Save exercise' }).click();
     await expect(page.getByRole('heading', { name: 'Cross-device press' })).toBeVisible();
     await context.setOffline(false);
-    await expect(page.getByText('Workouts checked with the server.')).toBeVisible();
+    await expect(page.locator('.sync-status strong')).toHaveText('Up to date');
     await syncExpenses(second);
     await second.getByRole('button', { name: 'Workouts', exact: true }).click();
     await second.getByRole('button', { name: 'Exercises', exact: true }).click();
@@ -264,7 +273,7 @@ test('lost acknowledgment and expired browser session retain the operation', asy
     await route.abort();
   });
   await add(page, 'Retry after lost receipt');
-  await expect(page.getByRole('alert')).toContainText('Local changes were kept');
+  await expect(page.locator('.sync-status strong')).toHaveText('Needs attention');
   await expect(page.getByText('1 pending')).toBeVisible();
   await page.unroute('**/v1/sync/push');
   await context.clearCookies();
@@ -405,8 +414,8 @@ test('Habits shows structured months and hides handwriting modules', async ({ co
   await context.setOffline(false);
   let attempt = await initialAttempt;
   for (let retry = 0; retry < 3 && attempt.status() === 429; retry++) {
-    await expect(page.getByText('Habit changes are saved locally and waiting to sync.')).toBeVisible();
-    await expect(page.locator('.sync-status strong')).not.toHaveText('Working…');
+    await expect(page.locator('.sync-status strong')).toHaveText('Needs attention');
+    await expect(page.locator('.sync-status strong')).not.toHaveText('Syncing');
     const waitSeconds = Number(attempt.headers()['retry-after'] ?? 2);
     [attempt] = await Promise.all([
       page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/habit-check')),
@@ -432,6 +441,20 @@ test('Habits shows structured months and hides handwriting modules', async ({ co
   await expect(page.getByText('No synced habits for this month.')).toBeVisible();
   await page.getByRole('button', { name: 'Previous month' }).click();
   await expect(reading).toBeChecked();
+  const checkId = randomUUID();
+  let habitId = '';
+  await expect.poll(async () => {
+    const response = await context.request.get('/v1/editable/versions/' + latest.id + '/preview?habitIds=true', { headers });
+    if (response.status() === 429) return '';
+    expect(response.ok()).toBe(true);
+    habitId = (await response.json()).habits.find((habit: { name: string }) => habit.name === 'Reading').id;
+    return habitId;
+  }).not.toBe('');
+  await expect.poll(async () => (await context.request.post('/v1/editable/versions/' + latest.id + '/habit-check', {
+    headers, data: { id: checkId, habitId, date: '2026-11-03', checked: true },
+  })).status()).toBe(200);
+  await page.clock.fastForward(5 * 60 * 1000);
+  await expect(page.getByRole('checkbox', { name: 'Reading, 2026-11-03', exact: true })).toBeChecked();
   const cachedPaths = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name =>
     (await (await caches.open(name)).keys()).map(item => new URL(item.url).pathname)))).flat());
   expect(cachedPaths.some(path => path.startsWith('/v1/journal/') || path.startsWith('/v1/editable/'))).toBe(false);
@@ -534,4 +557,55 @@ test('expense history limits the newest results after applying filters', async (
   await page.getByLabel('Month', { exact: true }).fill('2026-10');
   await expect(cards).toHaveCount(1);
   await expect(cards.first()).toContainText('Previous month');
+});
+
+test('one automatic sync switch controls every module and polling keeps repeating', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  await signIn(page);
+  await bind(page);
+  await expect(page.locator('.sync-status strong')).toHaveText('Up to date');
+  const checks = { todos: 0, expenses: 0, workouts: 0, habits: 0 };
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (path === '/v1/sync/pull') checks.todos++;
+    if (path === '/v1/expenses/pull') checks.expenses++;
+    if (path === '/v1/structured/workouts' && request.method() === 'GET') checks.workouts++;
+    if (path === '/v1/editable/versions') checks.habits++;
+  });
+  for (let poll = 0; poll < 3; poll++) {
+    const before = { ...checks };
+    await page.clock.fastForward(5 * 60 * 1000);
+    for (const key of Object.keys(checks) as (keyof typeof checks)[]) {
+      await expect.poll(() => checks[key]).toBeGreaterThan(before[key]);
+    }
+    await expect(page.locator('.sync-status strong')).toHaveText('Up to date');
+  }
+  await page.getByLabel('Automatic synchronization').uncheck();
+  await page.getByRole('button', { name: 'To-do', exact: true }).click();
+  await add(page, 'Held until manual sync');
+  const paused = { ...checks };
+  await page.clock.fastForward(15 * 60 * 1000);
+  expect(checks).toEqual(paused);
+  await page.reload();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Synchronization', exact: true }).click();
+  await expect(page.getByLabel('Automatic synchronization')).not.toBeChecked();
+  await page.getByRole('button', { name: 'Sync now', exact: true }).click();
+  await expect(page.locator('.sync-status strong')).toHaveText('Up to date');
+  for (const key of Object.keys(checks) as (keyof typeof checks)[]) expect(checks[key]).toBeGreaterThan(paused[key]);
+  await page.getByLabel('Automatic synchronization').check();
+  await expect(page.locator('.sync-status strong')).toHaveText('Up to date');
+
+  // A failed adapter must allow later adapters to reach the server.
+  await page.route('**/v1/sync/pull?**', route => route.fulfill({
+    status: 503, contentType: 'application/json', body: '{"code":"UNAVAILABLE"}',
+  }));
+  const independent = { ...checks };
+  await page.getByRole('button', { name: 'Sync now', exact: true }).click();
+  await expect(page.locator('.sync-status strong')).toHaveText('Needs attention');
+  await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeEnabled();
+  expect(checks.expenses).toBeGreaterThan(independent.expenses);
+  expect(checks.workouts).toBeGreaterThan(independent.workouts);
+  expect(checks.habits).toBeGreaterThan(independent.habits);
 });

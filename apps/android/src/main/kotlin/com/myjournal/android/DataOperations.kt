@@ -125,7 +125,10 @@ class DataOperations(private val app: JournalApplication, private val repository
             if (todoReview != null) todo.bindFromVerifiedBackup(todoReview, data.todos)
             if (expenseReview != null) expenses.bind(expenseReview, data.expenseLedger)
             if (workoutScope != null) app.workoutSync.bind(workoutScope, requireNotNull(workoutOrigin), data.workoutLog)
-            if (habitTarget != null) importReviewMutable.value = todo.reviewEditableImport(habitTarget, data)
+            if (habitTarget != null) {
+                importReviewMutable.value = todo.reviewEditableImport(habitTarget, data)
+                todo.connectReviewedHabits(habitTarget)
+            }
             "Recovery backup verified. Synchronization queued."
         } finally {
             file.delete()
@@ -168,26 +171,21 @@ class DataOperations(private val app: JournalApplication, private val repository
 
     internal fun resumeEditableUploads(sync: AndroidServerSync) = sync.resumeEditableImport(::snapshot)
 
-    internal fun setAutomaticEditable(sync: AndroidServerSync, enabled: Boolean) {
-        sync.setAutomaticEditable(enabled)
-    }
-
-    internal fun syncTrackedOnForeground(sync: AndroidServerSync) {
-        scope.launch {
-            val enabled = try {
-                sync.automaticEditableEnabled()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                // The server foreground refresh reports credential storage failures.
-                return@launch
-            }
-            if (!enabled || importReviewMutable.value != null || mutable.value.preview != null) return@launch
-            start("Checking tracked server records…") {
-                sync.syncTrackedRecords(::snapshot, ::applyRecordBatch, habitsOnly = true)
-                "Finished checking tracked server records."
-            }
+    internal suspend fun synchronizeHabits(sync: AndroidServerSync): Boolean = withContext(Dispatchers.Main.immediate) {
+        check(!mutable.value.busy && importReviewMutable.value == null && mutable.value.preview == null) {
+            "Finish the current data operation before synchronizing Habits."
         }
+        sync.syncTrackedRecords(::snapshot, { records, expected ->
+            check(!mutable.value.busy && mutable.value.preview == null && importReviewMutable.value == null) {
+                "A data operation started while checking Habits. Retry synchronization."
+            }
+            mutable.value = mutable.value.copy(busy = true, message = "Applying synchronized habits…")
+            try {
+                applyRecordBatch(records, expected)
+            } finally {
+                mutable.value = mutable.value.copy(busy = false)
+            }
+        }, habitsOnly = true)
     }
 
     private suspend fun applyRecordBatch(records: List<EditableImportRecord>, expected: Map<EditableImportKey, JournalSnapshot>) {

@@ -1,25 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, editablePreview, editableReview, editableVersions, resolveEditable } from './api.ts';
+import { ApiError, editablePreview, editableReview, resolveEditable } from './api.ts';
 import type { BrowserSession, HabitCheck } from './api.ts';
 import { object, sameScope, scopeOf, sequence, uuid } from './protocol.ts';
 import type { Scope } from './protocol.ts';
 import { habitMonth } from './habitSync.ts';
-import type { HabitMonth, HabitSyncState, HabitVersionPage } from './habitSync.ts';
+import type { HabitMonth, HabitSyncState } from './habitSync.ts';
 import type { LifeStore } from './store.ts';
 
 function array(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error('Invalid record list.');
   return value as unknown[];
-}
-
-function text(value: unknown): string {
-  if (typeof value !== 'string') throw new Error('Invalid record text.');
-  return value;
-}
-
-function flag(value: unknown): boolean {
-  if (typeof value !== 'boolean') throw new Error('Invalid record state.');
-  return value;
 }
 
 export function Habits({ scope: { dataset, epoch }, session, store, online, generation, onSaved }: {
@@ -46,45 +36,8 @@ export function Habits({ scope: { dataset, epoch }, session, store, online, gene
     const now = new Date();
     return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
   });
-  const [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
-  const [failure, setFailure] = useState(false);
   const [resolved, setResolved] = useState(false);
-  const [listing, setListing] = useState<HabitVersionPage | null>(null);
-
-  useEffect(() => {
-    if (!online || !session) return;
-    const cancel = new AbortController();
-    const requested = { dataset, epoch };
-    async function refreshMonths() {
-      const rows: HabitVersionPage['rows'] = [];
-      let cursor = '0';
-      for (let page = 0; page < 2000; page++) {
-        const value = await editableVersions(requested, cursor, cancel.signal);
-        const response = object(value, ['scope', 'items', 'hasMore']);
-        if (!sameScope(requested, scopeOf(response.scope))) throw new Error('The record scope changed.');
-        const items = array(response.items);
-        for (const item of items) {
-          const row = object(item, ['id', 'sequence', 'kind', 'key', 'rootId', 'sha256', 'parents', 'current']);
-          const next = sequence(row.sequence);
-          if (row.kind !== 'habits' || BigInt(next) <= BigInt(cursor)) throw new Error('Invalid habit record.');
-          cursor = next;
-          rows.push({ id: uuid(row.id), label: 'Habits · ' + text(row.key), current: flag(row.current) });
-        }
-        if (!flag(response.hasMore)) {
-          const result = { rows, next: null };
-          if (cancel.signal.aborted) return;
-          await store.saveHabitPage(requested, '0', result);
-          if (!cancel.signal.aborted) { setListing(result); setFailure(false); }
-          return;
-        }
-        if (!items.length) break;
-      }
-      throw new Error('Habit history exceeds the refresh limit.');
-    }
-    void refreshMonths().catch(() => { if (!cancel.signal.aborted) setFailure(true); });
-    return () => cancel.abort();
-  }, [dataset, epoch, generation, online, retry, session, store]);
 
   function moveMonth(offset: number) {
     const date = new Date(month + '-01T00:00:00Z');
@@ -93,7 +46,7 @@ export function Habits({ scope: { dataset, epoch }, session, store, online, gene
     if (/^\d{4}-/.test(next) && !next.startsWith('0000')) { setMonth(next); setSelected(null); setResolved(false); }
   }
 
-  const shown = listing ?? cache?.pages['0'];
+  const shown = cache?.pages['0'];
   const monthRows = shown?.rows.filter(row => row.label === 'Habits · ' + month) ?? [];
   const current = monthRows.filter(row => row.current);
   const selectedRow = monthRows.find(row => row.id === selected);
@@ -111,18 +64,17 @@ export function Habits({ scope: { dataset, epoch }, session, store, online, gene
     {resolved && <p role="status">The selected version is current. Earlier versions are available in history.</p>}
     {syncError && <p role="status">{syncError}</p>}
     {!!cache?.edits.length && <p role="status">{cache.edits.length} habit changes waiting to sync.</p>}
-    {failure && <p role="alert">Could not refresh habit months. <button onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
-    {!shown && !failure && <p role="status">{online ? 'Loading habit months…' : 'Open a habit month while online to make it available here.'}</p>}
+    {!shown && <p role="status">{online ? 'Loading habit months…' : 'Open a habit month while online to make it available here.'}</p>}
     {shown && !version && <p>No synced habits for this month. Create or copy a ledger in LifeApp on Android.</p>}
     {version && <SelectedRecord key={version.id} scope={{ dataset, epoch }} session={online ? session : null}
       id={version.id} store={store} cache={cache} save={save} refresh={refresh}
       currentVersions={new Set(current.length === 1 ? current.map(row => row.id) : [])} onResolved={() => {
-        setSelected(null); setRetry(value => value + 1); setResolved(true);
+        setSelected(null); onSaved(); setResolved(true);
       }} />}
     {monthRows.length > 0 && <details>
       <summary>Habit months and versions</summary>
       <ul>{[...monthRows].reverse().map(row => <li key={row.id}>
-        <button aria-pressed={version?.id === row.id} onClick={() => { setResolved(false); setSelected(row.id); }}>
+        <button aria-pressed={version?.id === row.id} onClick={() => { setResolved(false); setSelected(row.current ? null : row.id); }}>
           {row.label}{row.current ? '' : ' (history)'}
         </button>
       </li>)}</ul>

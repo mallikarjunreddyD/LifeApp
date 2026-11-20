@@ -91,7 +91,6 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
         <strong>{formatExpensePaise(period.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</strong>
         <p>{period.length} {period.length === 1 ? 'transaction' : 'transactions'}</p>
       </article>
-      {sync.status && <p role="status">{sync.status}</p>}
       {sync.state ? <div className="actions">
         {!!sync.state.pending.length && <span>{sync.state.pending.length} expense changes waiting.</span>}
         {!!competingExpenseHeads(sync.state).length && <button onClick={() => setReviewConflicts(!reviewConflicts)}>
@@ -128,6 +127,7 @@ export function Expenses({ store, sync }: { store: LifeStore; sync: ReturnType<t
         <LabelFilter title="Category filter" value={category} labels={labels.filter(label => label.kind === 'CATEGORY')} change={setCategory} />
         <LabelFilter title="Payment method filter" value={payment} labels={labels.filter(label => label.kind === 'PAYMENT')} change={setPayment} />
       </details>}
+      {sync.error && <p role="alert">{sync.error}</p>}
       <h2>{deleted ? 'Recently Deleted' : 'Recent Expenses'}</h2>
       {!visible.length && <p>{deleted ? 'No deleted expenses.' : 'No expenses match this period or filter.'}</p>}
       <div className="expense-history">

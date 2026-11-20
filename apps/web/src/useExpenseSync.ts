@@ -2,33 +2,31 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from './api.ts';
 import type { BrowserSession } from './api.ts';
 import type { ExpenseSyncState } from './expenseSync.ts';
+import { competingExpenseHeads } from './expenseSync.ts';
 import { sameScope } from './protocol.ts';
 import type { LifeStore } from './store.ts';
 
-export function useExpenseSync(store: LifeStore, session: BrowserSession | null, online: boolean, visible: boolean) {
+export function useExpenseSync(store: LifeStore, onCommitted: () => void) {
   const [state, setState] = useState<ExpenseSyncState | null>(null);
-  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
   const [generation, setGeneration] = useState(0);
-  const [retryAt, setRetryAt] = useState(0);
   const running = useRef(false);
-  const failures = useRef(0);
-  const retry = useRef(0);
 
   const refresh = useCallback(async () => {
     setState(await store.expenseSyncState());
     setGeneration(value => value + 1);
   }, [store]);
 
-  useEffect(() => { void refresh().catch(() => setStatus('Could not read the expense connection.')); }, [refresh]);
+  useEffect(() => { void refresh().catch(() => setError('Could not read the expense connection.')); }, [refresh]);
 
   const sync = useCallback(async (current: BrowserSession) => {
-    if (running.current || !navigator.onLine || Date.now() < retry.current) return;
+    if (running.current) throw new Error("Expense sync is already running.");
     running.current = true;
     try {
       let local = await store.expenseSyncState();
       if (!local) return;
       if (!sameScope(local.scope, current.scope)) throw new Error('Review your expense connection. Local changes were kept.');
-      setStatus('Syncing expenses…');
+      setError('');
       let reviewChanged = false;
       for (let index = 0; index < 4; index++) {
         for (const operation of local.pending.slice(0, 20).filter(item => !local!.acknowledged.includes(item.id))) {
@@ -45,73 +43,33 @@ export function useExpenseSync(store: LifeStore, session: BrowserSession | null,
         local = await store.expenseSyncState();
         if (!local) throw new Error('Expense connection changed.');
         if (!page.hasMore && !local.pending.length) {
-          retry.current = 0;
-          failures.current = 0;
-          setRetryAt(0);
-          setStatus(reviewChanged ? 'Expense versions changed. Review them again.' : 'Expenses checked with the server.');
-          return;
+          return !reviewChanged && !competingExpenseHeads(local).length;
         }
       }
-      retry.current = Date.now() + 1000;
-      setRetryAt(retry.current);
-      setStatus('More expense changes are waiting.');
+      return false;
     } catch (failure) {
-      if (failure instanceof ApiError ? failure.status >= 500 || failure.status === 429 :
-        failure instanceof Error && failure.cause !== undefined) {
-        const delay = Math.min(300_000, 3000 * 2 ** Math.min(failures.current++, 7)) + Math.random() * 1500;
-        retry.current = Math.max(Date.now() + delay, failure instanceof ApiError ? failure.retryAfter ?? 0 : 0);
-        setRetryAt(retry.current);
-      }
-      setStatus(failure instanceof Error ? failure.message : 'Expense synchronization needs attention.');
+      setError(failure instanceof Error ? failure.message : 'Expense synchronization needs attention.');
+      throw failure;
     } finally {
       running.current = false;
-      await refresh().catch(() => setStatus('Could not read saved expenses.'));
+      await refresh().catch(() => setError('Could not read saved expenses.'));
     }
   }, [refresh, store]);
-
-  const dataset = session?.scope.dataset;
-  const epoch = session?.scope.epoch;
-  // The server reuses the session token on status checks. Refresh the ref without
-  // restarting the timer every time another module checks its own session.
-  const current = useRef(session);
-  useEffect(() => { current.current = session; }, [session]);
-  useEffect(() => {
-    const signedIn = current.current;
-    if (!signedIn || !online || !visible) return;
-    void sync(signedIn);
-    const timer = window.setInterval(() => {
-      if (current.current) void sync(current.current);
-    }, 5 * 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, [dataset, epoch, online, sync, visible]);
-  useEffect(() => {
-    if (!retryAt || !online || !visible || !current.current) return;
-    const timer = window.setTimeout(() => {
-      if (current.current) void sync(current.current);
-    }, Math.min(2_147_483_647, Math.max(0, retryAt - Date.now())));
-    return () => window.clearTimeout(timer);
-  }, [online, retryAt, sync, visible]);
 
   async function resolve(selected: string, heads: string[]) {
     if (!state) return;
     try {
       await store.resolveExpense(state.scope, selected, heads);
       await refresh();
-      if (session) await sync(session);
-    } catch (failure) { setStatus(failure instanceof Error ? failure.message : 'Could not resolve the expense.'); }
+      onCommitted();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not resolve the expense.'); }
   }
 
   function committed() {
-    void refresh().catch(() => setStatus('Could not read saved expenses.'));
-    if (session) {
-      if (!running.current) void sync(session);
-      else if (!retry.current) {
-        retry.current = Date.now() + 1000;
-        setRetryAt(retry.current);
-      }
-    }
+    void refresh().catch(() => setError('Could not read saved expenses.'));
+    onCommitted();
   }
 
-  return { state, status, generation, refresh, resolve,
-    committed, syncNow: () => session ? sync(session) : Promise.resolve() };
+  return { state, error, generation, refresh, resolve,
+    committed, run: sync };
 }

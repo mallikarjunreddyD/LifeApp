@@ -1,6 +1,6 @@
-import { ApiError, editablePreview, saveHabitCheck } from './api.ts';
+import { ApiError, editablePreview, editableVersions, saveHabitCheck } from './api.ts';
 import type { BrowserSession, HabitCheck } from './api.ts';
-import { object, uuid } from './protocol.ts';
+import { object, uuid, sameScope, scopeOf, sequence } from './protocol.ts';
 import type { LifeStore } from './store.ts';
 
 export interface HabitMonth {
@@ -50,6 +50,39 @@ export function habitMonth(value: unknown): HabitMonth {
   };
 }
 
+async function downloadHabitMonths(store: LifeStore, session: BrowserSession) {
+  const rows: HabitVersionPage['rows'] = [];
+  let cursor = '0';
+  for (let page = 0; page < 2000; page++) {
+    const response = object(await editableVersions(session.scope, cursor, AbortSignal.timeout(15_000)), ['scope', 'items', 'hasMore']);
+    if (!sameScope(session.scope, scopeOf(response.scope)) || !Array.isArray(response.items) || typeof response.hasMore !== 'boolean') {
+      throw new Error('Invalid habit inventory.');
+    }
+    for (const item of response.items) {
+      const row = object(item, ['id', 'sequence', 'kind', 'key', 'rootId', 'sha256', 'parents', 'current']);
+      const next = sequence(row.sequence);
+      if (row.kind !== 'habits' || typeof row.key !== 'string' || typeof row.current !== 'boolean' ||
+          BigInt(next) <= BigInt(cursor)) throw new Error('Invalid habit record.');
+      cursor = next;
+      rows.push({ id: uuid(row.id), label: 'Habits · ' + row.key, current: row.current });
+    }
+    if (!response.hasMore) {
+      const previous = await store.habitSyncState(session.scope);
+      const cachedMonths = new Set(Object.values(previous.months).map(month => month.title));
+      const now = new Date();
+      cachedMonths.add(now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0'));
+      for (const row of rows.filter(row => row.current && cachedMonths.has(row.label.slice(9)) && !previous.months[row.id])) {
+        await store.saveHabitMonth(session.scope, row.id,
+          habitMonth(await editablePreview(session.scope, row.id, AbortSignal.timeout(15_000))));
+      }
+      await store.saveHabitPage(session.scope, '0', { rows, next: null });
+      return;
+    }
+    if (!response.items.length) break;
+  }
+  throw new Error('Habit history exceeds the refresh limit.');
+}
+
 const running = new WeakMap<LifeStore, Promise<void>>();
 
 export function syncHabits(store: LifeStore, session: BrowserSession): Promise<void> {
@@ -67,6 +100,7 @@ export function syncHabits(store: LifeStore, session: BrowserSession): Promise<v
         await store.blockHabitEdit(session.scope, edit);
       }
     }
+    await downloadHabitMonths(store, session);
   })().finally(() => running.delete(store));
   running.set(store, work);
   return work;
