@@ -74,7 +74,7 @@ class PostgresHttpTest {
     private val scope = auth.initializeOwner(user, password.toCharArray(), requireEmpty = false)
     private val fixture = TodoOperationJson.decode(File("../../contracts/fixtures/todo-operation.json").readText())
 
-    @Test fun browserConsentCsrfExpiryAndRevocation() = testApplication {
+    @Test fun browserConsentCsrfPersistenceAndRevocation() = testApplication {
         application { lifeApp(database, auth, origin) }
         assertEquals(200, client.get("/health").status.value)
         assertEquals(200, client.get("/ready").status.value)
@@ -91,6 +91,10 @@ class PostgresHttpTest {
         val session = login.json()
         assertNull(session["accessToken"])
         val csrf = session.getValue("csrfToken").jsonPrimitive.content
+        clock.now = clock.now.plusSeconds(800L * 24 * 3600)
+        val resumed = client.get("/v1/session") { header(HttpHeaders.Cookie, cookie) }
+        assertEquals(200, resumed.status.value)
+        assertTrue(requireNotNull(resumed.headers[HttpHeaders.SetCookie]).contains("Max-Age=34560000"))
         assertEquals(403, client.delete("/v1/session") { header(HttpHeaders.Cookie, cookie) }.status.value)
         assertEquals(403, client.delete("/v1/session") {
             header(HttpHeaders.Cookie, cookie); header(HttpHeaders.Origin, origin); header("X-CSRF-Token", "invalid")
@@ -99,8 +103,16 @@ class PostgresHttpTest {
             header(HttpHeaders.Cookie, cookie); header(HttpHeaders.Origin, origin); header("X-CSRF-Token", csrf)
         }.status.value)
         assertEquals(401, client.get("/v1/session") { header(HttpHeaders.Cookie, cookie) }.status.value)
+        val expiredToken = client.login(user).token()
+        database.transaction {
+            execute("UPDATE sessions SET expires_at = ? WHERE token_hash = ?",
+                clock.now.minusSeconds(1).atOffset(ZoneOffset.UTC), Credentials.tokenHash(expiredToken))
+        }
+        assertEquals(401, client.get("/v1/session") { bearerAuth(expiredToken) }.status.value)
         val token = client.login(user).token()
-        clock.now = clock.now.plusSeconds(3_601)
+        clock.now = clock.now.plusSeconds(800L * 24 * 3600)
+        assertEquals(200, client.get("/v1/session") { bearerAuth(token) }.status.value)
+        assertEquals(204, client.delete("/v1/session") { bearerAuth(token) }.status.value)
         assertEquals(401, client.get("/v1/session") { bearerAuth(token) }.status.value)
     }
 

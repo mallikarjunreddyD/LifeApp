@@ -117,7 +117,6 @@ internal class Authentication(
         val token = Credentials.token()
         val csrf = if (browser) Credentials.token() else null
         val now = clock.instant()
-        val expiry = now.plusSeconds(if (browser) 43_200 else 3_600)
         database.transaction {
             val previous = query("SELECT coalesce(last_totp_step, -1) FROM accounts WHERE id = ? AND username = ? FOR UPDATE",
                 account.id.sql(), user) { it.getLong(1) }
@@ -135,7 +134,7 @@ internal class Authentication(
             execute("DELETE FROM sessions WHERE expires_at <= ?", now.utc())
             execute(
                 "INSERT INTO sessions (token_hash, owner_id, expires_at, csrf_token, factor_verified) VALUES (?, ?, ?, ?, ?)",
-                Credentials.tokenHash(token), account.id.sql(), expiry.utc(), csrf, previous >= 0,
+                Credentials.tokenHash(token), account.id.sql(), null, csrf, previous >= 0,
             )
         }
         return token to session(token, browser)
@@ -150,9 +149,9 @@ internal class Authentication(
                 """SELECT d.id, e.id, s.expires_at, s.csrf_token FROM sessions s
                     JOIN datasets d ON d.owner_id = s.owner_id
                     JOIN recovery_epochs e ON e.dataset_id = d.id AND e.active
-                    WHERE s.token_hash = ? AND s.expires_at > ? AND (s.csrf_token IS NOT NULL) = ?""",
+                    WHERE s.token_hash = ? AND (s.expires_at IS NULL OR s.expires_at > ?) AND (s.csrf_token IS NOT NULL) = ?""",
                 Credentials.tokenHash(token), clock.instant().utc(), browser,
-            ) { Session(SyncScope(it.uuid(1), it.uuid(2)), it.getObject(3, OffsetDateTime::class.java).toInstant(), it.getString(4)) }
+            ) { Session(SyncScope(it.uuid(1), it.uuid(2)), (it.getObject(3, OffsetDateTime::class.java)?.toInstant() ?: Instant.parse("9999-12-31T23:59:59Z")), it.getString(4)) }
                 .singleOrNull() ?: unauthorized()
         }
     }
